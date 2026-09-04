@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="pt-BR" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>QuickDock</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="app">
+
+    <header class="header">
+      <span class="header-title">QuickDock</span>
+      <div class="header-actions">
+        <button id="btn-theme" class="icon-btn" title="Alternar tema">🌙</button>
+        <button id="btn-clear" class="icon-btn" title="Limpar tudo">🗑️</button>
+      </div>
+    </header>
+
+    <section class="note-section">
+      <div class="notes-tabbar">
+        <div id="notes-tabs" class="notes-tabs"></div>
+        <button id="btn-new-note" class="icon-btn" title="Nova nota">＋</button>
+      </div>
+      <div class="note-editor">
+        <div id="note-highlight" class="note-highlight" aria-hidden="true"></div>
+        <textarea id="note-textarea" placeholder="Anotações rápidas..."></textarea>
+      </div>
+      <span id="save-indicator" class="save-indicator">salvo ✓</span>
+    </section>
+
+    <div id="resize-handle" class="resize-handle" title="Arraste para redimensionar"></div>
+
+    <section class="docs-section">
+      <div class="docs-header">
+        <span class="docs-title">Documentos</span>
+        <button id="btn-upload" class="icon-btn" title="Adicionar arquivo">＋</button>
+        <input type="file" id="file-input" accept="image/*,.pdf,.txt" multiple hidden />
+      </div>
+      <div id="group-bar" class="group-bar hidden">
+        <span id="group-count"></span>
+        <button id="btn-inject-selected" class="group-action-btn" title="Injetar selecionados na página">↗ Injetar</button>
+        <button id="btn-delete-selected" class="group-action-btn group-action-danger" title="Remover selecionados">🗑</button>
+        <button id="btn-clear-selection" class="group-action-close" title="Cancelar seleção">✕</button>
+      </div>
+
+      <div id="drop-zone" class="drop-zone">
+        <div id="doc-grid" class="doc-grid"></div>
+        <div id="drop-hint" class="drop-hint">Arraste arquivos aqui, clique em ＋<br>ou cole uma imagem com Ctrl+V</div>
+      </div>
+    </section>
+
+    <div id="inject-toast" class="inject-toast hidden">
+      <span id="inject-toast-msg"></span>
+      <button id="inject-cancel" class="toast-cancel">Cancelar</button>
+    </div>
+
+    <div id="modal" class="modal hidden">
+      <div class="modal-header">
+        <span id="modal-title" class="modal-title"></span>
+        <div id="gallery-nav" class="gallery-nav hidden">
+          <button id="gallery-prev" class="icon-btn" title="Imagem anterior (←)">‹</button>
+          <span id="gallery-counter" class="gallery-counter" title="Ver todas as imagens"></span>
+          <button id="gallery-next" class="icon-btn" title="Próxima imagem (→)">›</button>
+        </div>
+        <button id="modal-close" class="icon-btn" title="Fechar">✕</button>
+      </div>
+
+      <div id="img-toolbar" class="img-toolbar hidden">
+        <button id="btn-rot-left"  class="viewer-btn" title="Girar esquerda ([]">↺</button>
+        <button id="btn-rot-right" class="viewer-btn" title="Girar direita (])">↻</button>
+        <div class="toolbar-sep"></div>
+        <button id="btn-zoom-out" class="viewer-btn" title="Afastar (−)">−</button>
+        <span   id="zoom-label"   class="zoom-label">100%</span>
+        <button id="btn-zoom-in"  class="viewer-btn" title="Aproximar (+)">+</button>
+        <div class="toolbar-sep"></div>
+        <button id="btn-zoom-fit" class="viewer-btn" title="Ajustar à tela (0)">⊡</button>
+      </div>
+
+      <div id="modal-body" class="modal-body"></div>
+    </div>
+
+  </div>
+
+  <script src="../lib/dexie.min.js"></script>
+  <script type="module" src="app.js"></script>
+</body>
+</html>

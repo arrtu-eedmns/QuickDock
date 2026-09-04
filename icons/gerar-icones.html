@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <title>Gerar ícones QuickDock</title>
+  <style>
+    body { font-family: sans-serif; padding: 24px; background: #1a1a2e; color: #eee; }
+    .previews { display: flex; align-items: flex-end; gap: 16px; margin: 20px 0; }
+    canvas { border-radius: 22%; box-shadow: 0 4px 20px rgba(0,0,0,0.5); }
+    .label { text-align: center; font-size: 12px; color: #888; margin-top: 6px; }
+    button {
+      padding: 10px 24px; background: #7c3aed; color: #fff;
+      border: none; border-radius: 8px; cursor: pointer; font-size: 14px;
+    }
+    button:hover { background: #6d28d9; }
+  </style>
+</head>
+<body>
+  <h2>Ícones — QuickDock</h2>
+  <p style="color:#888">Clique em "Baixar todos" e salve os 3 PNGs na pasta <code>icons/</code>.</p>
+  <div class="previews" id="previews"></div>
+  <button onclick="downloadAll()">Baixar todos</button>
+
+  <script>
+    const sizes = [16, 48, 128];
+
+    function drawIcon(size) {
+      const c   = document.createElement('canvas');
+      c.width   = size;
+      c.height  = size;
+      const ctx = c.getContext('2d');
+      const S   = size;
+      const r   = S * 0.22; // raio dos cantos
+
+      // ── Fundo: gradiente diagonal roxo escuro ──
+      const grad = ctx.createLinearGradient(0, 0, S, S);
+      grad.addColorStop(0,   '#4a1a8a');
+      grad.addColorStop(0.5, '#2d1060');
+      grad.addColorStop(1,   '#0e0520');
+      ctx.beginPath();
+      ctx.roundRect(0, 0, S, S, r);
+      ctx.fillStyle = grad;
+      ctx.fill();
+
+      // Tudo que vem a seguir é desenhado em branco
+      ctx.fillStyle   = '#ffffff';
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineCap     = 'round';
+      ctx.lineJoin    = 'round';
+
+      // Escala relativa ao tamanho
+      const u = S / 128; // unidade base (icon foi desenhado em 128px)
+
+      // ── Corpo do clipboard ──
+      // Retângulo principal
+      const cbX = 22 * u;
+      const cbY = 28 * u;
+      const cbW = 60 * u;
+      const cbH = 76 * u;
+      const cbR = 8  * u;
+
+      ctx.beginPath();
+      ctx.roundRect(cbX, cbY, cbW, cbH, cbR);
+      ctx.fill();
+
+      // Recorte interno (oco) — subtrai com o fundo
+      const pad  = 7 * u;
+      const ih   = 54 * u;
+      const iR   = 5  * u;
+
+      ctx.globalCompositeOperation = 'destination-out';
+      ctx.beginPath();
+      ctx.roundRect(cbX + pad, cbY + 18 * u, cbW - pad * 2, ih, iR);
+      ctx.fill();
+      ctx.globalCompositeOperation = 'source-over';
+
+      // ── Clipe do topo (retângulo arredondado) ──
+      const clipW = 26 * u;
+      const clipH = 14 * u;
+      const clipX = cbX + (cbW - clipW) / 2;
+      const clipY = cbY - 7 * u;
+      const clipR = 7  * u;
+      ctx.beginPath();
+      ctx.roundRect(clipX, clipY, clipW, clipH, clipR);
+      ctx.fill();
+
+      // Círculo central do clipe
+      ctx.globalCompositeOperation = 'destination-out';
+      ctx.beginPath();
+      ctx.arc(cbX + cbW / 2, clipY + clipH / 2, 4.5 * u, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalCompositeOperation = 'source-over';
+
+      // ── Seta apontando para a direita ──
+      // Haste
+      const aY    = 72 * u;
+      const aX1   = 62 * u;
+      const aX2   = 108 * u;
+      const aStroke = 11 * u;
+
+      ctx.lineWidth = aStroke;
+      ctx.beginPath();
+      ctx.moveTo(aX1, aY);
+      ctx.lineTo(aX2 - 4 * u, aY);
+      ctx.stroke();
+
+      // Ponta da seta (triângulo)
+      const tip  = aX2 + 4 * u;
+      const half = 13 * u;
+      ctx.beginPath();
+      ctx.moveTo(tip,        aY);
+      ctx.lineTo(tip - 16 * u, aY - half);
+      ctx.lineTo(tip - 16 * u, aY + half);
+      ctx.closePath();
+      ctx.fill();
+
+      return c;
+    }
+
+    const previews = document.getElementById('previews');
+    sizes.forEach(size => {
+      const wrap = document.createElement('div');
+      const canvas = drawIcon(size);
+      canvas.title = `${size}x${size}`;
+      const label = document.createElement('div');
+      label.className = 'label';
+      label.textContent = `${size}×${size}`;
+      wrap.appendChild(canvas);
+      wrap.appendChild(label);
+      previews.appendChild(wrap);
+    });
+
+    function downloadAll() {
+      sizes.forEach(size => {
+        const canvas = drawIcon(size);
+        const a = document.createElement('a');
+        a.download = `${size}.png`;
+        a.href = canvas.toDataURL('image/png');
+        a.click();
+      });
+    }
+  </script>
+</body>
+</html>

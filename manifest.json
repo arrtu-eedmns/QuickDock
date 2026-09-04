@@ -1,0 +1,42 @@
+{
+  "manifest_version": 3,
+  "name": "QuickDock",
+  "version": "1.3.0",
+  "description": "Workspace lateral persistente para produtividade operacional.",
+  "commands": {
+    "toggle-panel": {
+      "suggested_key": { "default": "Ctrl+Q" },
+      "description": "Abrir/fechar QuickDock"
+    }
+  },
+  "permissions": [
+    "sidePanel",
+    "storage",
+    "tabs"
+  ],
+  "host_permissions": ["<all_urls>"],
+  "content_scripts": [{
+    "matches": ["<all_urls>"],
+    "js": ["content/content.js"],
+    "run_at": "document_idle"
+  }],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "side_panel": {
+    "default_path": "sidepanel/index.html"
+  },
+  "action": {
+    "default_title": "Abrir QuickDock",
+    "default_icon": {
+      "16": "icons/16.png",
+      "48": "icons/48.png",
+      "128": "icons/128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/16.png",
+    "48": "icons/48.png",
+    "128": "icons/128.png"
+  }
+}
