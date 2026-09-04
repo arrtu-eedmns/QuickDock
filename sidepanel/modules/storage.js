@@ -17,14 +17,16 @@ export async function getNoteById(id) {
   return db.notes.get(id);
 }
 
-export async function createNoteRecord({ title, content = '', color = null }) {
+export async function createNoteRecord({ title, content = '', blocks = [], color = null }) {
   const count = await db.notes.count();
   const now = Date.now();
-  return db.notes.add({ title, content, color, order: count, createdAt: now, updatedAt: now });
+  return db.notes.add({ title, content, blocks, color, order: count, createdAt: now, updatedAt: now });
 }
 
-export async function updateNoteContentById(id, content) {
-  return db.notes.update(id, { content, updatedAt: Date.now() });
+// `blocks` é a fonte de verdade do editor (estilo Notion); `content` é uma
+// versão em texto simples derivada, guardada só por portabilidade/backup.
+export async function updateNoteBlocksById(id, blocks, content) {
+  return db.notes.update(id, { blocks, content, updatedAt: Date.now() });
 }
 
 export async function updateNoteMetaById(id, patch) {

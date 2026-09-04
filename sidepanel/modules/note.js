@@ -1,16 +1,18 @@
-import { getNoteById, updateNoteContentById } from './storage.js';
+import { getNoteById, updateNoteBlocksById } from './storage.js';
 import { tryParseMath } from './math-parser.js';
+import { uid, escHtml, parseMarkdownToBlocks, blocksToPlainText } from './blocks.js';
 
 const noteSection = document.querySelector('.note-section');
-const textarea    = document.getElementById('note-textarea');
-const highlight   = document.getElementById('note-highlight');
-const indicator   = document.getElementById('save-indicator');
+const root         = document.getElementById('note-editor-blocks');
+const indicator    = document.getElementById('save-indicator');
 
-let debounceTimer   = null;
-let indicatorTimer  = null;
-let isCtrlHeld      = false;
-let activeMenu      = null;
-let currentNoteId   = null; // nota atualmente carregada no editor
+let currentNoteId  = null;
+let isCtrlHeld     = false;
+let activeMenu     = null;
+let indicatorTimer = null;
+let saveTimer      = null;
+let rescanTimer    = null;
+let rescanBlock    = null;
 const mathCache    = new Map(); // expr raw → resultado parseado
 
 // ── Utilitários de data ───────────────────────────────────────────────────────
@@ -19,13 +21,10 @@ function parseDate(raw) {
   let day, month, year;
 
   if (/^\d{8}$/.test(s)) {
-    // YYYYMMDD
     year = +s.slice(0, 4); month = +s.slice(4, 6); day = +s.slice(6, 8);
   } else if (/^\d{4}[-\/]\d{2}[-\/]\d{2}$/.test(s)) {
-    // YYYY-MM-DD ou YYYY/MM/DD
     [year, month, day] = s.split(/[-\/]/).map(Number);
   } else if (/^\d{2}[\/\-\. ]\d{2}[\/\-\. ]\d{4}$/.test(s)) {
-    // DD/MM/YYYY, DD-MM-YYYY, DD.MM.YYYY, DD MM YYYY
     [day, month, year] = s.split(/[\/\-\. ]/).map(Number);
   } else {
     return null;
@@ -55,10 +54,8 @@ function formatDateBR(date) {
   return `${d}/${m}/${date.getFullYear()}`;
 }
 
-// ── Separador "ate/até" (aceita com ou sem acento) ───────────────────────────
 const ATE_RE = /[ \t]+at[eé][ \t]+/i;
 
-// ── Intervalo de datas ────────────────────────────────────────────────────────
 function parseDateRange(raw) {
   const parts = raw.split(ATE_RE);
   if (parts.length !== 2) return null;
@@ -69,7 +66,6 @@ function parseDateRange(raw) {
   return { d1, d2, days };
 }
 
-// ── Intervalo de horas ────────────────────────────────────────────────────────
 function parseTime(raw) {
   const m = raw.trim().match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
   if (!m) return null;
@@ -91,7 +87,6 @@ function parseTimeRange(raw) {
   return { t1, t2, diffSec: t2.totalSec - t1.totalSec };
 }
 
-// ── Intervalo de data+hora ────────────────────────────────────────────────────
 function parseDateTime(raw) {
   const m = raw.trim().match(/^(\d{2}[\/\-\.]\d{2}[\/\-\.]\d{4})[ \t]+(\d{1,2}:\d{2}(?::\d{2})?)$/);
   if (!m) return null;
@@ -110,7 +105,6 @@ function parseDateTimeRange(raw) {
   return { dt1, dt2, diffSec: Math.round((dt2 - dt1) / 1000) };
 }
 
-// Formata diferença em segundos como "X dias Xh Xmin"
 function fmtTimeDiff(absSec) {
   const d   = Math.floor(absSec / 86400);
   const rem = absSec % 86400;
@@ -123,17 +117,15 @@ function fmtTimeDiff(absSec) {
   return parts.join(' ');
 }
 
-// ── Formatadores ──────────────────────────────────────────────────────────────
 function onlyDigits(str) { return str.replace(/\D/g, ''); }
 
 function maskCPF(n)   { return `${n.slice(0,3)}.${n.slice(3,6)}.${n.slice(6,9)}-${n.slice(9)}`; }
 function maskCNPJ(n)  { return `${n.slice(0,2)}.${n.slice(2,5)}.${n.slice(5,8)}/${n.slice(8,12)}-${n.slice(12)}`; }
 
-// ── Validação de CPF ──────────────────────────────────────────────────────────
 function validateCPF(raw) {
   const n = raw.replace(/\D/g, '');
   if (n.length !== 11) return false;
-  if (/^(\d)\1{10}$/.test(n)) return false; // todos dígitos iguais
+  if (/^(\d)\1{10}$/.test(n)) return false;
   const d = n.split('').map(Number);
   const dig = (len, base) => {
     const r = d.slice(0, len).reduce((s, v, i) => s + v * (base - i), 0) % 11;
@@ -142,14 +134,11 @@ function validateCPF(raw) {
   return dig(9, 10) === d[9] && dig(10, 11) === d[10];
 }
 
-// ── Validação de CNPJ (formato numérico atual + novo alfanumérico IN RFB 2229/2024) ──
-// Conversão de caracteres: código ASCII − 48  →  '0'=0 … '9'=9, 'A'=17 … 'Z'=42
-// Pesos 1º DV: [5,4,3,2,9,8,7,6,5,4,3,2]  |  Pesos 2º DV: [6,5,4,3,2,9,8,7,6,5,4,3,2]
 function validateCNPJ(raw) {
   const n = raw.replace(/[.\-\/]/g, '').toUpperCase();
   if (n.length !== 14) return false;
-  if (/^(.)\1{13}$/.test(n)) return false;          // todos caracteres iguais
-  if (!/^[A-Z0-9]{12}\d{2}$/.test(n)) return false; // últimas 2 posições devem ser dígitos
+  if (/^(.)\1{13}$/.test(n)) return false;
+  if (!/^[A-Z0-9]{12}\d{2}$/.test(n)) return false;
   const val = c => c.charCodeAt(0) - 48;
   const chars = n.split('');
   const dig = (len, w) => {
@@ -166,7 +155,6 @@ function maskPhone(n) {
   return n;
 }
 
-// ── Opções de cópia por tipo ──────────────────────────────────────────────────
 const TYPE_LABELS = { cpf: 'CPF', cnpj: 'CNPJ', phone: 'Telefone', date: 'Data', daterange: 'Período', timerange: 'Intervalo de horas', datetimerange: 'Período com hora', cep: 'CEP', email: 'E-mail', math: 'Cálculo' };
 
 function buildCopyOptions(type, raw) {
@@ -181,7 +169,6 @@ function buildCopyOptions(type, raw) {
       ];
     }
     case 'cnpj': {
-      // strip mask only (pode conter letras no novo formato alfanumérico)
       const stripped = raw.replace(/[.\-\/]/g, '').toUpperCase();
       const masked = stripped.length === 14 ? maskCNPJ(stripped) : raw;
       return [
@@ -218,24 +205,21 @@ function buildCopyOptions(type, raw) {
     case 'daterange': {
       const range = parseDateRange(raw);
       if (!range) return [{ label: raw, hint: 'período', value: raw }];
-      const { d1, d2, days, raw1, raw2 } = range;
+      const { d1, d2, days } = range;
       const abs = Math.abs(days);
       const inv = days < 0 ? ' (invertido)' : '';
 
       const opts = [];
 
-      // Dias totais
       const dStr = `${abs} ${abs === 1 ? 'dia' : 'dias'}${inv}`;
       opts.push({ label: dStr, hint: 'total em dias', value: dStr });
 
-      // Semanas + dias
       if (abs >= 7) {
         const w = Math.floor(abs / 7), rd = abs % 7;
         const wStr = `${w} ${w === 1 ? 'semana' : 'semanas'}${rd ? ` e ${rd} ${rd === 1 ? 'dia' : 'dias'}` : ''}${inv}`;
         opts.push({ label: wStr, hint: 'em semanas', value: wStr });
       }
 
-      // Meses do calendário + dias restantes
       if (abs >= 28) {
         const [lo, hi] = days >= 0 ? [d1, d2] : [d2, d1];
         let m = (hi.getFullYear() - lo.getFullYear()) * 12 + (hi.getMonth() - lo.getMonth());
@@ -247,7 +231,6 @@ function buildCopyOptions(type, raw) {
         opts.push({ label: mStr, hint: 'em meses', value: mStr });
       }
 
-      // Anos + meses
       if (abs >= 365) {
         const [lo, hi] = days >= 0 ? [d1, d2] : [d2, d1];
         let y = hi.getFullYear() - lo.getFullYear();
@@ -259,7 +242,6 @@ function buildCopyOptions(type, raw) {
         opts.push({ label: yStr, hint: 'em anos', value: yStr });
       }
 
-      // Período completo como texto
       opts.push({ label: `${formatDateBR(d1)} até ${formatDateBR(d2)}`, hint: 'período formatado', value: `${formatDateBR(d1)} até ${formatDateBR(d2)}` });
 
       return opts;
@@ -307,65 +289,29 @@ function buildCopyOptions(type, raw) {
   }
 }
 
-// ── Padrões de Markdown (formatação visual, não são dados clicáveis) ──────────
-// Itálico exige que não haja espaço colado no asterisco (regra do CommonMark) —
-// evita colidir com "*" usado como multiplicação em expressões matemáticas
-// (ex.: "2 * 3 * 4" não deve virar itálico).
-const MD_DETECTORS = [
-  { type: 'md-code',    re: /`([^`\n]+?)`/g,                                   parts: () => ({ open: '`',  close: '`'  }) },
-  { type: 'md-bold',    re: /\*\*([^\n]+?)\*\*/g,                              parts: () => ({ open: '**', close: '**' }) },
-  { type: 'md-strike',  re: /~~([^\n]+?)~~/g,                                  parts: () => ({ open: '~~', close: '~~' }) },
-  { type: 'md-italic',  re: /(?<!\*)\*(?![\s*])([^*\n]+?)(?<![\s*])\*(?!\*)/g, parts: () => ({ open: '*',  close: '*'  }) },
-  { type: 'md-heading', re: /^(#{1,3}) (.+)$/gm,                               parts: m => ({ open: `${m[1]} `, close: '', level: m[1].length }) },
-];
-
-// ── Padrões de detecção ───────────────────────────────────────────────────────
-// Ordem: mais específico/longo primeiro para evitar sobreposição
+// ── Detecção inteligente (CPF / CNPJ / telefone / data / CEP / e-mail / cálculo) ──
 const DETECTORS = [
-  { type: 'email', re: /[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/g },  // E-mail
-  { type: 'cnpj',  re: /[A-Z0-9]{2}\.[A-Z0-9]{3}\.[A-Z0-9]{3}\/[A-Z0-9]{4}-\d{2}/gi }, // CNPJ com máscara (novo formato alfanumérico IN RFB 2229/2024)
-  { type: 'cpf',   re: /\d{3}\.\d{3}\.\d{3}-\d{2}/g                         },  // CPF com máscara
+  { type: 'email', re: /[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/g },
+  { type: 'cnpj',  re: /[A-Z0-9]{2}\.[A-Z0-9]{3}\.[A-Z0-9]{3}\/[A-Z0-9]{4}-\d{2}/gi },
+  { type: 'cpf',   re: /\d{3}\.\d{3}\.\d{3}-\d{2}/g                         },
   { type: 'cep',           re: /\b\d{5}-\d{3}\b/g },
   { type: 'datetimerange', re: /\b\d{2}[\/\-\.]\d{2}[\/\-\.]\d{4}[ \t]+\d{1,2}:\d{2}(?::\d{2})?[ \t]+at[eé][ \t]+\d{2}[\/\-\.]\d{2}[\/\-\.]\d{4}[ \t]+\d{1,2}:\d{2}(?::\d{2})?\b/gi },
   { type: 'daterange',     re: /\b\d{2}[\/\-\.]\d{2}[\/\-\.]\d{4}[ \t]+at[eé][ \t]+\d{2}[\/\-\.]\d{2}[\/\-\.]\d{4}\b/gi },
   { type: 'timerange',     re: /\b\d{1,2}:\d{2}(?::\d{2})?[ \t]+at[eé][ \t]+\d{1,2}:\d{2}(?::\d{2})?\b/gi },
   { type: 'date',          re: /\b\d{2}[\/\-\.]\d{2}[\/\-\.]\d{4}\b/g },
-  { type: 'date',  re: /\b\d{4}-\d{2}-\d{2}\b/g                             },  // YYYY-MM-DD
-  { type: 'date',  re: /\b\d{2} \d{2} \d{4}\b/g                             },  // DD MM YYYY
-  { type: 'phone', re: /\(?\d{2}\)?[\s]?\d{4,5}-\d{4}/g                     },  // Telefone com máscara
-  { type: 'date',  re: /\b(?:19|20)\d{6}\b/g                                 },  // YYYYMMDD compacto
-  { type: 'cnpj',  re: /\b\d{14}\b/g                                         },  // CNPJ sem máscara
-  { type: 'cpf',   re: /\b\d{11}\b/g                                         },  // CPF sem máscara
-  { type: 'phone', re: /\b\d{10}\b/g                                          },  // Telefone sem máscara
-  { type: 'cep',   re: /\b\d{8}\b/g                                           },  // CEP sem máscara
-  { type: 'math',  re: /\(*-?\d+(?:[.,]\d+)*[)%]*(?:\s*(?:\*\*|[-+×÷*/^])\s*\(*-?\d+(?:[.,]\d+)*[)%]*)+/g }, // Expressão matemática
+  { type: 'date',  re: /\b\d{4}-\d{2}-\d{2}\b/g                             },
+  { type: 'date',  re: /\b\d{2} \d{2} \d{4}\b/g                             },
+  { type: 'phone', re: /\(?\d{2}\)?[\s]?\d{4,5}-\d{4}/g                     },
+  { type: 'date',  re: /\b(?:19|20)\d{6}\b/g                                 },
+  { type: 'cnpj',  re: /\b\d{14}\b/g                                         },
+  { type: 'cpf',   re: /\b\d{11}\b/g                                         },
+  { type: 'phone', re: /\b\d{10}\b/g                                          },
+  { type: 'cep',   re: /\b\d{8}\b/g                                           },
+  { type: 'math',  re: /\(*-?\d+(?:[.,]\d+)*[)%]*(?:\s*(?:\*\*|[-+×÷*/^])\s*\(*-?\d+(?:[.,]\d+)*[)%]*)+/g },
 ];
 
-// ── Renderização do highlight ─────────────────────────────────────────────────
-function escHtml(s) {
-  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-}
-
-function buildHighlightHtml(text) {
+function findDetectionMatches(text) {
   const matches = [];
-  mathCache.clear();
-
-  // Markdown primeiro: tem prioridade sobre os detectores de dados quando sobrepõe.
-  for (const { type, re, parts } of MD_DETECTORS) {
-    re.lastIndex = 0;
-    let m;
-    while ((m = re.exec(text)) !== null) {
-      const start = m.index;
-      const end   = start + m[0].length;
-      const p = parts(m);
-      const overlaps = matches.some(e => e.start < end && e.end > start);
-      if (!overlaps) {
-        const cls = type === 'md-heading' ? `md-h${p.level}` : type;
-        matches.push({ start, end, kind: 'md', cls, openLen: p.open.length, closeLen: p.close.length });
-      }
-    }
-  }
-
   for (const { type, re } of DETECTORS) {
     re.lastIndex = 0;
     let m;
@@ -382,45 +328,298 @@ function buildHighlightHtml(text) {
         mathCache.set(m[0], p);
       }
       const overlaps = matches.some(e => e.start < end && e.end > start);
-      if (!overlaps) matches.push({ start, end, kind: 'data', raw: m[0], type });
+      if (!overlaps) matches.push({ start, end, type, raw: m[0] });
     }
   }
-
   matches.sort((a, b) => a.start - b.start);
-
-  let html = '';
-  let pos  = 0;
-
-  for (const item of matches) {
-    html += escHtml(text.slice(pos, item.start));
-
-    if (item.kind === 'md') {
-      const full     = text.slice(item.start, item.end);
-      const openStr  = full.slice(0, item.openLen);
-      const closeStr = item.closeLen ? full.slice(full.length - item.closeLen) : '';
-      const innerStr = full.slice(item.openLen, full.length - item.closeLen);
-      html += `<span class="md-marker">${escHtml(openStr)}</span>`;
-      html += `<span class="md-content ${item.cls}">${escHtml(innerStr)}</span>`;
-      if (closeStr) html += `<span class="md-marker">${escHtml(closeStr)}</span>`;
-    } else {
-      let cls = item.type;
-      if (item.type === 'cpf')  cls += validateCPF(item.raw)  ? ' valid' : ' invalid';
-      if (item.type === 'cnpj') cls += validateCNPJ(item.raw) ? ' valid' : ' invalid';
-      html += `<mark class="${cls}" data-type="${item.type}" data-value="${escHtml(item.raw)}">${escHtml(item.raw)}</mark>`;
-    }
-    pos = item.end;
-  }
-  let result = html + escHtml(text.slice(pos));
-  // Browsers collapse a trailing \n inside <div> even with white-space:pre-wrap,
-  // making the highlight shorter than the textarea → scroll misalignment.
-  // A sentinel space forces the div to expand the same number of lines.
-  if (text.endsWith('\n')) result += ' ';
-  return result;
+  return matches;
 }
 
-function syncHighlight() {
-  highlight.innerHTML  = buildHighlightHtml(textarea.value);
-  highlight.scrollTop  = textarea.scrollTop;
+// Remove marcações antigas de um bloco, deixando só o texto/formatação real.
+function unwrapMarks(el) {
+  el.querySelectorAll('mark').forEach(mark => mark.replaceWith(...mark.childNodes));
+  el.normalize();
+}
+
+// Reaplica <mark> nos trechos de texto puro do bloco (não mexe no que já é
+// negrito/itálico/código real — só varre os nós de texto).
+function applyDetectionMarks(el) {
+  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+  const textNodes = [];
+  let node;
+  while ((node = walker.nextNode())) textNodes.push(node);
+
+  for (const textNode of textNodes) {
+    const text = textNode.data;
+    const matches = findDetectionMatches(text);
+    if (matches.length === 0) continue;
+
+    const frag = document.createDocumentFragment();
+    let pos = 0;
+    for (const m of matches) {
+      if (m.start > pos) frag.appendChild(document.createTextNode(text.slice(pos, m.start)));
+      const mark = document.createElement('mark');
+      let cls = m.type;
+      if (m.type === 'cpf')  cls += validateCPF(m.raw)  ? ' valid' : ' invalid';
+      if (m.type === 'cnpj') cls += validateCNPJ(m.raw) ? ' valid' : ' invalid';
+      mark.className = cls;
+      mark.dataset.type = m.type;
+      mark.dataset.value = m.raw;
+      mark.textContent = m.raw;
+      frag.appendChild(mark);
+      pos = m.end;
+    }
+    if (pos < text.length) frag.appendChild(document.createTextNode(text.slice(pos)));
+    textNode.replaceWith(frag);
+  }
+}
+
+// ── Cursor / offsets de texto dentro de um bloco ──────────────────────────────
+function pointAtOffset(contentEl, offset) {
+  const walker = document.createTreeWalker(contentEl, NodeFilter.SHOW_TEXT);
+  let node, acc = 0, last = null;
+  while ((node = walker.nextNode())) {
+    last = node;
+    const len = node.data.length;
+    if (acc + len >= offset) return { node, offset: offset - acc };
+    acc += len;
+  }
+  if (last) return { node: last, offset: last.data.length };
+  return { node: contentEl, offset: 0 };
+}
+
+function rangeFromOffsets(contentEl, start, end) {
+  const a = pointAtOffset(contentEl, start);
+  const b = pointAtOffset(contentEl, end);
+  const range = document.createRange();
+  range.setStart(a.node, a.offset);
+  range.setEnd(b.node, b.offset);
+  return range;
+}
+
+function getCaretOffset(contentEl) {
+  const sel = document.getSelection();
+  if (!sel || sel.rangeCount === 0) return 0;
+  const range = sel.getRangeAt(0);
+  if (!contentEl.contains(range.startContainer)) return 0;
+  const pre = range.cloneRange();
+  pre.selectNodeContents(contentEl);
+  pre.setEnd(range.startContainer, range.startOffset);
+  return pre.toString().length;
+}
+
+function setCaretOffset(contentEl, offset) {
+  const p = pointAtOffset(contentEl, offset);
+  const range = document.createRange();
+  range.setStart(p.node, p.offset);
+  range.collapse(true);
+  const sel = document.getSelection();
+  sel.removeAllRanges();
+  sel.addRange(range);
+}
+
+// ── Modelo de blocos ───────────────────────────────────────────────────────────
+const HEADING_TAGS = { heading1: 'h1', heading2: 'h2', heading3: 'h3', heading4: 'h4', heading5: 'h5', heading6: 'h6' };
+
+function createBlockEl(type, innerHTML = '', checked = false) {
+  let el;
+
+  if (HEADING_TAGS[type]) {
+    el = document.createElement(HEADING_TAGS[type]);
+    el.className = 'block';
+    el.contentEditable = 'true';
+    el.innerHTML = innerHTML;
+
+  } else if (type === 'quote') {
+    el = document.createElement('blockquote');
+    el.className = 'block';
+    el.contentEditable = 'true';
+    el.innerHTML = innerHTML;
+
+  } else if (type === 'bullet' || type === 'number' || type === 'checklist') {
+    el = document.createElement('div');
+    el.className = 'block block-list' + (type === 'checklist' ? ' block-checklist' : '');
+    const marker = document.createElement('span');
+    marker.className = 'block-marker';
+    marker.contentEditable = 'false';
+    if (type === 'checklist') {
+      marker.classList.add('cb-wrap');
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.checked = !!checked;
+      marker.appendChild(cb);
+      el.dataset.checked = checked ? 'true' : 'false';
+    } else {
+      marker.textContent = type === 'bullet' ? '•' : '1.';
+    }
+    const content = document.createElement('span');
+    content.className = 'block-content';
+    content.contentEditable = 'true';
+    content.innerHTML = innerHTML;
+    el.append(marker, content);
+
+  } else if (type === 'code') {
+    el = document.createElement('div');
+    el.className = 'block block-code';
+    const content = document.createElement('span');
+    content.className = 'block-content';
+    content.contentEditable = 'true';
+    content.innerHTML = innerHTML;
+    el.appendChild(content);
+
+  } else if (type === 'divider') {
+    el = document.createElement('div');
+    el.className = 'block block-divider';
+    el.contentEditable = 'false';
+    el.appendChild(document.createElement('hr'));
+
+  } else {
+    el = document.createElement('p');
+    el.className = 'block';
+    el.contentEditable = 'true';
+    el.innerHTML = innerHTML;
+  }
+
+  el.dataset.type = type;
+  el.dataset.id = uid();
+  return el;
+}
+
+function getContentEl(blockEl) {
+  return blockEl.querySelector(':scope > .block-content') || blockEl;
+}
+
+function convertBlockType(blockEl, newType, checked = false) {
+  const oldContent = getContentEl(blockEl);
+  const newBlock = createBlockEl(newType, oldContent.innerHTML, checked);
+  blockEl.replaceWith(newBlock);
+  return newBlock;
+}
+
+function getBlockFromNode(node) {
+  let el = node.nodeType === Node.TEXT_NODE ? node.parentElement : node;
+  while (el && el !== root && !el.classList?.contains('block')) el = el.parentElement;
+  return el === root ? null : el;
+}
+
+function currentBlock() {
+  const sel = document.getSelection();
+  if (!sel || sel.rangeCount === 0) return null;
+  return getBlockFromNode(sel.anchorNode);
+}
+
+function focusBlockStart(block) {
+  const content = getContentEl(block);
+  content.focus();
+  setCaretOffset(content, 0);
+}
+
+function renumberLists() {
+  let n = 0;
+  for (const block of root.children) {
+    if (block.dataset.type === 'number') {
+      n++;
+      const marker = block.querySelector('.block-marker');
+      if (marker) marker.textContent = `${n}.`;
+    } else {
+      n = 0;
+    }
+  }
+}
+
+// ── Detecção com debounce (não recalcula a cada tecla, só quando pausa) ──────
+function scheduleRescan(block) {
+  rescanBlock = block;
+  clearTimeout(rescanTimer);
+  rescanTimer = setTimeout(flushRescan, 500);
+}
+
+function flushRescan() {
+  clearTimeout(rescanTimer);
+  if (!rescanBlock) return;
+  const block = rescanBlock;
+  rescanBlock = null;
+  if (!document.body.contains(block)) return;
+  if (block.dataset.type === 'code' || block.dataset.type === 'divider') return;
+
+  const content = getContentEl(block);
+  const sel = document.getSelection();
+  const hadFocus = sel && content.contains(sel.anchorNode);
+  const caretOffset = hadFocus ? getCaretOffset(content) : null;
+
+  unwrapMarks(content);
+  applyDetectionMarks(content);
+
+  if (hadFocus && caretOffset !== null) setCaretOffset(content, caretOffset);
+}
+
+root.addEventListener('blur', flushRescan, true);
+
+// ── Salvamento ────────────────────────────────────────────────────────────────
+function sanitizeForSave(html) {
+  const div = document.createElement('div');
+  div.innerHTML = html;
+  div.querySelectorAll('mark').forEach(m => m.replaceWith(...m.childNodes));
+  div.normalize();
+  return div.innerHTML;
+}
+
+function serializeBlocks() {
+  return [...root.children].map(block => {
+    const type = block.dataset.type;
+    const b = { id: block.dataset.id, type };
+    if (type === 'divider') return b;
+    b.html = sanitizeForSave(getContentEl(block).innerHTML);
+    if (type === 'checklist') b.checked = block.dataset.checked === 'true';
+    return b;
+  });
+}
+
+function showSaved() {
+  indicator.textContent = 'salvo ✓';
+  indicator.classList.add('visible');
+  clearTimeout(indicatorTimer);
+  indicatorTimer = setTimeout(() => indicator.classList.remove('visible'), 2200);
+}
+
+function scheduleSave() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(flushSave, 800);
+}
+
+export async function flushSave() {
+  clearTimeout(saveTimer);
+  flushRescan();
+  if (currentNoteId == null) return;
+  const blocks = serializeBlocks();
+  const content = blocksToPlainText(blocks);
+  await updateNoteBlocksById(currentNoteId, blocks, content);
+  showSaved();
+}
+
+// ── Carregar / trocar de nota ───────────────────────────────────────────────────
+function renderBlocks(blocks) {
+  root.innerHTML = '';
+  for (const b of blocks) {
+    const el = createBlockEl(b.type, b.html ?? '', b.checked ?? false);
+    if (b.id) el.dataset.id = b.id;
+    root.appendChild(el);
+  }
+  if (root.children.length === 0) root.appendChild(createBlockEl('paragraph'));
+  renumberLists();
+
+  for (const block of root.children) {
+    if (block.dataset.type === 'code' || block.dataset.type === 'divider') continue;
+    applyDetectionMarks(getContentEl(block));
+  }
+}
+
+export async function switchToNote(id) {
+  await flushSave();
+  currentNoteId = id;
+  const note = await getNoteById(id);
+  const blocks = (note?.blocks?.length) ? note.blocks : parseMarkdownToBlocks(note?.content ?? '');
+  renderBlocks(blocks);
 }
 
 // ── Posicionamento de menus ───────────────────────────────────────────────────
@@ -448,13 +647,11 @@ function showCopyMenu(type, raw, anchorRect) {
   const menu    = document.createElement('div');
   menu.className = 'copy-menu';
 
-  // Cabeçalho com o tipo detectado
   const header = document.createElement('div');
   header.className   = 'copy-menu-header';
   header.textContent = TYPE_LABELS[type] || 'Valor detectado';
   menu.appendChild(header);
 
-  // Badge de validação para CPF e CNPJ
   if (type === 'cpf' || type === 'cnpj') {
     const valid  = type === 'cpf' ? validateCPF(raw) : validateCNPJ(raw);
     const badge  = document.createElement('div');
@@ -470,7 +667,6 @@ function showCopyMenu(type, raw, anchorRect) {
       <span class="copy-opt-value">${escHtml(label)}</span>
       ${hint ? `<span class="copy-opt-hint">${escHtml(hint)}</span>` : ''}
     `;
-    // mousedown: evita que o clique fora feche o menu antes do click disparar
     btn.addEventListener('mousedown', e => e.stopPropagation());
     btn.addEventListener('click', () => {
       navigator.clipboard.writeText(value).then(() => {
@@ -483,11 +679,9 @@ function showCopyMenu(type, raw, anchorRect) {
 
   document.body.appendChild(menu);
   activeMenu = menu;
-
   positionMenu(menu, anchorRect);
 }
 
-// Fecha ao clicar fora
 document.addEventListener('mousedown', e => {
   if (activeMenu && !activeMenu.contains(e.target)) closeCopyMenu();
 });
@@ -509,29 +703,7 @@ function showFeedback(msg) {
   }, 1400);
 }
 
-// ── Autosave ──────────────────────────────────────────────────────────────────
-function showSaved() {
-  indicator.textContent = 'salvo ✓';
-  indicator.classList.add('visible');
-  clearTimeout(indicatorTimer);
-  indicatorTimer = setTimeout(() => indicator.classList.remove('visible'), 2200);
-}
-
-textarea.addEventListener('input', () => {
-  syncHighlight();
-  clearTimeout(debounceTimer);
-  debounceTimer = setTimeout(async () => {
-    if (currentNoteId == null) return;
-    await updateNoteContentById(currentNoteId, textarea.value);
-    showSaved();
-  }, 800);
-});
-
-textarea.addEventListener('scroll', () => {
-  highlight.scrollTop = textarea.scrollTop;
-});
-
-// ── Ctrl: ativa modo de seleção ───────────────────────────────────────────────
+// ── Ctrl: ativa modo de cópia rápida ──────────────────────────────────────────
 function setCtrl(active) {
   if (isCtrlHeld === active) return;
   isCtrlHeld = active;
@@ -552,8 +724,8 @@ document.addEventListener('keyup', e => {
 });
 window.addEventListener('blur', () => setCtrl(false));
 
-// ── Clique no highlight ───────────────────────────────────────────────────────
-highlight.addEventListener('click', e => {
+// ── Clique em marcação detectada (CPF, data, cálculo…) ────────────────────────
+root.addEventListener('click', e => {
   if (!isCtrlHeld) return;
   const mark = e.target.closest('mark');
   if (!mark) { closeCopyMenu(); return; }
@@ -570,10 +742,309 @@ highlight.addEventListener('click', e => {
   showCopyMenu(type, raw, rect);
 });
 
-// ── Transformações de texto ───────────────────────────────────────────────────
+// ── Checklist: clique direto na caixa (sem precisar de Ctrl) ──────────────────
+root.addEventListener('change', e => {
+  if (!e.target.matches('input[type="checkbox"]')) return;
+  const block = getBlockFromNode(e.target);
+  if (!block) return;
+  block.dataset.checked = e.target.checked ? 'true' : 'false';
+  scheduleSave();
+});
+
+// ── Menu "/" (trocar tipo de bloco, estilo Notion) ────────────────────────────
+const SLASH_ITEMS = [
+  { key: 'texto',      label: 'Texto',                 hint: 'parágrafo',  type: 'paragraph' },
+  { key: 'titulo1',    label: 'Título 1',               hint: '#',          type: 'heading1'  },
+  { key: 'titulo2',    label: 'Título 2',               hint: '##',         type: 'heading2'  },
+  { key: 'titulo3',    label: 'Título 3',               hint: '###',        type: 'heading3'  },
+  { key: 'lista',      label: 'Lista com marcadores',   hint: '-',          type: 'bullet'    },
+  { key: 'numerada',   label: 'Lista numerada',         hint: '1.',         type: 'number'    },
+  { key: 'checklist',  label: 'Checklist',              hint: '[ ]',        type: 'checklist' },
+  { key: 'citacao',    label: 'Citação',                hint: '>',          type: 'quote'     },
+  { key: 'codigo',     label: 'Código',                 hint: '```',        type: 'code'      },
+  { key: 'divisor',    label: 'Divisor',                hint: '---',        type: 'divider'   },
+];
+
+let slashMenuEl = null;
+let slashItems  = [];
+let slashIndex  = 0;
+let slashBlock  = null;
+
+function closeSlashMenuEl() { slashMenuEl?.remove(); slashMenuEl = null; }
+function closeSlashMenu() { closeSlashMenuEl(); slashItems = []; slashBlock = null; }
+
+function cancelSlashMenu() {
+  if (slashBlock) getContentEl(slashBlock).textContent = '';
+  closeSlashMenu();
+}
+
+function renderSlashMenu(block) {
+  closeSlashMenuEl();
+  const menu = document.createElement('div');
+  menu.className = 'copy-menu slash-menu';
+
+  slashItems.forEach((it, i) => {
+    const btn = document.createElement('button');
+    btn.className = 'copy-opt slash-opt' + (i === slashIndex ? ' active' : '');
+    btn.innerHTML = `<span class="copy-opt-value">${escHtml(it.label)}</span><span class="copy-opt-hint">${escHtml(it.hint)}</span>`;
+    btn.addEventListener('mousedown', e => e.preventDefault());
+    btn.addEventListener('click', () => { slashIndex = i; confirmSlashSelection(); });
+    menu.appendChild(btn);
+  });
+
+  document.body.appendChild(menu);
+  slashMenuEl = menu;
+  positionMenu(menu, block.getBoundingClientRect());
+}
+
+function moveSlashSelection(delta) {
+  slashIndex = (slashIndex + delta + slashItems.length) % slashItems.length;
+  renderSlashMenu(slashBlock);
+}
+
+function confirmSlashSelection() {
+  const item  = slashItems[slashIndex];
+  const block = slashBlock;
+  closeSlashMenu();
+  if (!item || !block) return;
+
+  if (item.type === 'divider') {
+    const divider = createBlockEl('divider');
+    block.replaceWith(divider);
+    const para = createBlockEl('paragraph');
+    divider.after(para);
+    focusBlockStart(para);
+  } else {
+    const newBlock = convertBlockType(block, item.type);
+    getContentEl(newBlock).textContent = '';
+    focusBlockStart(newBlock);
+  }
+  renumberLists();
+}
+
+function checkSlashMenu(block) {
+  const text = getContentEl(block).textContent;
+  const m = /^\/(\w*)$/.exec(text);
+  if (!m) { closeSlashMenu(); return; }
+
+  const filter = m[1].toLowerCase();
+  slashItems = SLASH_ITEMS.filter(it => it.label.toLowerCase().includes(filter) || it.key.includes(filter));
+  if (slashItems.length === 0) { closeSlashMenu(); return; }
+
+  slashBlock = block;
+  slashIndex = 0;
+  renderSlashMenu(block);
+}
+
+// ── Atalhos de Markdown → tipo de bloco (estilo Notion) ───────────────────────
+const BLOCK_SHORTCUTS = [
+  { re: /^(#{1,6}) $/, type: m => `heading${m[1].length}` },
+  { re: /^([-*]) \[([ xX])\] $/, type: () => 'checklist', checked: m => /[xX]/.test(m[2]) },
+  { re: /^[-*] $/, type: () => 'bullet' },
+  { re: /^\d+\. $/, type: () => 'number' },
+  { re: /^> $/, type: () => 'quote' },
+  { re: /^```$/, type: () => 'code' },
+];
+
+function checkDividerShortcut(block) {
+  const content = getContentEl(block);
+  if (!/^(-{3,}|\*{3,}|_{3,})$/.test(content.textContent)) return false;
+
+  const divider = createBlockEl('divider');
+  block.replaceWith(divider);
+  const para = createBlockEl('paragraph');
+  divider.after(para);
+  focusBlockStart(para);
+  renumberLists();
+  return true;
+}
+
+function checkBlockShortcut(block) {
+  const text = getContentEl(block).textContent;
+  for (const s of BLOCK_SHORTCUTS) {
+    const m = s.re.exec(text);
+    if (!m) continue;
+    const type = s.type(m);
+    const checked = s.checked ? s.checked(m) : false;
+    const newBlock = convertBlockType(block, type, checked);
+    getContentEl(newBlock).textContent = '';
+    focusBlockStart(newBlock);
+    renumberLists();
+    closeSlashMenu();
+    return true;
+  }
+  return false;
+}
+
+// ── Formatação inline automática (**negrito**, *itálico*, `código`, ~~riscado~~) ──
+const INLINE_SHORTCUTS = [
+  { re: /`([^`\n]+?)`$/, tag: 'code' },
+  { re: /\*\*([^\n]+?)\*\*$/, tag: 'strong' },
+  { re: /~~([^\n]+?)~~$/, tag: 's' },
+  { re: /(?<!\*)\*(?![\s*])([^*\n]+?)(?<![\s*])\*$/, tag: 'em' },
+];
+
+function replaceRangeWithTag(contentEl, start, end, tag, innerText) {
+  const range = rangeFromOffsets(contentEl, start, end);
+  range.deleteContents();
+  const el = document.createElement(tag);
+  el.textContent = innerText;
+  range.insertNode(el);
+
+  const after = document.createRange();
+  after.setStartAfter(el);
+  after.collapse(true);
+  const sel = document.getSelection();
+  sel.removeAllRanges();
+  sel.addRange(after);
+}
+
+function tryAutoFormatInline(contentEl) {
+  const sel = document.getSelection();
+  if (!sel || sel.rangeCount === 0 || !sel.isCollapsed) return;
+  if (!contentEl.contains(sel.anchorNode)) return;
+
+  const offset = getCaretOffset(contentEl);
+  const before = contentEl.textContent.slice(0, offset);
+
+  for (const { re, tag } of INLINE_SHORTCUTS) {
+    const m = re.exec(before);
+    if (!m) continue;
+    replaceRangeWithTag(contentEl, offset - m[0].length, offset, tag, m[1]);
+    return;
+  }
+}
+
+// ── Enter / Backspace ─────────────────────────────────────────────────────────
+function htmlOfFragment(fragment) {
+  const div = document.createElement('div');
+  div.appendChild(fragment);
+  return div.innerHTML;
+}
+
+function handleEnter(block) {
+  const content  = getContentEl(block);
+  const offset   = getCaretOffset(content);
+  const type     = block.dataset.type;
+  const isListish = type === 'bullet' || type === 'number' || type === 'checklist';
+  const isEmpty   = content.textContent.trim() === '';
+
+  if (isListish && isEmpty) {
+    const para = convertBlockType(block, 'paragraph');
+    focusBlockStart(para);
+    renumberLists();
+    return;
+  }
+
+  const start = pointAtOffset(content, offset);
+  const afterRange = document.createRange();
+  afterRange.setStart(start.node, start.offset);
+  afterRange.setEndAfter(content.lastChild ?? content.firstChild ?? content);
+  const afterHTML = htmlOfFragment(afterRange.extractContents());
+
+  const nextType = isListish ? type : 'paragraph';
+  const newBlock = createBlockEl(nextType, afterHTML, false);
+  block.after(newBlock);
+  focusBlockStart(newBlock);
+  renumberLists();
+}
+
+function handleBackspaceAtStart(block) {
+  const type = block.dataset.type;
+
+  if (type !== 'paragraph') {
+    const para = convertBlockType(block, 'paragraph');
+    focusBlockStart(para);
+    renumberLists();
+    return;
+  }
+
+  const prev = block.previousElementSibling;
+  if (!prev) return;
+
+  if (prev.dataset.type === 'divider') {
+    prev.remove();
+    renumberLists();
+    return;
+  }
+
+  const prevContent = getContentEl(prev);
+  const joinOffset  = prevContent.textContent.length;
+  const content     = getContentEl(block);
+
+  while (content.firstChild) prevContent.appendChild(content.firstChild);
+  block.remove();
+
+  prevContent.focus();
+  setCaretOffset(prevContent, joinOffset);
+  renumberLists();
+}
+
+// ── Eventos principais do editor ──────────────────────────────────────────────
+root.addEventListener('input', () => {
+  const block = currentBlock();
+  if (!block) return;
+
+  if (block.dataset.type === 'paragraph') {
+    if (checkDividerShortcut(block)) { scheduleSave(); return; }
+    if (checkBlockShortcut(block))   { scheduleSave(); return; }
+    checkSlashMenu(block);
+  } else {
+    closeSlashMenu();
+  }
+
+  if (block.dataset.type !== 'code') {
+    tryAutoFormatInline(getContentEl(block));
+  }
+
+  scheduleRescan(block);
+  scheduleSave();
+});
+
+root.addEventListener('keydown', e => {
+  if (slashMenuEl) {
+    if (e.key === 'ArrowDown') { e.preventDefault(); moveSlashSelection(1);  return; }
+    if (e.key === 'ArrowUp')   { e.preventDefault(); moveSlashSelection(-1); return; }
+    if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); confirmSlashSelection(); return; }
+    if (e.key === 'Escape') { e.preventDefault(); cancelSlashMenu(); return; }
+  }
+
+  if (e.key === 'Enter' && !e.shiftKey) {
+    const block = currentBlock();
+    if (!block || block.dataset.type === 'code') return;
+    e.preventDefault();
+    handleEnter(block);
+    scheduleSave();
+    return;
+  }
+
+  if (e.key === 'Backspace') {
+    const sel = document.getSelection();
+    if (!sel || !sel.isCollapsed) return;
+    const block = currentBlock();
+    if (!block) return;
+    const content = getContentEl(block);
+    if (getCaretOffset(content) !== 0) return;
+    e.preventDefault();
+    handleBackspaceAtStart(block);
+    scheduleSave();
+    return;
+  }
+
+  if (e.key === 'Tab') {
+    e.preventDefault();
+  }
+});
+
+root.addEventListener('paste', e => {
+  e.preventDefault();
+  const text = e.clipboardData?.getData('text/plain') ?? '';
+  document.execCommand('insertText', false, text);
+});
+
+// ── Transformações de texto (maiúsculo, minúsculo, etc.) ─────────────────────
 const EMAIL_RE_GLOBAL = /[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/g;
 
-// Aplica fn apenas nos trechos que não são e-mail, preservando os e-mails intactos
 function applySkipEmails(s, fn) {
   const segments = [];
   let pos = 0;
@@ -594,6 +1065,28 @@ function ttParaCase(s)     { return s.replace(/(^|\n)([ \t]*)(\p{L})/gu, (_, nl,
 function ttInvertCase(s)   { return [...s].map(c => c === c.toUpperCase() ? c.toLowerCase() : c.toUpperCase()).join(''); }
 function ttNoAccents(s)    { return s.normalize('NFD').replace(/\p{Mn}/gu, ''); }
 function ttCleanSpaces(s)  { return s.replace(/[^\S\n]+/g, ' '); }
+
+function applyTransformToSelection(fn) {
+  const sel = document.getSelection();
+  if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return;
+  const range = sel.getRangeAt(0);
+  if (!root.contains(range.commonAncestorContainer)) return;
+
+  const block = getBlockFromNode(range.commonAncestorContainer);
+  const transformed = applySkipEmails(range.toString(), fn);
+
+  range.deleteContents();
+  const textNode = document.createTextNode(transformed);
+  range.insertNode(textNode);
+
+  const newRange = document.createRange();
+  newRange.selectNode(textNode);
+  sel.removeAllRanges();
+  sel.addRange(newRange);
+
+  if (block) scheduleRescan(block);
+  scheduleSave();
+}
 
 const TRANSFORMS = [
   { label: 'AA', title: 'MAIÚSCULO',                      fn: s => s.toUpperCase() },
@@ -623,70 +1116,101 @@ for (const t of TRANSFORMS) {
   btn.className   = 'tt-btn';
   btn.title       = t.title;
   btn.textContent = t.label;
-  btn.addEventListener('mousedown', e => e.preventDefault()); // mantém foco/seleção na textarea
-  btn.addEventListener('click', () => {
-    const start = textarea.selectionStart;
-    const end   = textarea.selectionEnd;
-    if (start === end) return;
-    const original    = textarea.value;
-    const transformed = applySkipEmails(original.slice(start, end), t.fn);
-    textarea.value          = original.slice(0, start) + transformed + original.slice(end);
-    textarea.selectionStart = start;
-    textarea.selectionEnd   = start + transformed.length;
-    textarea.dispatchEvent(new Event('input'));
-    textarea.focus();
-  });
+  btn.addEventListener('mousedown', e => e.preventDefault());
+  btn.addEventListener('click', () => applyTransformToSelection(t.fn));
   ttBar.appendChild(btn);
 }
 
-// ── Formatação Markdown ───────────────────────────────────────────────────────
-function wrapSelection(before, after) {
-  const start    = textarea.selectionStart;
-  const end      = textarea.selectionEnd;
-  const original = textarea.value;
-  const selected = original.slice(start, end);
-
-  textarea.value = original.slice(0, start) + before + selected + after + original.slice(end);
-  textarea.selectionStart = start + before.length;
-  textarea.selectionEnd   = start + before.length + selected.length;
-  textarea.dispatchEvent(new Event('input'));
-  textarea.focus();
+// ── Formatação Markdown / troca de tipo de bloco (segunda barra) ─────────────
+function execFormat(command) {
+  document.execCommand(command, false, null);
+  const block = currentBlock();
+  if (block) scheduleRescan(block);
+  scheduleSave();
 }
 
-function prefixLine(prefix) {
-  const start    = textarea.selectionStart;
-  const original = textarea.value;
-  const lineStart = original.lastIndexOf('\n', start - 1) + 1;
+function wrapSelectionInTag(tag) {
+  const sel = document.getSelection();
+  if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return;
+  const range = sel.getRangeAt(0);
+  if (!root.contains(range.commonAncestorContainer)) return;
 
-  textarea.value = original.slice(0, lineStart) + prefix + original.slice(lineStart);
-  textarea.selectionStart = textarea.selectionEnd = start + prefix.length;
-  textarea.dispatchEvent(new Event('input'));
-  textarea.focus();
+  const el = document.createElement(tag);
+  el.appendChild(range.extractContents());
+  range.insertNode(el);
+
+  sel.removeAllRanges();
+  const r = document.createRange();
+  r.selectNode(el);
+  sel.addRange(r);
+
+  const block = getBlockFromNode(el);
+  if (block) scheduleRescan(block);
+  scheduleSave();
+}
+
+function convertCurrentBlock(type) {
+  const block = currentBlock();
+  if (!block) return;
+  const content = getContentEl(block);
+  const offset  = getCaretOffset(content);
+
+  const newBlock  = convertBlockType(block, type, block.dataset.checked === 'true');
+  const newContent = getContentEl(newBlock);
+  newContent.focus();
+  setCaretOffset(newContent, offset);
+  renumberLists();
+  scheduleSave();
+}
+
+function insertDividerAtCursor() {
+  const block = currentBlock();
+  if (!block) return;
+  const divider = createBlockEl('divider');
+  block.after(divider);
+  const para = createBlockEl('paragraph');
+  divider.after(para);
+  focusBlockStart(para);
+  renumberLists();
+  scheduleSave();
 }
 
 const MD_BUTTONS = [
-  { label: 'B',    title: 'Negrito (**texto**)',           before: '**', after: '**' },
-  { label: 'I',    title: 'Itálico (*texto*)',             before: '*',  after: '*'  },
-  { label: 'S',    title: 'Riscado (~~texto~~)',           before: '~~', after: '~~' },
-  { label: '</>',  title: 'Código (`texto`)',               before: '`',  after: '`'  },
-  { label: 'H',    title: 'Título (no início da linha)',    linePrefix: '# '          },
+  { label: 'B',   title: 'Negrito (selecione o texto)',   action: () => execFormat('bold') },
+  { label: 'I',   title: 'Itálico (selecione o texto)',   action: () => execFormat('italic') },
+  { label: 'S',   title: 'Riscado (selecione o texto)',   action: () => execFormat('strikeThrough') },
+  { label: '</>', title: 'Código (selecione o texto)',     action: () => wrapSelectionInTag('code') },
+  null,
+  { label: 'H1',  title: 'Título 1',                       action: () => convertCurrentBlock('heading1') },
+  { label: 'H2',  title: 'Título 2',                       action: () => convertCurrentBlock('heading2') },
+  { label: 'H3',  title: 'Título 3',                       action: () => convertCurrentBlock('heading3') },
+  null,
+  { label: '•',   title: 'Lista com marcadores',           action: () => convertCurrentBlock('bullet') },
+  { label: '1.',  title: 'Lista numerada',                 action: () => convertCurrentBlock('number') },
+  { label: '☐',   title: 'Checklist',                      action: () => convertCurrentBlock('checklist') },
+  null,
+  { label: '"',   title: 'Citação',                        action: () => convertCurrentBlock('quote') },
+  { label: '—',   title: 'Linha horizontal',                action: () => insertDividerAtCursor() },
 ];
 
-const mdSep = document.createElement('div');
-mdSep.className = 'tt-sep';
-ttBar.appendChild(mdSep);
+const mdBar = document.createElement('div');
+mdBar.className = 'note-toolbar';
+noteSection.appendChild(mdBar);
 
 for (const b of MD_BUTTONS) {
+  if (b === null) {
+    const sep = document.createElement('div');
+    sep.className = 'tt-sep';
+    mdBar.appendChild(sep);
+    continue;
+  }
   const btn = document.createElement('button');
   btn.className   = 'tt-btn';
   btn.title       = b.title;
   btn.textContent = b.label;
   btn.addEventListener('mousedown', e => e.preventDefault());
-  btn.addEventListener('click', () => {
-    if (b.linePrefix) prefixLine(b.linePrefix);
-    else wrapSelection(b.before, b.after);
-  });
-  ttBar.appendChild(btn);
+  btn.addEventListener('click', b.action);
+  mdBar.appendChild(btn);
 }
 
 // ── Menu de cálculo ───────────────────────────────────────────────────────────
@@ -696,19 +1220,16 @@ function showMathMenu(parsed, anchorRect) {
   const menu = document.createElement('div');
   menu.className = 'copy-menu math-menu';
 
-  // Cabeçalho
   const hdr = document.createElement('div');
   hdr.className   = 'copy-menu-header';
   hdr.textContent = 'Cálculo';
   menu.appendChild(hdr);
 
-  // Expressão (monospace)
   const exprEl = document.createElement('div');
   exprEl.className   = 'math-expr';
   exprEl.textContent = raw;
   menu.appendChild(exprEl);
 
-  // Passo a passo
   if (steps.length > 0) {
     const sl = document.createElement('div');
     sl.className   = 'math-section-label';
@@ -722,7 +1243,6 @@ function showMathMenu(parsed, anchorRect) {
     }
   }
 
-  // Resultado em destaque (clicável para copiar)
   const resRow = document.createElement('div');
   resRow.className = 'math-result-row';
   resRow.innerHTML =
@@ -734,11 +1254,9 @@ function showMathMenu(parsed, anchorRect) {
   });
   menu.appendChild(resRow);
 
-  // Divisor
   const addDiv = () => menu.appendChild(Object.assign(document.createElement('div'), { className: 'math-divider' }));
   addDiv();
 
-  // Botões de cópia
   const calcText = `${raw}\n${steps.join('\n')}\n= ${resultFmt}`;
   for (const { label, hint, value } of [
     { label: resultFmt,          hint: 'resultado',    value: resultFmt },
@@ -760,23 +1278,4 @@ function showMathMenu(parsed, anchorRect) {
   document.body.appendChild(menu);
   activeMenu = menu;
   positionMenu(menu, anchorRect);
-}
-
-// ── Troca de nota ativa (usado pelo notes-tabs.js) ─────────────────────────────
-
-// Salva imediatamente o conteúdo da nota atual, sem esperar o debounce.
-export async function flushSave() {
-  clearTimeout(debounceTimer);
-  if (currentNoteId != null) {
-    await updateNoteContentById(currentNoteId, textarea.value);
-  }
-}
-
-// Salva a nota atual e carrega outra no editor.
-export async function switchToNote(id) {
-  await flushSave();
-  currentNoteId = id;
-  const note = await getNoteById(id);
-  textarea.value = note?.content ?? '';
-  syncHighlight();
 }
