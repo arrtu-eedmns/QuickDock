@@ -1149,16 +1149,46 @@ function wrapSelectionInTag(tag) {
   scheduleSave();
 }
 
-function convertCurrentBlock(type) {
-  const block = currentBlock();
-  if (!block) return;
-  const content = getContentEl(block);
-  const offset  = getCaretOffset(content);
+// Todos os blocos tocados pela seleção atual, na ordem em que aparecem no
+// editor (usado pra converter tipo de vários blocos de uma vez — cada linha
+// vira um item independente, já que cada uma já é o seu próprio bloco).
+function getSelectedBlocks() {
+  const sel = document.getSelection();
+  if (!sel || sel.rangeCount === 0) return [];
+  const range = sel.getRangeAt(0);
+  const startBlock = getBlockFromNode(range.startContainer);
+  const endBlock   = getBlockFromNode(range.endContainer);
+  if (!startBlock) return [];
+  if (!endBlock || startBlock === endBlock) return [startBlock];
 
-  const newBlock  = convertBlockType(block, type, block.dataset.checked === 'true');
-  const newContent = getContentEl(newBlock);
-  newContent.focus();
-  setCaretOffset(newContent, offset);
+  const blocks = [];
+  for (let el = startBlock; el; el = el.nextElementSibling) {
+    blocks.push(el);
+    if (el === endBlock) break;
+  }
+  return blocks;
+}
+
+function convertSelectedBlocks(type) {
+  const blocks = getSelectedBlocks();
+  if (blocks.length === 0) return;
+
+  if (blocks.length === 1) {
+    const block   = blocks[0];
+    const content = getContentEl(block);
+    const offset  = getCaretOffset(content);
+
+    const newBlock   = convertBlockType(block, type, block.dataset.checked === 'true');
+    const newContent = getContentEl(newBlock);
+    newContent.focus();
+    setCaretOffset(newContent, offset);
+  } else {
+    const newBlocks  = blocks.map(b => convertBlockType(b, type, b.dataset.checked === 'true'));
+    const lastContent = getContentEl(newBlocks[newBlocks.length - 1]);
+    lastContent.focus();
+    setCaretOffset(lastContent, lastContent.textContent.length);
+  }
+
   renumberLists();
   scheduleSave();
 }
@@ -1181,15 +1211,16 @@ const MD_BUTTONS = [
   { label: 'S',   title: 'Riscado (selecione o texto)',   action: () => execFormat('strikeThrough') },
   { label: '</>', title: 'Código (selecione o texto)',     action: () => wrapSelectionInTag('code') },
   null,
-  { label: 'H1',  title: 'Título 1',                       action: () => convertCurrentBlock('heading1') },
-  { label: 'H2',  title: 'Título 2',                       action: () => convertCurrentBlock('heading2') },
-  { label: 'H3',  title: 'Título 3',                       action: () => convertCurrentBlock('heading3') },
+  { label: 'T',   title: 'Texto normal (remove a formatação do bloco)', action: () => convertSelectedBlocks('paragraph') },
+  { label: 'H1',  title: 'Título 1',                       action: () => convertSelectedBlocks('heading1') },
+  { label: 'H2',  title: 'Título 2',                       action: () => convertSelectedBlocks('heading2') },
+  { label: 'H3',  title: 'Título 3',                       action: () => convertSelectedBlocks('heading3') },
   null,
-  { label: '•',   title: 'Lista com marcadores',           action: () => convertCurrentBlock('bullet') },
-  { label: '1.',  title: 'Lista numerada',                 action: () => convertCurrentBlock('number') },
-  { label: '☐',   title: 'Checklist',                      action: () => convertCurrentBlock('checklist') },
+  { label: '•',   title: 'Lista com marcadores',           action: () => convertSelectedBlocks('bullet') },
+  { label: '1.',  title: 'Lista numerada',                 action: () => convertSelectedBlocks('number') },
+  { label: '☐',   title: 'Checklist',                      action: () => convertSelectedBlocks('checklist') },
   null,
-  { label: '"',   title: 'Citação',                        action: () => convertCurrentBlock('quote') },
+  { label: '"',   title: 'Citação',                        action: () => convertSelectedBlocks('quote') },
   { label: '—',   title: 'Linha horizontal',                action: () => insertDividerAtCursor() },
 ];
 
