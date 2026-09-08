@@ -482,11 +482,27 @@ function createBlockEl(type, innerHTML = '', checked = false) {
 
   el.dataset.type = type;
   el.dataset.id = uid();
+
+  // Um elemento editável totalmente vazio (sem nem um nó de texto) não fica
+  // clicável/digitável de forma confiável em alguns navegadores — sobretudo
+  // o <span> de conteúdo de listas/checklist/código, que colapsa a altura
+  // zero quando vazio. Um <br> "segura" o espaço pro cursor.
+  if (type !== 'divider') {
+    const contentEl = getContentEl(el);
+    if (!contentEl.hasChildNodes()) contentEl.appendChild(document.createElement('br'));
+  }
+
   return el;
 }
 
 function getContentEl(blockEl) {
   return blockEl.querySelector(':scope > .block-content') || blockEl;
+}
+
+// Esvazia o conteúdo de um bloco mantendo o <br> de segurança (ver createBlockEl).
+function clearContent(el) {
+  el.innerHTML = '';
+  el.appendChild(document.createElement('br'));
 }
 
 function convertBlockType(blockEl, newType, checked = false) {
@@ -556,10 +572,14 @@ function flushRescan() {
 root.addEventListener('blur', flushRescan, true);
 
 // ── Salvamento ────────────────────────────────────────────────────────────────
-function sanitizeForSave(html) {
+// `keepBreaks` mantém <br> real (bloco de código, onde é quebra de linha de
+// verdade); nos outros tipos o <br> é só o "segurador" de cursor de um bloco
+// vazio (ver createBlockEl/clearContent) e não deve ser persistido.
+function sanitizeForSave(html, keepBreaks = false) {
   const div = document.createElement('div');
   div.innerHTML = html;
   div.querySelectorAll('mark').forEach(m => m.replaceWith(...m.childNodes));
+  if (!keepBreaks) div.querySelectorAll('br').forEach(br => br.remove());
   div.normalize();
   return div.innerHTML;
 }
@@ -569,7 +589,7 @@ function serializeBlocks() {
     const type = block.dataset.type;
     const b = { id: block.dataset.id, type };
     if (type === 'divider') return b;
-    b.html = sanitizeForSave(getContentEl(block).innerHTML);
+    b.html = sanitizeForSave(getContentEl(block).innerHTML, type === 'code');
     if (type === 'checklist') b.checked = block.dataset.checked === 'true';
     return b;
   });
@@ -774,7 +794,7 @@ function closeSlashMenuEl() { slashMenuEl?.remove(); slashMenuEl = null; }
 function closeSlashMenu() { closeSlashMenuEl(); slashItems = []; slashBlock = null; }
 
 function cancelSlashMenu() {
-  if (slashBlock) getContentEl(slashBlock).textContent = '';
+  if (slashBlock) clearContent(getContentEl(slashBlock));
   closeSlashMenu();
 }
 
@@ -816,7 +836,7 @@ function confirmSlashSelection() {
     focusBlockStart(para);
   } else {
     const newBlock = convertBlockType(block, item.type);
-    getContentEl(newBlock).textContent = '';
+    clearContent(getContentEl(newBlock));
     focusBlockStart(newBlock);
   }
   renumberLists();
@@ -867,7 +887,7 @@ function checkBlockShortcut(block) {
     const type = s.type(m);
     const checked = s.checked ? s.checked(m) : false;
     const newBlock = convertBlockType(block, type, checked);
-    getContentEl(newBlock).textContent = '';
+    clearContent(getContentEl(newBlock));
     focusBlockStart(newBlock);
     renumberLists();
     closeSlashMenu();
