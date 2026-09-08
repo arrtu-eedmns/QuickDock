@@ -1059,8 +1059,51 @@ root.addEventListener('keydown', e => {
 root.addEventListener('paste', e => {
   e.preventDefault();
   const text = e.clipboardData?.getData('text/plain') ?? '';
-  document.execCommand('insertText', false, text);
+  if (!text) return;
+
+  // Colagem de uma linha só: insere como texto simples, sem mexer na
+  // estrutura do bloco atual.
+  if (!text.includes('\n')) {
+    document.execCommand('insertText', false, text);
+    const block = currentBlock();
+    if (block) scheduleRescan(block);
+    scheduleSave();
+    return;
+  }
+
+  pasteMultilineText(text);
 });
+
+// Colagem de texto com várias linhas: reaproveita o mesmo parser da migração
+// de notas antigas pra reconhecer "# título", "- [ ] tarefa", listas etc. e
+// já colar como blocos de verdade, não como texto solto.
+function pasteMultilineText(text) {
+  const block = currentBlock();
+  if (!block) return;
+
+  const parsed = parseMarkdownToBlocks(text);
+  const newEls = parsed.map(b => createBlockEl(b.type, b.html ?? '', b.checked ?? false));
+
+  const content = getContentEl(block);
+  const isEmpty = content.textContent.trim() === '';
+
+  let anchor = block;
+  for (const el of newEls) { anchor.after(el); anchor = el; }
+  if (isEmpty && block.dataset.type === 'paragraph') block.remove();
+
+  const last = newEls[newEls.length - 1];
+  const lastContent = getContentEl(last);
+  lastContent.focus();
+  setCaretOffset(lastContent, lastContent.textContent.length);
+
+  renumberLists();
+  for (const el of newEls) {
+    if (el.dataset.type !== 'code' && el.dataset.type !== 'divider') {
+      applyDetectionMarks(getContentEl(el));
+    }
+  }
+  scheduleSave();
+}
 
 // ── Transformações de texto (maiúsculo, minúsculo, etc.) ─────────────────────
 const EMAIL_RE_GLOBAL = /[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/g;
