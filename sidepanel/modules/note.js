@@ -1062,9 +1062,15 @@ function handleEnter(block) {
 
 function handleBackspaceAtStart(block) {
   captureUndoPoint();
-  const type = block.dataset.type;
+  const type    = block.dataset.type;
+  const content = getContentEl(block);
+  const isEmpty = content.textContent.trim() === '';
 
-  if (type !== 'paragraph') {
+  // Bloco especial COM texto: primeiro Backspace só tira a formatação
+  // (volta a parágrafo), preserva o conteúdo — evita apagar sem querer.
+  // Já vazio (ex.: checklist sem texto), pula direto pra mesclar/remover —
+  // não faz sentido exigir um Backspace a mais só pra "desformatar o nada".
+  if (type !== 'paragraph' && !isEmpty) {
     const para = convertBlockType(block, 'paragraph');
     focusBlockStart(para);
     renumberLists();
@@ -1072,7 +1078,14 @@ function handleBackspaceAtStart(block) {
   }
 
   const prev = block.previousElementSibling;
-  if (!prev) return;
+  if (!prev) {
+    if (type !== 'paragraph') {
+      const para = convertBlockType(block, 'paragraph');
+      focusBlockStart(para);
+      renumberLists();
+    }
+    return;
+  }
 
   if (prev.dataset.type === 'divider') {
     prev.remove();
@@ -1082,9 +1095,10 @@ function handleBackspaceAtStart(block) {
 
   const prevContent = getContentEl(prev);
   const joinOffset  = prevContent.textContent.length;
-  const content     = getContentEl(block);
 
-  while (content.firstChild) prevContent.appendChild(content.firstChild);
+  if (!isEmpty) {
+    while (content.firstChild) prevContent.appendChild(content.firstChild);
+  }
   block.remove();
 
   prevContent.focus();
