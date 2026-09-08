@@ -46,7 +46,10 @@ function parseInlineMarkdown(text) {
 
 // ── Markdown (string) → blocos ────────────────────────────────────────────────
 export function parseMarkdownToBlocks(markdown) {
-  const lines = (markdown ?? '').split('\n');
+  // Normaliza quebras de linha (Windows manda \r\n) — sem isso, cada linha
+  // fica com um \r sobrando no final e os regexes ancorados em "$" falham
+  // silenciosamente, caindo pro parágrafo padrão.
+  const lines = (markdown ?? '').replace(/\r\n?/g, '\n').split('\n');
   const blocks = [];
   let m;
 

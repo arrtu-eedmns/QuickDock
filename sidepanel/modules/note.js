@@ -543,6 +543,92 @@ function renumberLists() {
   }
 }
 
+// ── Undo / redo próprios ──────────────────────────────────────────────────────
+// O undo nativo do navegador só entende edição de texto simples — ele não
+// sabe desfazer as trocas de tipo de bloco (viram elementos novos via
+// replaceWith), então precisa de um histórico próprio por nota.
+const UNDO_LIMIT = 100;
+let undoStack = [];
+let redoStack = [];
+let pendingTypingSnapshot = null;
+let typingSnapshotTimer   = null;
+
+function snapshotState() {
+  return root.innerHTML;
+}
+
+function pushUndoSnapshot(html) {
+  undoStack.push(html);
+  if (undoStack.length > UNDO_LIMIT) undoStack.shift();
+  redoStack = [];
+}
+
+// Chama antes de qualquer mudança estrutural (conversão de tipo, enter,
+// backspace, colar, divisor…) — captura o estado imediatamente anterior.
+function captureUndoPoint() {
+  clearTimeout(typingSnapshotTimer);
+  pendingTypingSnapshot = null;
+  pushUndoSnapshot(snapshotState());
+}
+
+// Para digitação contínua: grava só um ponto no início de cada "rajada" de
+// teclas (debounce), não a cada caractere.
+function captureTypingUndoPoint() {
+  if (pendingTypingSnapshot === null) {
+    pendingTypingSnapshot = snapshotState();
+    pushUndoSnapshot(pendingTypingSnapshot);
+  }
+  clearTimeout(typingSnapshotTimer);
+  typingSnapshotTimer = setTimeout(() => { pendingTypingSnapshot = null; }, 600);
+}
+
+function resetUndoHistory() {
+  undoStack = [];
+  redoStack = [];
+  pendingTypingSnapshot = null;
+  clearTimeout(typingSnapshotTimer);
+}
+
+function restoreSnapshot(html) {
+  root.innerHTML = html;
+
+  // O atributo "checked" do <input> não acompanha sozinho o innerHTML (é uma
+  // propriedade viva, não refletida) — sincroniza a partir do data-checked,
+  // que é um atributo de verdade e volta certinho.
+  root.querySelectorAll('.block-checklist').forEach(block => {
+    const cb = block.querySelector('input[type="checkbox"]');
+    if (cb) cb.checked = block.dataset.checked === 'true';
+  });
+
+  renumberLists();
+
+  const last = root.lastElementChild;
+  if (last) {
+    const c = getContentEl(last);
+    c.focus();
+    setCaretOffset(c, c.textContent.length);
+  }
+  scheduleSave();
+}
+
+function performUndo() {
+  if (undoStack.length === 0) return;
+  pendingTypingSnapshot = null;
+  clearTimeout(typingSnapshotTimer);
+  const current = snapshotState();
+  const prev = undoStack.pop();
+  redoStack.push(current);
+  restoreSnapshot(prev);
+}
+
+function performRedo() {
+  if (redoStack.length === 0) return;
+  const current = snapshotState();
+  const next = redoStack.pop();
+  undoStack.push(current);
+  restoreSnapshot(next);
+}
+
 // ── Detecção com debounce (não recalcula a cada tecla, só quando pausa) ──────
 function scheduleRescan(block) {
   rescanBlock = block;
@@ -632,6 +718,8 @@ function renderBlocks(blocks) {
     if (block.dataset.type === 'code' || block.dataset.type === 'divider') continue;
     applyDetectionMarks(getContentEl(block));
   }
+
+  resetUndoHistory(); // histórico de undo é por nota, não deve vazar de uma pra outra
 }
 
 export async function switchToNote(id) {
@@ -828,6 +916,8 @@ function confirmSlashSelection() {
   closeSlashMenu();
   if (!item || !block) return;
 
+  captureUndoPoint();
+
   if (item.type === 'divider') {
     const divider = createBlockEl('divider');
     block.replaceWith(divider);
@@ -943,6 +1033,7 @@ function htmlOfFragment(fragment) {
 }
 
 function handleEnter(block) {
+  captureUndoPoint();
   const content  = getContentEl(block);
   const offset   = getCaretOffset(content);
   const type     = block.dataset.type;
@@ -970,6 +1061,7 @@ function handleEnter(block) {
 }
 
 function handleBackspaceAtStart(block) {
+  captureUndoPoint();
   const type = block.dataset.type;
 
   if (type !== 'paragraph') {
@@ -1001,6 +1093,14 @@ function handleBackspaceAtStart(block) {
 }
 
 // ── Eventos principais do editor ──────────────────────────────────────────────
+// Dispara antes da mudança entrar no DOM — é o único ponto em que dá pra
+// capturar o estado "antes" da digitação normal (o 'input' já roda depois).
+// Enter/Backspace/colar já têm sua própria captura (são interceptados com
+// preventDefault antes de gerar beforeinput).
+root.addEventListener('beforeinput', () => {
+  captureTypingUndoPoint();
+});
+
 root.addEventListener('input', () => {
   const block = currentBlock();
   if (!block) return;
@@ -1022,6 +1122,18 @@ root.addEventListener('input', () => {
 });
 
 root.addEventListener('keydown', e => {
+  const key = e.key.toLowerCase();
+  if ((e.ctrlKey || e.metaKey) && !e.shiftKey && key === 'z') {
+    e.preventDefault();
+    performUndo();
+    return;
+  }
+  if ((e.ctrlKey || e.metaKey) && (key === 'y' || (e.shiftKey && key === 'z'))) {
+    e.preventDefault();
+    performRedo();
+    return;
+  }
+
   if (slashMenuEl) {
     if (e.key === 'ArrowDown') { e.preventDefault(); moveSlashSelection(1);  return; }
     if (e.key === 'ArrowUp')   { e.preventDefault(); moveSlashSelection(-1); return; }
@@ -1081,6 +1193,7 @@ function pasteMultilineText(text) {
   const block = currentBlock();
   if (!block) return;
 
+  captureUndoPoint();
   const parsed = parseMarkdownToBlocks(text);
   const newEls = parsed.map(b => createBlockEl(b.type, b.html ?? '', b.checked ?? false));
 
@@ -1135,6 +1248,7 @@ function applyTransformToSelection(fn) {
   const range = sel.getRangeAt(0);
   if (!root.contains(range.commonAncestorContainer)) return;
 
+  captureUndoPoint();
   const block = getBlockFromNode(range.commonAncestorContainer);
   const transformed = applySkipEmails(range.toString(), fn);
 
@@ -1186,6 +1300,7 @@ for (const t of TRANSFORMS) {
 
 // ── Formatação Markdown / troca de tipo de bloco (segunda barra) ─────────────
 function execFormat(command) {
+  captureUndoPoint();
   document.execCommand(command, false, null);
   const block = currentBlock();
   if (block) scheduleRescan(block);
@@ -1198,6 +1313,7 @@ function wrapSelectionInTag(tag) {
   const range = sel.getRangeAt(0);
   if (!root.contains(range.commonAncestorContainer)) return;
 
+  captureUndoPoint();
   const el = document.createElement(tag);
   el.appendChild(range.extractContents());
   range.insertNode(el);
@@ -1236,6 +1352,8 @@ function convertSelectedBlocks(type) {
   const blocks = getSelectedBlocks();
   if (blocks.length === 0) return;
 
+  captureUndoPoint();
+
   if (blocks.length === 1) {
     const block   = blocks[0];
     const content = getContentEl(block);
@@ -1259,6 +1377,7 @@ function convertSelectedBlocks(type) {
 function insertDividerAtCursor() {
   const block = currentBlock();
   if (!block) return;
+  captureUndoPoint();
   const divider = createBlockEl('divider');
   block.after(divider);
   const para = createBlockEl('paragraph');
