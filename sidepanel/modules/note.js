@@ -1173,24 +1173,54 @@ root.addEventListener('paste', e => {
   const text = e.clipboardData?.getData('text/plain') ?? '';
   if (!text) return;
 
-  // Colagem de uma linha só: insere como texto simples, sem mexer na
-  // estrutura do bloco atual.
-  if (!text.includes('\n')) {
-    document.execCommand('insertText', false, text);
-    const block = currentBlock();
-    if (block) scheduleRescan(block);
-    scheduleSave();
-    return;
+  if (text.includes('\n')) {
+    pasteMultilineText(text);
+  } else {
+    pasteInlineText(text);
+  }
+});
+
+// Colagem de uma linha só: insere como texto simples via Range (não usa
+// execCommand — comportamento inconsistente entre versões do Chrome), sem
+// mexer na estrutura do bloco atual. Se não há uma seleção válida dentro do
+// editor (ex.: foco perdido), cola no fim do último bloco em vez de não
+// fazer nada.
+function pasteInlineText(text) {
+  const sel = document.getSelection();
+  let range = (sel && sel.rangeCount > 0) ? sel.getRangeAt(0) : null;
+  if (!range || !root.contains(range.commonAncestorContainer)) {
+    const last = root.lastElementChild;
+    if (!last) return;
+    const c = getContentEl(last);
+    c.focus();
+    range = document.createRange();
+    range.selectNodeContents(c);
+    range.collapse(false);
   }
 
-  pasteMultilineText(text);
-});
+  const block = getBlockFromNode(range.commonAncestorContainer);
+  captureUndoPoint();
+
+  range.deleteContents();
+  const node = document.createTextNode(text);
+  range.insertNode(node);
+
+  const after = document.createRange();
+  after.setStartAfter(node);
+  after.collapse(true);
+  sel.removeAllRanges();
+  sel.addRange(after);
+
+  if (block) scheduleRescan(block);
+  scheduleSave();
+}
 
 // Colagem de texto com várias linhas: reaproveita o mesmo parser da migração
 // de notas antigas pra reconhecer "# título", "- [ ] tarefa", listas etc. e
-// já colar como blocos de verdade, não como texto solto.
+// já colar como blocos de verdade, não como texto solto. Se não há bloco com
+// foco (currentBlock() falha), cola no fim da nota em vez de não fazer nada.
 function pasteMultilineText(text) {
-  const block = currentBlock();
+  const block = currentBlock() ?? root.lastElementChild;
   if (!block) return;
 
   captureUndoPoint();
