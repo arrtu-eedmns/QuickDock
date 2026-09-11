@@ -25,9 +25,14 @@
 /* ===== RESET ===== */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-/* ===== ÍCONES (Material Symbols, Google Fonts — ver index.html) ===== */
-.material-symbols-outlined {
-  font-family: 'Material Symbols Outlined';
+/* ===== ÍCONES (Material Symbols Rounded, Google Fonts — ver index.html) =====
+   FILL e opsz ficam em variáveis CSS (--icon-fill/--icon-opsz) em vez de
+   fixos — assim dá pra ligar "preenchido" (.icon-filled) ou ajustar o
+   tamanho óptico (.note-tab-icon) sem precisar reescrever o eixo inteiro
+   de font-variation-settings toda vez (ele não é aditivo entre regras). */
+.material-symbols-rounded {
+  font-family: 'Material Symbols Rounded';
+  font-variation-settings: 'FILL' var(--icon-fill, 0), 'wght' 400, 'GRAD' 0, 'opsz' var(--icon-opsz, 24);
   font-weight: normal;
   font-style: normal;
   line-height: 1;
@@ -40,6 +45,7 @@
   -webkit-font-feature-settings: 'liga';
   -webkit-font-smoothing: antialiased;
 }
+.icon-filled { --icon-fill: 1; }
 
 body {
   font-family: var(--font);
@@ -330,7 +336,8 @@ body {
   display: flex;
   align-items: center;
   gap: 5px;
-  padding: 4px 6px 4px 8px;
+  height: 26px;
+  padding: 0 6px 0 8px;
   border-radius: 6px;
   cursor: pointer;
   flex-shrink: 0;
@@ -375,8 +382,7 @@ body {
   font-size: 14px;
   flex-shrink: 0;
   cursor: pointer;
-  /* Material Symbols: tamanho fixo, sem depender do peso variável da fonte */
-  font-variation-settings: 'opsz' 20;
+  --icon-opsz: 20;
 }
 
 .note-tab-menu {
@@ -396,56 +402,15 @@ body {
 
 .tab-menu { min-width: 170px; }
 
-/* ===== SELETOR DE MODO DE EXIBIÇÃO (ícone/cor/texto/tudo) ===== */
-.tab-mode-row {
-  display: flex;
-  gap: 2px;
-  padding-bottom: 6px;
-  margin-bottom: 6px;
-  border-bottom: 1px solid var(--border);
-}
-.tab-mode-btn {
-  flex: 1;
-  background: none;
-  border: 1px solid transparent;
-  color: var(--text-muted);
-  font-size: 10px;
-  font-family: var(--font);
-  padding: 3px 2px;
-  border-radius: 4px;
-  cursor: pointer;
-  transition: background 0.1s, color 0.1s;
-}
-.tab-mode-btn:hover { background: var(--bg-hover); color: var(--text); }
-.tab-mode-btn.active { background: color-mix(in srgb, var(--accent) 14%, var(--bg)); color: var(--accent); border-color: var(--accent); }
-
-.popover-remove-btn {
-  width: 100%;
-  margin-top: 6px;
-  background: none;
-  border: none;
-  border-top: 1px solid var(--border);
-  padding-top: 6px;
-  color: var(--text-muted);
-  font-size: 10.5px;
-  font-family: var(--font);
-  cursor: pointer;
-  text-align: center;
-}
-.popover-remove-btn:hover { color: #dc2626; }
-
-/* ===== SELETOR DE COR DA NOTA ===== */
-.color-popover,
-.icon-popover {
+/* ===== SELETOR DE APARÊNCIA DA NOTA (ícone + cor) ===== */
+.appearance-popover {
   position: fixed;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 6px;
-  width: 168px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15), 0 2px 6px rgba(0, 0, 0, 0.08);
+  width: 190px;
+  max-height: 420px;
+  overflow-y: auto;
   z-index: 10000;
 }
+.appearance-popover .copy-menu-header:first-child { padding-top: 2px; }
 
 .color-grid {
   display: grid;
@@ -464,6 +429,35 @@ body {
 }
 .color-swatch:hover { transform: scale(1.15); }
 .color-swatch.active { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* "Nenhuma cor" — círculo com uma linha diagonal, convenção comum de "sem preenchimento" */
+.color-swatch-none {
+  background: linear-gradient(135deg, transparent 46%, #dc2626 46%, #dc2626 54%, transparent 54%);
+  border: 1px solid var(--border);
+}
+
+.color-custom-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  cursor: pointer;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.color-custom-row:hover { color: var(--text); }
+.color-custom-input {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  cursor: pointer;
+  background: none;
+}
+/* remove a borda interna padrão do <input type="color"> em navegadores baseados em Chromium */
+.color-custom-input::-webkit-color-swatch-wrapper { padding: 2px; }
+.color-custom-input::-webkit-color-swatch { border: none; border-radius: 3px; }
 
 /* ===== SELETOR DE ÍCONE DA NOTA (Material Symbols) ===== */
 .icon-grid {
@@ -487,6 +481,19 @@ body {
 }
 .icon-swatch:hover { background: var(--bg-hover); }
 .icon-swatch.active { background: color-mix(in srgb, var(--accent) 14%, var(--bg)); border-color: var(--accent); color: var(--accent); }
+.icon-swatch-none { font-family: var(--font); font-size: 15px; color: var(--text-muted); }
+
+.icon-fill-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  cursor: pointer;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.icon-fill-row:hover { color: var(--text); }
+.icon-fill-row input[type="checkbox"] { cursor: pointer; accent-color: var(--accent); }
 
 .icon-custom-row { margin-top: 6px; }
 .icon-custom-input {
@@ -517,6 +524,22 @@ body {
 .notes-list-item.current { background: var(--bg-hover); }
 .notes-list-item .note-tab-dot,
 .notes-list-item .note-tab-icon { flex-shrink: 0; cursor: default; }
+
+.notes-list-edit-btn {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 1px 4px;
+  border-radius: 3px;
+  line-height: 1;
+  opacity: 0;
+  transition: opacity 0.12s, color 0.12s, background 0.12s;
+}
+.notes-list-item:hover .notes-list-edit-btn { opacity: 1; }
+.notes-list-edit-btn:hover { color: var(--text); background: var(--bg-hover); }
 
 /* ===== ALÇA DE REDIMENSIONAMENTO ===== */
 .resize-handle {

@@ -12,20 +12,23 @@ const btnNotesList  = document.getElementById('btn-notes-list');
 const importInput   = document.getElementById('note-import-input');
 const noteEditorEl  = document.querySelector('.note-editor');
 
-const COLORS = ['#9b9b9b', '#ef4444', '#f97316', '#eab308', '#22c55e', '#3b82f6', '#a855f7', '#ec4899'];
+// As 7 cores do arco-íris, na ordem — "Nenhuma" fica à parte, sempre primeiro
+// na lista do popover.
+const COLORS = [
+  { name: 'Vermelho', hex: '#ef4444' },
+  { name: 'Laranja',  hex: '#f97316' },
+  { name: 'Amarelo',  hex: '#eab308' },
+  { name: 'Verde',    hex: '#22c55e' },
+  { name: 'Azul',     hex: '#3b82f6' },
+  { name: 'Anil',     hex: '#6366f1' },
+  { name: 'Violeta',  hex: '#a855f7' },
+];
 
 // Ícones comuns (Material Symbols) — qualquer outro nome do catálogo
 // (fonts.google.com/icons) também funciona via o campo de texto livre.
 const COMMON_ICONS = [
   'note', 'description', 'edit_note', 'checklist', 'star', 'flag',
   'bookmark', 'folder', 'lightbulb', 'push_pin', 'label', 'event',
-];
-
-const DISPLAY_MODES = [
-  { key: 'icon',  label: 'Ícone' },
-  { key: 'color', label: 'Cor'   },
-  { key: 'text',  label: 'Texto' },
-  { key: 'all',   label: 'Tudo'  },
 ];
 
 let notesMeta = [];
@@ -49,33 +52,44 @@ function renderTabs() {
   for (const meta of notesMeta) tabsEl.appendChild(buildTab(meta));
 }
 
-// Indicador visual da aba conforme o modo de exibição da nota (ícone / cor /
-// texto / tudo). `interactive` desliga o clique-pra-abrir-o-popover quando
-// reaproveitado num contexto só de leitura (ex.: lista do "☰").
-function buildTabIndicator(meta, interactive = true) {
-  const mode = meta.tabDisplay || 'color';
-  if (mode === 'text') return null;
+// A tira de abas rola só na horizontal — trocar de nota por um caminho que
+// não seja clicar na própria aba (menu "☰", carregamento inicial) pode
+// deixar a aba ativa fora da área visível.
+function scrollTabIntoView(id) {
+  const tab = tabsEl.querySelector(`.note-tab[data-id="${id}"]`);
+  tab?.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'smooth' });
+}
 
-  if ((mode === 'icon' || mode === 'all') && meta.icon) {
+// Indicador visual da aba: ícone se a nota tem um definido, senão a bolinha
+// de cor se tem cor, senão nada (só o título aparece). Não existe mais um
+// "modo" separado — é só o que estiver de fato preenchido. `interactive`
+// desliga o clique-pra-abrir-o-popover quando reaproveitado num contexto só
+// de leitura (ex.: lista do "☰").
+function buildTabIndicator(meta, interactive = true) {
+  if (meta.icon) {
     const span = document.createElement('span');
-    span.className = 'note-tab-icon material-symbols-outlined';
+    span.className = 'note-tab-icon material-symbols-rounded' + (meta.iconFilled ? ' icon-filled' : '');
     span.textContent = meta.icon;
     span.style.color = meta.color || 'var(--text-muted)';
     if (interactive) {
       span.title = 'Ícone da nota';
-      span.addEventListener('click', e => { e.stopPropagation(); openIconPicker(meta, span); });
+      span.addEventListener('click', e => { e.stopPropagation(); openAppearancePicker(meta, span); });
     }
     return span;
   }
 
-  const dot = document.createElement('span');
-  dot.className = 'note-tab-dot';
-  dot.style.background = meta.color || 'var(--text-muted)';
-  if (interactive) {
-    dot.title = 'Cor da nota';
-    dot.addEventListener('click', e => { e.stopPropagation(); openColorPicker(meta, dot); });
+  if (meta.color) {
+    const dot = document.createElement('span');
+    dot.className = 'note-tab-dot';
+    dot.style.background = meta.color;
+    if (interactive) {
+      dot.title = 'Cor da nota';
+      dot.addEventListener('click', e => { e.stopPropagation(); openAppearancePicker(meta, dot); });
+    }
+    return dot;
   }
-  return dot;
+
+  return null;
 }
 
 function buildTab(meta) {
@@ -90,7 +104,6 @@ function buildTab(meta) {
   title.className   = 'note-tab-title';
   title.textContent = meta.title || 'Sem título';
   title.title       = meta.title || 'Sem título';
-  if (meta.tabDisplay === 'all') title.style.color = meta.color || '';
   title.addEventListener('dblclick', e => { e.stopPropagation(); startRename(meta, title); });
 
   const menuBtn = document.createElement('button');
@@ -154,133 +167,87 @@ function startRename(meta, titleEl) {
   input.addEventListener('blur', commit);
 }
 
-// ── Seletor de modo de exibição (compartilhado pelos popovers de ícone/cor) ──
-function buildModeSelector(meta) {
-  const row = document.createElement('div');
-  row.className = 'tab-mode-row';
-  for (const m of DISPLAY_MODES) {
-    const btn = document.createElement('button');
-    btn.className = 'tab-mode-btn' + ((meta.tabDisplay || 'color') === m.key ? ' active' : '');
-    btn.textContent = m.label;
-    btn.addEventListener('mousedown', e => e.stopPropagation());
-    btn.addEventListener('click', async e => {
-      e.stopPropagation();
-      await updateNoteMetaById(meta.id, { tabDisplay: m.key });
-      meta.tabDisplay = m.key;
-      row.querySelectorAll('.tab-mode-btn').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      renderTabs();
-    });
-    row.appendChild(btn);
-  }
-  return row;
-}
+// ── Popover de aparência (ícone + cor juntos) ─────────────────────────────────
+// Um popover só, com as duas seções — escolher um ícone ou uma cor não fecha
+// a tela, só atualiza o que está marcado, pra dar pra ajustar os dois sem
+// reabrir o popover a cada escolha.
+let appearancePopover = null;
+function closeAppearancePicker() { appearancePopover?.remove(); appearancePopover = null; }
 
-// ── Popover de cor ────────────────────────────────────────────────────────────
-let colorPopover = null;
-function closeColorPicker() { colorPopover?.remove(); colorPopover = null; }
+function renderAppearanceContent(pop, meta) {
+  pop.innerHTML = '';
 
-function openColorPicker(meta, anchorEl) {
-  closeColorPicker();
-  const pop = document.createElement('div');
-  pop.className = 'color-popover';
+  const iconHeader = document.createElement('div');
+  iconHeader.className = 'copy-menu-header';
+  iconHeader.textContent = 'Ícone';
+  pop.appendChild(iconHeader);
 
-  pop.appendChild(buildModeSelector(meta));
+  const iconGrid = document.createElement('div');
+  iconGrid.className = 'icon-grid';
 
-  const grid = document.createElement('div');
-  grid.className = 'color-grid';
-  for (const c of COLORS) {
-    const sw = document.createElement('button');
-    sw.className = 'color-swatch' + (meta.color === c ? ' active' : '');
-    sw.style.background = c;
-    sw.addEventListener('mousedown', e => e.stopPropagation());
-    sw.addEventListener('click', async e => {
-      e.stopPropagation();
-      await updateNoteMetaById(meta.id, { color: c });
-      meta.color = c;
-      if (meta.id === activeId) setAccent(c);
-      renderTabs();
-      closeColorPicker();
-    });
-    grid.appendChild(sw);
-  }
-  pop.appendChild(grid);
-
-  if (meta.color) {
-    const removeBtn = document.createElement('button');
-    removeBtn.className = 'popover-remove-btn';
-    removeBtn.textContent = 'Remover cor';
-    removeBtn.addEventListener('mousedown', e => e.stopPropagation());
-    removeBtn.addEventListener('click', async e => {
-      e.stopPropagation();
-      await updateNoteMetaById(meta.id, { color: null });
-      meta.color = null;
-      if (meta.id === activeId) setAccent(null);
-      renderTabs();
-      closeColorPicker();
-    });
-    pop.appendChild(removeBtn);
-  }
-
-  document.body.appendChild(pop);
-  colorPopover = pop;
-  positionPopover(pop, anchorEl);
-}
-
-document.addEventListener('mousedown', e => {
-  if (colorPopover && !colorPopover.contains(e.target)) closeColorPicker();
-});
-
-// ── Popover de ícone ──────────────────────────────────────────────────────────
-let iconPopover = null;
-function closeIconPicker() { iconPopover?.remove(); iconPopover = null; }
-
-function openIconPicker(meta, anchorEl) {
-  closeIconPicker();
-  const pop = document.createElement('div');
-  pop.className = 'icon-popover';
-
-  pop.appendChild(buildModeSelector(meta));
-
-  const grid = document.createElement('div');
-  grid.className = 'icon-grid';
-  for (const name of COMMON_ICONS) {
-    const btn = document.createElement('button');
-    btn.className = 'icon-swatch material-symbols-outlined' + (meta.icon === name ? ' active' : '');
-    btn.textContent = name;
-    btn.title = name;
-    btn.addEventListener('mousedown', e => e.stopPropagation());
-    btn.addEventListener('click', async e => {
-      e.stopPropagation();
-      await updateNoteMetaById(meta.id, { icon: name });
-      meta.icon = name;
-      renderTabs();
-      closeIconPicker();
-    });
-    grid.appendChild(btn);
-  }
-  pop.appendChild(grid);
-
-  const customRow = document.createElement('div');
-  customRow.className = 'icon-custom-row';
-  const input = document.createElement('input');
-  input.type = 'text';
-  input.className = 'icon-custom-input';
-  input.placeholder = 'nome_do_ícone';
-  input.value = (meta.icon && !COMMON_ICONS.includes(meta.icon)) ? meta.icon : '';
-  input.addEventListener('mousedown', e => e.stopPropagation());
-  input.addEventListener('keydown', async e => {
-    e.stopPropagation();
-    if (e.key !== 'Enter') return;
-    const name = input.value.trim();
-    if (!name) return;
+  const pickIcon = async (name) => {
     await updateNoteMetaById(meta.id, { icon: name });
     meta.icon = name;
     renderTabs();
-    closeIconPicker();
+    renderAppearanceContent(pop, meta);
+  };
+
+  const noneIconBtn = document.createElement('button');
+  noneIconBtn.className = 'icon-swatch icon-swatch-none' + (!meta.icon ? ' active' : '');
+  noneIconBtn.textContent = '—';
+  noneIconBtn.title = 'Nenhum ícone';
+  noneIconBtn.addEventListener('mousedown', e => e.stopPropagation());
+  noneIconBtn.addEventListener('click', e => { e.stopPropagation(); pickIcon(null); });
+  iconGrid.appendChild(noneIconBtn);
+
+  const filledClass = meta.iconFilled ? ' icon-filled' : '';
+  for (const name of COMMON_ICONS) {
+    const btn = document.createElement('button');
+    btn.className = 'icon-swatch material-symbols-rounded' + filledClass + (meta.icon === name ? ' active' : '');
+    btn.textContent = name;
+    btn.title = name;
+    btn.addEventListener('mousedown', e => e.stopPropagation());
+    btn.addEventListener('click', e => { e.stopPropagation(); pickIcon(name); });
+    iconGrid.appendChild(btn);
+  }
+  pop.appendChild(iconGrid);
+
+  // Alterna entre o estilo "contorno" (padrão) e "preenchido" do ícone —
+  // usa o eixo FILL da própria fonte variável, não precisa carregar outra.
+  const fillRow = document.createElement('label');
+  fillRow.className = 'icon-fill-row';
+  const fillCheckbox = document.createElement('input');
+  fillCheckbox.type = 'checkbox';
+  fillCheckbox.checked = !!meta.iconFilled;
+  fillCheckbox.addEventListener('mousedown', e => e.stopPropagation());
+  fillCheckbox.addEventListener('change', async e => {
+    e.stopPropagation();
+    await updateNoteMetaById(meta.id, { iconFilled: e.target.checked });
+    meta.iconFilled = e.target.checked;
+    renderTabs();
+    renderAppearanceContent(pop, meta);
   });
-  customRow.appendChild(input);
-  pop.appendChild(customRow);
+  const fillLabel = document.createElement('span');
+  fillLabel.textContent = 'Ícone preenchido';
+  fillRow.append(fillCheckbox, fillLabel);
+  pop.appendChild(fillRow);
+
+  const iconCustomRow = document.createElement('div');
+  iconCustomRow.className = 'icon-custom-row';
+  const iconInput = document.createElement('input');
+  iconInput.type = 'text';
+  iconInput.className = 'icon-custom-input';
+  iconInput.placeholder = 'nome_do_ícone (personalizado)';
+  iconInput.value = (meta.icon && !COMMON_ICONS.includes(meta.icon)) ? meta.icon : '';
+  iconInput.addEventListener('mousedown', e => e.stopPropagation());
+  iconInput.addEventListener('keydown', e => {
+    e.stopPropagation();
+    if (e.key !== 'Enter') return;
+    const name = iconInput.value.trim();
+    if (name) pickIcon(name);
+  });
+  iconCustomRow.appendChild(iconInput);
+  pop.appendChild(iconCustomRow);
 
   const hint = document.createElement('a');
   hint.className = 'icon-hint-link';
@@ -291,28 +258,68 @@ function openIconPicker(meta, anchorEl) {
   hint.addEventListener('mousedown', e => e.stopPropagation());
   pop.appendChild(hint);
 
-  if (meta.icon) {
-    const removeBtn = document.createElement('button');
-    removeBtn.className = 'popover-remove-btn';
-    removeBtn.textContent = 'Remover ícone';
-    removeBtn.addEventListener('mousedown', e => e.stopPropagation());
-    removeBtn.addEventListener('click', async e => {
-      e.stopPropagation();
-      await updateNoteMetaById(meta.id, { icon: null });
-      meta.icon = null;
-      renderTabs();
-      closeIconPicker();
-    });
-    pop.appendChild(removeBtn);
-  }
+  pop.appendChild(Object.assign(document.createElement('div'), { className: 'math-divider' }));
 
+  const colorHeader = document.createElement('div');
+  colorHeader.className = 'copy-menu-header';
+  colorHeader.textContent = 'Cor';
+  pop.appendChild(colorHeader);
+
+  const colorGrid = document.createElement('div');
+  colorGrid.className = 'color-grid';
+
+  const pickColor = async (hex) => {
+    await updateNoteMetaById(meta.id, { color: hex });
+    meta.color = hex;
+    if (meta.id === activeId) setAccent(hex);
+    renderTabs();
+    renderAppearanceContent(pop, meta);
+  };
+
+  const noneColorBtn = document.createElement('button');
+  noneColorBtn.className = 'color-swatch color-swatch-none' + (!meta.color ? ' active' : '');
+  noneColorBtn.title = 'Nenhuma cor';
+  noneColorBtn.addEventListener('mousedown', e => e.stopPropagation());
+  noneColorBtn.addEventListener('click', e => { e.stopPropagation(); pickColor(null); });
+  colorGrid.appendChild(noneColorBtn);
+
+  for (const { name, hex } of COLORS) {
+    const sw = document.createElement('button');
+    sw.className = 'color-swatch' + (meta.color === hex ? ' active' : '');
+    sw.style.background = hex;
+    sw.title = name;
+    sw.addEventListener('mousedown', e => e.stopPropagation());
+    sw.addEventListener('click', e => { e.stopPropagation(); pickColor(hex); });
+    colorGrid.appendChild(sw);
+  }
+  pop.appendChild(colorGrid);
+
+  const colorCustomRow = document.createElement('label');
+  colorCustomRow.className = 'color-custom-row';
+  const colorInput = document.createElement('input');
+  colorInput.type  = 'color';
+  colorInput.className = 'color-custom-input';
+  colorInput.value = (meta.color && /^#[0-9a-f]{6}$/i.test(meta.color)) ? meta.color : '#888888';
+  colorInput.addEventListener('mousedown', e => e.stopPropagation());
+  colorInput.addEventListener('change', e => { e.stopPropagation(); pickColor(e.target.value); });
+  const colorLabel = document.createElement('span');
+  colorLabel.textContent = 'Outra cor…';
+  colorCustomRow.append(colorInput, colorLabel);
+  pop.appendChild(colorCustomRow);
+}
+
+function openAppearancePicker(meta, anchorEl) {
+  closeAppearancePicker();
+  const pop = document.createElement('div');
+  pop.className = 'copy-menu appearance-popover';
+  renderAppearanceContent(pop, meta);
   document.body.appendChild(pop);
-  iconPopover = pop;
+  appearancePopover = pop;
   positionPopover(pop, anchorEl);
 }
 
 document.addEventListener('mousedown', e => {
-  if (iconPopover && !iconPopover.contains(e.target)) closeIconPicker();
+  if (appearancePopover && !appearancePopover.contains(e.target)) closeAppearancePicker();
 });
 
 // ── Menu "⋯" (renomear / ícone / cor / copiar / baixar / excluir) ────────────
@@ -362,9 +369,8 @@ function openTabMenu(meta, anchorEl, titleEl) {
   };
   const addDivider = () => menu.appendChild(Object.assign(document.createElement('div'), { className: 'math-divider' }));
 
-  addOpt('Renomear', () => startRename(meta, titleEl));
-  addOpt('Ícone',    () => openIconPicker(meta, anchorEl));
-  addOpt('Cor',      () => openColorPicker(meta, anchorEl));
+  addOpt('Renomear',   () => startRename(meta, titleEl));
+  addOpt('Ícone e cor', () => openAppearancePicker(meta, anchorEl));
 
   addDivider();
 
@@ -409,26 +415,53 @@ document.addEventListener('mousedown', e => {
 let notesListPopover = null;
 function closeNotesListPopover() { notesListPopover?.remove(); notesListPopover = null; }
 
+// Abre o mesmo menu "⋯" de sempre, mas ancorado na aba de verdade — assim
+// não precisa duplicar a lógica de renomear/ícone/cor/excluir pra dentro
+// da lista. A aba de qualquer nota sempre existe no DOM (só pode estar fora
+// da área visível pela rolagem horizontal).
+function openTabMenuForNote(meta) {
+  closeNotesListPopover();
+  const tabEl    = tabsEl.querySelector(`.note-tab[data-id="${meta.id}"]`);
+  const menuBtn  = tabEl?.querySelector('.note-tab-menu');
+  const titleEl  = tabEl?.querySelector('.note-tab-title');
+  if (!tabEl || !menuBtn || !titleEl) return;
+  // Sem "smooth" aqui: o menu abre logo em seguida e precisa da posição
+  // final da aba, não de uma posição no meio de uma animação de rolagem.
+  tabEl.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  openTabMenu(meta, menuBtn, titleEl);
+}
+
 function openNotesListPopover() {
   closeNotesListPopover();
   const pop = document.createElement('div');
   pop.className = 'copy-menu notes-list-popover';
 
   for (const meta of notesMeta) {
-    const btn = document.createElement('button');
-    btn.className = 'copy-opt notes-list-item' + (meta.id === activeId ? ' current' : '');
+    const row = document.createElement('div');
+    row.className = 'copy-opt notes-list-item' + (meta.id === activeId ? ' current' : '');
+
     const indicator = buildTabIndicator(meta, false);
     const label = document.createElement('span');
     label.className = 'copy-opt-value';
     label.textContent = meta.title || 'Sem título';
-    if (indicator) btn.appendChild(indicator);
-    btn.appendChild(label);
-    btn.addEventListener('mousedown', e => e.stopPropagation());
-    btn.addEventListener('click', async () => {
+    if (indicator) row.appendChild(indicator);
+    row.appendChild(label);
+
+    const editBtn = document.createElement('button');
+    editBtn.className   = 'notes-list-edit-btn';
+    editBtn.textContent = '⋯';
+    editBtn.title       = 'Opções da nota';
+    editBtn.addEventListener('mousedown', e => e.stopPropagation());
+    editBtn.addEventListener('click', e => { e.stopPropagation(); openTabMenuForNote(meta); });
+    row.appendChild(editBtn);
+
+    row.addEventListener('mousedown', e => e.stopPropagation());
+    row.addEventListener('click', async () => {
       closeNotesListPopover();
       if (meta.id !== activeId) { await activateNote(meta.id); renderTabs(); }
+      scrollTabIntoView(meta.id);
     });
-    pop.appendChild(btn);
+    pop.appendChild(row);
   }
 
   document.body.appendChild(pop);
@@ -449,7 +482,7 @@ async function createBlankNote() {
   await flushSave();
   const title = `Nota ${notesMeta.length + 1}`;
   const id = await createNoteRecord({ title, content: '' });
-  notesMeta.push({ id, title, color: null, icon: null, tabDisplay: 'color', updatedAt: Date.now() });
+  notesMeta.push({ id, title, color: null, icon: null, updatedAt: Date.now() });
   await activateNote(id);
   renderTabs();
 }
@@ -495,7 +528,7 @@ importInput.addEventListener('change', async () => {
 
   await flushSave();
   const id = await createNoteRecord({ title, content, blocks });
-  notesMeta.push({ id, title, color: null, icon: null, tabDisplay: 'color', updatedAt: Date.now() });
+  notesMeta.push({ id, title, color: null, icon: null, updatedAt: Date.now() });
   await activateNote(id);
   renderTabs();
 });
@@ -515,19 +548,20 @@ export async function initNotesTabs() {
 
   if (notesMeta.length === 0) {
     const id = await createNoteRecord({ title: 'Nota 1', content: '' });
-    notesMeta = [{ id, title: 'Nota 1', color: null, icon: null, tabDisplay: 'color', updatedAt: Date.now() }];
+    notesMeta = [{ id, title: 'Nota 1', color: null, icon: null, updatedAt: Date.now() }];
   }
 
   const savedActiveId = await loadActiveNoteId();
   const initial = notesMeta.find(n => n.id === savedActiveId) ?? notesMeta[0];
   await activateNote(initial.id);
   renderTabs();
+  scrollTabIntoView(initial.id);
 }
 
 // Usado por "limpar tudo": recria uma única nota vazia.
 export async function resetNotesTabs() {
   const id = await createNoteRecord({ title: 'Nota 1', content: '' });
-  notesMeta = [{ id, title: 'Nota 1', color: null, icon: null, tabDisplay: 'color', updatedAt: Date.now() }];
+  notesMeta = [{ id, title: 'Nota 1', color: null, icon: null, updatedAt: Date.now() }];
   activeId  = id;
   setAccent(null);
   await switchToNote(id);
