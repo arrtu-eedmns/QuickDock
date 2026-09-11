@@ -1,12 +1,13 @@
-import { initNotesTabs, resetNotesTabs } from './modules/notes-tabs.js';
+import { initNotesTabs, resetNotesTabs, createTutorialNote } from './modules/notes-tabs.js';
 import { initDocuments, clearDocuments } from './modules/documents.js';
 import { closeModal } from './modules/modal.js';
 import { loadTheme, saveTheme, clearAll } from './modules/storage.js';
 import { initResizer } from './modules/resizer.js';
 
-const btnTheme = document.getElementById('btn-theme');
-const btnClear = document.getElementById('btn-clear');
-const html     = document.documentElement;
+const btnTheme    = document.getElementById('btn-theme');
+const btnClear    = document.getElementById('btn-clear');
+const btnTutorial = document.getElementById('btn-tutorial');
+const html        = document.documentElement;
 
 function applyTheme(theme) {
   html.setAttribute('data-theme', theme);
@@ -25,6 +26,10 @@ btnTheme.addEventListener('click', async () => {
   const next = html.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
   await saveTheme(next);
   applyTheme(next);
+});
+
+btnTutorial.addEventListener('click', async () => {
+  await createTutorialNote();
 });
 
 btnClear.addEventListener('click', async () => {

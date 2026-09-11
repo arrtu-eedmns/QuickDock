@@ -31,12 +31,133 @@ const COMMON_ICONS = [
   'bookmark', 'folder', 'lightbulb', 'push_pin', 'label', 'event',
 ];
 
+// ── Nota-tutorial ──────────────────────────────────────────────────────────
+// Texto em markdown puro — vira blocos de verdade (títulos, listas, citação,
+// checklist, divisores, negrito/itálico/riscado) pelo mesmo parser usado na
+// importação de arquivo .md. Sem crase nenhuma aqui de propósito: qualquer
+// crase no meio do texto seria interpretada como código em linha pelo
+// próprio parser, então os exemplos de sintaxe são descritos por extenso.
+const TUTORIAL_MARKDOWN = `# Bem-vindo ao QuickDock 👋
+
+Esta nota foi criada automaticamente pra te mostrar como usar cada parte do QuickDock. Pode editar ou apagar à vontade — sempre que quiser vê-la de novo, clique no botão de tutorial (📘) ao lado do botão de tema, no topo do painel.
+
+## Formatação de texto
+
+- Colocar **duplo asterisco** dos dois lados vira **negrito**
+- Colocar *um asterisco* de cada lado vira *itálico*
+- Colocar ~~til duplo~~ dos dois lados vira ~~riscado~~
+- Colocar o texto entre um par de crases vira código em linha
+
+## Blocos, do jeito Notion
+
+Digite uma barra "/" no começo de uma linha vazia pra abrir o menu e escolher o tipo de bloco. Ou use os atalhos abaixo, digitando o símbolo seguido de espaço no início da linha:
+
+- Cerquilha (#), repetida até seis vezes, + espaço → Título 1 a Título 6
+- Hífen ou asterisco + espaço → lista com marcadores
+- "1." + espaço → lista numerada
+- Hífen, espaço e colchetes "[ ]" → checklist
+- Maior-que (>) + espaço → citação
+- Três hífens sozinhos na linha → divisor
+- Três crases sozinhas na linha → bloco de código
+
+### Exemplos ao vivo
+
+> Isso aqui é uma citação — ótima pra destacar um trecho importante.
+
+- [ ] Marque esta tarefa pra ver o checkbox funcionando
+- [x] Esta já vem marcada
+
+1. Primeiro passo
+2. Segundo passo
+3. Terceiro passo
+
+---
+
+## Controles de cada bloco
+
+Passe o mouse na margem esquerda de qualquer bloco (inclusive este) pra ver dois ícones aparecerem:
+
+- O símbolo "+" adiciona um bloco novo logo abaixo. Segure Ctrl e clique nele pra adicionar acima.
+- A alça de arrastar (os pontinhos): clique nela pra abrir o menu do bloco — Transformar em, Duplicar, Excluir. Ou arraste pra reordenar sem perder a formatação.
+- Segure Ctrl e arraste a partir de qualquer ponto do texto (não só a alça) pra selecionar vários blocos de uma vez e mover, duplicar ou excluir juntos.
+- Ctrl+Z desfaz e Ctrl+Shift+Z refaz — inclusive troca de tipo de bloco.
+
+## Detecção inteligente (a parte de "cálculo")
+
+Segure Ctrl e clique em cima de qualquer valor sublinhado abaixo pra ver um menu com opções de cópia (ou o cálculo, no último caso):
+
+- CPF: 111.444.777-35
+- CNPJ: 11.222.333/0001-81
+- CEP: 01310-100
+- Telefone: (11) 98765-4321
+- E-mail: contato@quickdock.com
+- Data: 25/12/2026
+- Cálculo: 150 + 25 * 2 - 10%
+
+No cálculo, o menu mostra o passo a passo e o resultado, com um botão pra copiar. CPF e CNPJ também mostram se o número é válido.
+
+---
+
+## Várias notas
+
+- As abas da nota ficam no topo desta seção. Clique no ☰ pra ver a lista completa (útil quando há muitas abas abertas).
+- O botão ＋ cria uma nota em branco ou importa um arquivo .md ou .txt.
+- Em cada aba, o menu ⋯ tem: Renomear, Ícone e cor, Copiar como Markdown, Copiar como texto, Baixar .md, Baixar .txt e Excluir.
+- Em "Ícone e cor" dá pra escolher um ícone comum, digitar o nome de qualquer ícone do catálogo do Google Fonts, alternar entre contorno e preenchido, e escolher uma cor — inclusive uma cor personalizada.
+
+## Documentos
+
+Na parte de baixo do painel dá pra guardar arquivos e imagens:
+
+- Clique no ＋ da seção Documentos, arraste arquivos pra dentro da área, ou cole uma imagem direto com Ctrl+V.
+- Clique em uma imagem pra abrir o visualizador — zoom, girar, navegar entre várias com as setas.
+- Selecione vários arquivos pra injetar direto na página que você está usando ou apagar em lote.
+
+---
+
+Pronto — isso cobre praticamente tudo. Bom uso 🚀`;
+
+function buildTutorialNoteFields() {
+  const blocks  = parseMarkdownToBlocks(TUTORIAL_MARKDOWN);
+  const content = blocksToMarkdown(blocks);
+  return { title: 'Tutorial', content, blocks, icon: 'school', color: '#3b82f6' };
+}
+
 let notesMeta = [];
 let activeId  = null;
-let dragSrcId = null;
 
+// ── Reordenar notas por arraste (abas e lista do "☰") ─────────────────────────
+// Mesma lógica de mover-dentro-do-array pros dois lugares; cada um só monta
+// o indicador visual (barra vertical nas abas, linha horizontal na lista) do
+// seu próprio jeito e chama isto no drop.
+let noteDragSrcId = null;
+let tabDropIndicatorEl = null;
+
+function cleanupTabDrag() {
+  tabDropIndicatorEl?.remove();
+  tabDropIndicatorEl = null;
+  noteDragSrcId = null;
+}
+
+async function reorderNotes(srcId, targetId, before) {
+  if (srcId == null || srcId === targetId) return false;
+  const from = notesMeta.findIndex(n => n.id === srcId);
+  if (from === -1) return false;
+  const [moved] = notesMeta.splice(from, 1);
+  let to = notesMeta.findIndex(n => n.id === targetId);
+  if (to === -1) to = notesMeta.length;
+  else if (!before) to += 1;
+  notesMeta.splice(to, 0, moved);
+  await reorderNoteRecords(notesMeta.map(n => n.id));
+  return true;
+}
+
+// Sem cor definida: remove a variável (não seta "transparent") pra que os
+// elementos temáticos (citação, marcadores, checkbox) caiam de volta no
+// var(--accent) padrão em vez de ficarem invisíveis.
 function setAccent(color) {
-  noteEditorEl.style.setProperty('--note-accent', color || 'transparent');
+  if (color) noteEditorEl.style.setProperty('--note-accent', color);
+  else noteEditorEl.style.removeProperty('--note-accent');
 }
 
 function positionPopover(el, anchorEl) {
@@ -62,19 +183,15 @@ function scrollTabIntoView(id) {
 
 // Indicador visual da aba: ícone se a nota tem um definido, senão a bolinha
 // de cor se tem cor, senão nada (só o título aparece). Não existe mais um
-// "modo" separado — é só o que estiver de fato preenchido. `interactive`
-// desliga o clique-pra-abrir-o-popover quando reaproveitado num contexto só
-// de leitura (ex.: lista do "☰").
-function buildTabIndicator(meta, interactive = true) {
+// "modo" separado — é só o que estiver de fato preenchido. Não tem clique
+// próprio: o duplo clique em qualquer parte da aba (texto, ícone ou cor)
+// é tratado no nível da própria aba, em buildTab.
+function buildTabIndicator(meta) {
   if (meta.icon) {
     const span = document.createElement('span');
     span.className = 'note-tab-icon material-symbols-rounded' + (meta.iconFilled ? ' icon-filled' : '');
     span.textContent = meta.icon;
     span.style.color = meta.color || 'var(--text-muted)';
-    if (interactive) {
-      span.title = 'Ícone da nota';
-      span.addEventListener('click', e => { e.stopPropagation(); openAppearancePicker(meta, span); });
-    }
     return span;
   }
 
@@ -82,10 +199,6 @@ function buildTabIndicator(meta, interactive = true) {
     const dot = document.createElement('span');
     dot.className = 'note-tab-dot';
     dot.style.background = meta.color;
-    if (interactive) {
-      dot.title = 'Cor da nota';
-      dot.addEventListener('click', e => { e.stopPropagation(); openAppearancePicker(meta, dot); });
-    }
     return dot;
   }
 
@@ -97,47 +210,60 @@ function buildTab(meta) {
   tab.className = 'note-tab' + (meta.id === activeId ? ' active' : '');
   tab.draggable = true;
   tab.dataset.id = String(meta.id);
+  tab.title = meta.title || 'Sem título';
 
   const indicator = buildTabIndicator(meta);
+
+  // Só oculta o nome se sobrar ícone ou cor pra identificar a aba — nunca os
+  // três (ícone, cor e nome) somem ao mesmo tempo.
+  const titleHidden = !!meta.titleHidden && !!(meta.icon || meta.color);
 
   const title = document.createElement('span');
   title.className   = 'note-tab-title';
   title.textContent = meta.title || 'Sem título';
-  title.title       = meta.title || 'Sem título';
-  title.addEventListener('dblclick', e => { e.stopPropagation(); startRename(meta, title); });
-
-  const menuBtn = document.createElement('button');
-  menuBtn.className   = 'note-tab-menu';
-  menuBtn.textContent = '⋯';
-  menuBtn.title       = 'Opções da nota';
-  menuBtn.addEventListener('click', e => { e.stopPropagation(); openTabMenu(meta, menuBtn, title); });
+  title.hidden       = titleHidden;
 
   if (indicator) tab.appendChild(indicator);
-  tab.append(title, menuBtn);
+  tab.appendChild(title);
 
+  // Um clique só troca de nota (nunca abre menu, pra não abrir sem querer).
+  // O clique duplo — em qualquer parte da aba: texto, ícone ou cor — abre o
+  // mesmo menu de sempre (Renomear / Ícone e cor / Copiar / Baixar / Excluir),
+  // sem precisar mais do botão "⋯" só pra isso, deixando a aba mais compacta.
   tab.addEventListener('click', async () => {
     if (meta.id === activeId) return;
     await activateNote(meta.id);
     renderTabs();
   });
+  tab.addEventListener('dblclick', e => {
+    e.preventDefault();
+    openTabMenu(meta, tab, title);
+  });
 
   tab.addEventListener('dragstart', e => {
-    dragSrcId = meta.id;
+    noteDragSrcId = meta.id;
     e.dataTransfer.effectAllowed = 'move';
+    tabDropIndicatorEl = document.createElement('div');
+    tabDropIndicatorEl.className = 'tab-drop-indicator';
   });
-  tab.addEventListener('dragover', e => e.preventDefault());
+  tab.addEventListener('dragover', e => {
+    if (noteDragSrcId == null || noteDragSrcId === meta.id || !tabDropIndicatorEl) return;
+    e.preventDefault();
+    const rect = tab.getBoundingClientRect();
+    const before = e.clientX < rect.left + rect.width / 2;
+    tab[before ? 'before' : 'after'](tabDropIndicatorEl);
+  });
   tab.addEventListener('drop', async e => {
     e.preventDefault();
-    if (dragSrcId == null || dragSrcId === meta.id) return;
-    const from = notesMeta.findIndex(n => n.id === dragSrcId);
-    const to   = notesMeta.findIndex(n => n.id === meta.id);
-    if (from === -1 || to === -1) return;
-    const [moved] = notesMeta.splice(from, 1);
-    notesMeta.splice(to, 0, moved);
-    dragSrcId = null;
-    await reorderNoteRecords(notesMeta.map(n => n.id));
-    renderTabs();
+    if (noteDragSrcId == null) return;
+    const rect = tab.getBoundingClientRect();
+    const before = e.clientX < rect.left + rect.width / 2;
+    const srcId = noteDragSrcId;
+    cleanupTabDrag();
+    const moved = await reorderNotes(srcId, meta.id, before);
+    if (moved) { renderTabs(); scrollTabIntoView(srcId); }
   });
+  tab.addEventListener('dragend', cleanupTabDrag);
 
   return tab;
 }
@@ -238,15 +364,24 @@ function renderAppearanceContent(pop, meta) {
   iconInput.type = 'text';
   iconInput.className = 'icon-custom-input';
   iconInput.placeholder = 'nome_do_ícone (personalizado)';
-  iconInput.value = (meta.icon && !COMMON_ICONS.includes(meta.icon)) ? meta.icon : '';
+  const initialCustomName = (meta.icon && !COMMON_ICONS.includes(meta.icon)) ? meta.icon : '';
+  iconInput.value = initialCustomName;
+
+  const iconPreview = document.createElement('span');
+  iconPreview.className = 'icon-custom-preview material-symbols-rounded' + filledClass;
+  iconPreview.textContent = initialCustomName;
+
   iconInput.addEventListener('mousedown', e => e.stopPropagation());
+  iconInput.addEventListener('input', () => {
+    iconPreview.textContent = iconInput.value.trim();
+  });
   iconInput.addEventListener('keydown', e => {
     e.stopPropagation();
     if (e.key !== 'Enter') return;
     const name = iconInput.value.trim();
     if (name) pickIcon(name);
   });
-  iconCustomRow.appendChild(iconInput);
+  iconCustomRow.append(iconInput, iconPreview);
   pop.appendChild(iconCustomRow);
 
   const hint = document.createElement('a');
@@ -306,6 +441,30 @@ function renderAppearanceContent(pop, meta) {
   colorLabel.textContent = 'Outra cor…';
   colorCustomRow.append(colorInput, colorLabel);
   pop.appendChild(colorCustomRow);
+
+  // Ocultar o nome só faz sentido se sobrar ícone ou cor pra identificar a
+  // aba — sem isso a aba ficaria completamente vazia, então a opção nem
+  // aparece nesse caso (a nota volta a mostrar o nome automaticamente).
+  if (meta.icon || meta.color) {
+    pop.appendChild(Object.assign(document.createElement('div'), { className: 'math-divider' }));
+
+    const hideRow = document.createElement('label');
+    hideRow.className = 'icon-fill-row';
+    const hideCheckbox = document.createElement('input');
+    hideCheckbox.type = 'checkbox';
+    hideCheckbox.checked = !!meta.titleHidden;
+    hideCheckbox.addEventListener('mousedown', e => e.stopPropagation());
+    hideCheckbox.addEventListener('change', async e => {
+      e.stopPropagation();
+      await updateNoteMetaById(meta.id, { titleHidden: e.target.checked });
+      meta.titleHidden = e.target.checked;
+      renderTabs();
+    });
+    const hideLabel = document.createElement('span');
+    hideLabel.textContent = 'Ocultar nome na aba';
+    hideRow.append(hideCheckbox, hideLabel);
+    pop.appendChild(hideRow);
+  }
 }
 
 function openAppearancePicker(meta, anchorEl) {
@@ -421,26 +580,33 @@ function closeNotesListPopover() { notesListPopover?.remove(); notesListPopover 
 // da área visível pela rolagem horizontal).
 function openTabMenuForNote(meta) {
   closeNotesListPopover();
-  const tabEl    = tabsEl.querySelector(`.note-tab[data-id="${meta.id}"]`);
-  const menuBtn  = tabEl?.querySelector('.note-tab-menu');
-  const titleEl  = tabEl?.querySelector('.note-tab-title');
-  if (!tabEl || !menuBtn || !titleEl) return;
+  const tabEl   = tabsEl.querySelector(`.note-tab[data-id="${meta.id}"]`);
+  const titleEl = tabEl?.querySelector('.note-tab-title');
+  if (!tabEl || !titleEl) return;
   // Sem "smooth" aqui: o menu abre logo em seguida e precisa da posição
   // final da aba, não de uma posição no meio de uma animação de rolagem.
   tabEl.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-  openTabMenu(meta, menuBtn, titleEl);
+  openTabMenu(meta, tabEl, titleEl);
 }
 
-function openNotesListPopover() {
-  closeNotesListPopover();
-  const pop = document.createElement('div');
-  pop.className = 'copy-menu notes-list-popover';
+let listDropIndicatorEl = null;
+
+function cleanupListDrag() {
+  listDropIndicatorEl?.remove();
+  listDropIndicatorEl = null;
+  noteDragSrcId = null;
+}
+
+function renderNotesListRows(pop) {
+  pop.querySelectorAll('.notes-list-item').forEach(el => el.remove());
 
   for (const meta of notesMeta) {
     const row = document.createElement('div');
     row.className = 'copy-opt notes-list-item' + (meta.id === activeId ? ' current' : '');
+    row.draggable = true;
+    row.dataset.id = String(meta.id);
 
-    const indicator = buildTabIndicator(meta, false);
+    const indicator = buildTabIndicator(meta);
     const label = document.createElement('span');
     label.className = 'copy-opt-value';
     label.textContent = meta.title || 'Sem título';
@@ -461,9 +627,43 @@ function openNotesListPopover() {
       if (meta.id !== activeId) { await activateNote(meta.id); renderTabs(); }
       scrollTabIntoView(meta.id);
     });
+
+    row.addEventListener('dragstart', e => {
+      e.stopPropagation();
+      noteDragSrcId = meta.id;
+      e.dataTransfer.effectAllowed = 'move';
+      listDropIndicatorEl = document.createElement('div');
+      listDropIndicatorEl.className = 'notes-list-drop-indicator';
+    });
+    row.addEventListener('dragover', e => {
+      if (noteDragSrcId == null || noteDragSrcId === meta.id || !listDropIndicatorEl) return;
+      e.preventDefault();
+      const rect = row.getBoundingClientRect();
+      const before = e.clientY < rect.top + rect.height / 2;
+      row[before ? 'before' : 'after'](listDropIndicatorEl);
+    });
+    row.addEventListener('drop', async e => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (noteDragSrcId == null) return;
+      const rect = row.getBoundingClientRect();
+      const before = e.clientY < rect.top + rect.height / 2;
+      const srcId = noteDragSrcId;
+      cleanupListDrag();
+      const moved = await reorderNotes(srcId, meta.id, before);
+      if (moved) { renderNotesListRows(pop); renderTabs(); }
+    });
+    row.addEventListener('dragend', e => { e.stopPropagation(); cleanupListDrag(); });
+
     pop.appendChild(row);
   }
+}
 
+function openNotesListPopover() {
+  closeNotesListPopover();
+  const pop = document.createElement('div');
+  pop.className = 'copy-menu notes-list-popover';
+  renderNotesListRows(pop);
   document.body.appendChild(pop);
   notesListPopover = pop;
   positionPopover(pop, btnNotesList);
@@ -485,6 +685,18 @@ async function createBlankNote() {
   notesMeta.push({ id, title, color: null, icon: null, updatedAt: Date.now() });
   await activateNote(id);
   renderTabs();
+}
+
+// Cria uma nova nota com o mesmo conteúdo do tutorial — usado pelo botão 📘
+// do cabeçalho, pra quem já tem notas e quer ver o tutorial de novo.
+export async function createTutorialNote() {
+  await flushSave();
+  const fields = buildTutorialNoteFields();
+  const id = await createNoteRecord(fields);
+  notesMeta.push({ id, title: fields.title, color: fields.color, icon: fields.icon, updatedAt: Date.now() });
+  await activateNote(id);
+  renderTabs();
+  scrollTabIntoView(id);
 }
 
 function openNewMenu() {
@@ -546,9 +758,12 @@ export async function initNotesTabs() {
   await migrateLegacyNoteIfNeeded();
   notesMeta = await loadAllNotesMeta();
 
+  // Primeira vez que a extensão é aberta (nenhuma nota, nem legado migrado):
+  // cria a nota-tutorial em vez de uma nota em branco.
   if (notesMeta.length === 0) {
-    const id = await createNoteRecord({ title: 'Nota 1', content: '' });
-    notesMeta = [{ id, title: 'Nota 1', color: null, icon: null, updatedAt: Date.now() }];
+    const fields = buildTutorialNoteFields();
+    const id = await createNoteRecord(fields);
+    notesMeta = [{ id, title: fields.title, color: fields.color, icon: fields.icon, updatedAt: Date.now() }];
   }
 
   const savedActiveId = await loadActiveNoteId();

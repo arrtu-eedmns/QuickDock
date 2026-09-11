@@ -4,8 +4,12 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>QuickDock</title>
-  <link rel="stylesheet" href="style.css" />
+  <!-- O CSS do Google Fonts vem primeiro: ele mesmo define uma regra
+       ".material-symbols-rounded { font-size: 24px; ... }" e, em caso de
+       empate de especificidade, quem carrega por último vence — então o
+       nosso style.css precisa vir depois para conseguir sobrescrever isso. -->
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=block" />
+  <link rel="stylesheet" href="style.css" />
 </head>
 <body>
   <div id="app">
@@ -13,6 +17,7 @@
     <header class="header">
       <span class="header-title">QuickDock</span>
       <div class="header-actions">
+        <button id="btn-tutorial" class="icon-btn" title="Ver tutorial (cria uma nova nota)">📘</button>
         <button id="btn-theme" class="icon-btn" title="Alternar tema">🌙</button>
         <button id="btn-clear" class="icon-btn" title="Limpar tudo">🗑️</button>
       </div>
