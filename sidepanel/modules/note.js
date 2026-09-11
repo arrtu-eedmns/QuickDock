@@ -1,8 +1,9 @@
 import { getNoteById, updateNoteBlocksById } from './storage.js';
 import { tryParseMath } from './math-parser.js';
-import { uid, escHtml, parseMarkdownToBlocks, blocksToPlainText } from './blocks.js';
+import { uid, escHtml, parseMarkdownToBlocks, blocksToMarkdown } from './blocks.js';
 
-const noteSection = document.querySelector('.note-section');
+const noteSection  = document.querySelector('.note-section');
+const noteEditorEl = document.querySelector('.note-editor');
 const root         = document.getElementById('note-editor-blocks');
 const indicator    = document.getElementById('save-indicator');
 
@@ -681,6 +682,12 @@ function serializeBlocks() {
   });
 }
 
+// Blocos da nota atual, prontos pra exportar/copiar (blocksToMarkdown /
+// blocksToPlainText, em blocks.js) — lê direto do DOM ao vivo, sempre atual.
+export function getCurrentBlocks() {
+  return serializeBlocks();
+}
+
 function showSaved() {
   indicator.textContent = 'salvo ✓';
   indicator.classList.add('visible');
@@ -698,7 +705,10 @@ export async function flushSave() {
   flushRescan();
   if (currentNoteId == null) return;
   const blocks = serializeBlocks();
-  const content = blocksToPlainText(blocks);
+  // Markdown completo (não só texto simples) — é o que permite recuperar
+  // negrito/itálico/etc. se a nota precisar ser reconstruída a partir desse
+  // campo (fallback de portabilidade).
+  const content = blocksToMarkdown(blocks);
   await updateNoteBlocksById(currentNoteId, blocks, content);
   showSaved();
 }
@@ -857,6 +867,48 @@ root.addEventListener('change', e => {
   if (!block) return;
   block.dataset.checked = e.target.checked ? 'true' : 'false';
   scheduleSave();
+});
+
+// ── Copiar ─────────────────────────────────────────────────────────────────
+// Cada linha da nota é um elemento de bloco separado (<p>, <div>…) — o
+// navegador, ao copiar uma seleção que atravessa vários blocos, insere uma
+// linha em branco entre cada um (é assim que ele serializa "parágrafos" em
+// texto puro). Aqui a gente monta o texto copiado na mão, uma quebra de
+// linha simples por bloco, pra colar em outro lugar sair igual ao que
+// aparece na tela.
+function textForBlockInSelection(block, isFirst, isLast, range) {
+  const content = getContentEl(block);
+  const sub = document.createRange();
+
+  if (isFirst) sub.setStart(range.startContainer, range.startOffset);
+  else         sub.setStart(content, 0);
+
+  if (isLast) sub.setEnd(range.endContainer, range.endOffset);
+  else        sub.setEnd(content, content.childNodes.length);
+
+  if (block.dataset.type === 'code') {
+    const frag = sub.cloneContents();
+    frag.querySelectorAll('br').forEach(br => br.replaceWith('\n'));
+    return frag.textContent ?? '';
+  }
+  return sub.toString();
+}
+
+root.addEventListener('copy', e => {
+  const sel = document.getSelection();
+  if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return;
+  const range = sel.getRangeAt(0);
+  if (!root.contains(range.commonAncestorContainer) && range.commonAncestorContainer !== root) return;
+
+  const blocks = getSelectedBlocks();
+  if (blocks.length === 0) return;
+
+  const text = blocks
+    .map((b, i) => textForBlockInSelection(b, i === 0, i === blocks.length - 1, range))
+    .join('\n');
+
+  e.clipboardData.setData('text/plain', text);
+  e.preventDefault();
 });
 
 // ── Menu "/" (trocar tipo de bloco, estilo Notion) ────────────────────────────
@@ -1145,6 +1197,18 @@ root.addEventListener('keydown', e => {
   if ((e.ctrlKey || e.metaKey) && (key === 'y' || (e.shiftKey && key === 'z'))) {
     e.preventDefault();
     performRedo();
+    return;
+  }
+
+  if ((e.key === 'Backspace' || e.key === 'Delete') && selectedBlockIds.size > 0) {
+    e.preventDefault();
+    const first = findBlockById([...selectedBlockIds][0]);
+    if (first) deleteBlocksOrOne(first);
+    return;
+  }
+  if (e.key === 'Escape' && selectedBlockIds.size > 0) {
+    e.preventDefault();
+    clearBlockSelection();
     return;
   }
 
@@ -1536,3 +1600,431 @@ function showMathMenu(parsed, anchorRect) {
   activeMenu = menu;
   positionMenu(menu, anchorRect);
 }
+
+// ── Controles de bloco ao passar o mouse (＋ / ⠿, estilo Notion) ──────────────
+// Overlay único e flutuante (não embrulha cada bloco) que acompanha o mouse
+// e se posiciona à esquerda do bloco sob o cursor. Fica FORA do editável
+// (`root`), como irmão dele dentro de `.note-editor` — assim não interfere
+// com o `root.children` que o resto do código assume ser só blocos.
+const blockControls = document.createElement('div');
+blockControls.className = 'block-controls';
+blockControls.hidden = true;
+
+const blockAddBtn = document.createElement('button');
+blockAddBtn.className = 'block-add-btn';
+blockAddBtn.textContent = '+';
+blockAddBtn.title = 'Adicionar bloco abaixo (Ctrl+clique: acima)';
+
+const blockHandleBtn = document.createElement('button');
+blockHandleBtn.className = 'block-handle-btn';
+blockHandleBtn.textContent = '⠿';
+blockHandleBtn.title = 'Clique: opções do bloco · Arrastar: mover · Ctrl+arrastar (em qualquer lugar do bloco): selecionar vários';
+
+blockControls.append(blockAddBtn, blockHandleBtn);
+noteEditorEl.appendChild(blockControls);
+
+let hoveredBlock = null;
+
+function positionBlockControls(block) {
+  hoveredBlock = block;
+  const blockRect     = block.getBoundingClientRect();
+  const containerRect = noteEditorEl.getBoundingClientRect();
+  blockControls.style.top = `${blockRect.top - containerRect.top}px`;
+  blockControls.hidden = false;
+}
+
+function hideBlockControls() {
+  blockControls.hidden = true;
+  hoveredBlock = null;
+}
+
+root.addEventListener('mousemove', e => {
+  if (pointerDown || ctrlPointerDown) return; // decidindo ou já em arrasto — não reposiciona o overlay de hover
+  // Bloco mais próximo verticalmente do cursor, não o que está exatamente
+  // por baixo — a margem esquerda (onde os ícones aparecem) não pertence a
+  // nenhum .block específico, então hover lá nunca batia em nada antes.
+  const target = blockNearestToY(e.clientY);
+  if (!target || target === hoveredBlock) return;
+  positionBlockControls(target);
+});
+
+// No container que engloba texto + controles (não só o texto) — senão mover
+// o mouse do bloco até os botões já contava como "saiu" e escondia tudo
+// antes de dar tempo de clicar.
+noteEditorEl.addEventListener('mouseleave', () => {
+  if (!blockMenuEl) hideBlockControls();
+});
+
+root.addEventListener('scroll', () => {
+  blockControls.hidden = true;
+});
+
+blockAddBtn.addEventListener('mousedown', e => e.preventDefault());
+blockAddBtn.addEventListener('click', e => {
+  if (!hoveredBlock) return;
+  captureUndoPoint();
+  const newBlock = createBlockEl('paragraph');
+  if (e.ctrlKey || e.metaKey) hoveredBlock.before(newBlock);
+  else hoveredBlock.after(newBlock);
+  renumberLists();
+  focusBlockStart(newBlock);
+  scheduleSave();
+});
+
+// ── Seleção múltipla de blocos (Shift+clique na alça) ─────────────────────────
+let selectedBlockIds     = new Set();
+let lastHandleClickedId  = null;
+
+function findBlockById(id) {
+  return [...root.children].find(el => el.classList?.contains('block') && el.dataset.id === id) || null;
+}
+
+function orderedBlocks() {
+  return [...root.children].filter(el => el.classList?.contains('block'));
+}
+
+function setBlockSelection(ids) {
+  root.querySelectorAll('.block.block-selected').forEach(b => b.classList.remove('block-selected'));
+  selectedBlockIds = new Set(ids);
+  for (const b of orderedBlocks()) {
+    if (selectedBlockIds.has(b.dataset.id)) b.classList.add('block-selected');
+  }
+}
+
+function clearBlockSelection() {
+  setBlockSelection([]);
+  lastHandleClickedId = null;
+}
+
+function selectBlockRange(fromBlock, toBlock) {
+  const all = orderedBlocks();
+  const a = all.indexOf(fromBlock), b = all.indexOf(toBlock);
+  if (a === -1 || b === -1) return;
+  const [lo, hi] = a < b ? [a, b] : [b, a];
+  setBlockSelection(all.slice(lo, hi + 1).map(el => el.dataset.id));
+}
+
+// Blocos-alvo de uma ação do menu: se o bloco clicado faz parte de uma
+// seleção múltipla ativa, a ação vale pra todos ela; senão, só pra ele.
+function targetBlocksFor(block) {
+  if (selectedBlockIds.size > 1 && selectedBlockIds.has(block.dataset.id)) {
+    return orderedBlocks().filter(el => selectedBlockIds.has(el.dataset.id));
+  }
+  return [block];
+}
+
+document.addEventListener('mousedown', e => {
+  if (selectedBlockIds.size === 0) return;
+  if (blockMenuEl && blockMenuEl.contains(e.target)) return;
+  if (e.target === blockHandleBtn || e.target === blockAddBtn) return;
+  clearBlockSelection();
+});
+
+// ── Menu do bloco (alça): Transformar em / Duplicar / Excluir ────────────────
+let blockMenuEl = null;
+function closeBlockMenu() { blockMenuEl?.remove(); blockMenuEl = null; }
+
+function getTransformTypes() {
+  return SLASH_ITEMS.filter(it => it.type !== 'divider');
+}
+
+function openBlockMenu(block, anchorEl) {
+  closeBlockMenu();
+  const menu = document.createElement('div');
+  menu.className = 'copy-menu block-menu';
+
+  const scopeCount = (selectedBlockIds.size > 1 && selectedBlockIds.has(block.dataset.id))
+    ? selectedBlockIds.size : 1;
+
+  // Divisor não tem conteúdo — não faz sentido "transformar" ele em título,
+  // lista etc. (e nem o inverso: não existe like target aqui, ver getTransformTypes).
+  const canTransform = block.dataset.type !== 'divider';
+
+  if (canTransform) {
+    const header = document.createElement('div');
+    header.className   = 'copy-menu-header';
+    header.textContent = scopeCount > 1 ? `Transformar em (${scopeCount} blocos)` : 'Transformar em';
+    menu.appendChild(header);
+
+    for (const it of getTransformTypes()) {
+      const btn = document.createElement('button');
+      btn.className = 'copy-opt';
+      btn.innerHTML = `<span class="copy-opt-value">${escHtml(it.label)}</span><span class="copy-opt-hint">${escHtml(it.hint)}</span>`;
+      btn.addEventListener('mousedown', e => e.stopPropagation());
+      btn.addEventListener('click', () => { closeBlockMenu(); transformBlocks(block, it.type); });
+      menu.appendChild(btn);
+    }
+
+    menu.appendChild(Object.assign(document.createElement('div'), { className: 'math-divider' }));
+  }
+
+  const dupBtn = document.createElement('button');
+  dupBtn.className = 'copy-opt';
+  dupBtn.innerHTML = `<span class="copy-opt-value">Duplicar${scopeCount > 1 ? ` (${scopeCount})` : ''}</span>`;
+  dupBtn.addEventListener('mousedown', e => e.stopPropagation());
+  dupBtn.addEventListener('click', () => { closeBlockMenu(); duplicateBlocks(block); });
+  menu.appendChild(dupBtn);
+
+  const delBtn = document.createElement('button');
+  delBtn.className = 'copy-opt';
+  delBtn.innerHTML = `<span class="copy-opt-value">Excluir${scopeCount > 1 ? ` (${scopeCount})` : ''}</span>`;
+  delBtn.addEventListener('mousedown', e => e.stopPropagation());
+  delBtn.addEventListener('click', () => { closeBlockMenu(); deleteBlocksOrOne(block); });
+  menu.appendChild(delBtn);
+
+  document.body.appendChild(menu);
+  blockMenuEl = menu;
+  positionMenu(menu, anchorEl.getBoundingClientRect());
+}
+
+function transformBlocks(block, type) {
+  // Divisor nunca entra como origem de conversão, mesmo se fizer parte de
+  // uma seleção múltipla junto com outros blocos — não tem conteúdo pra
+  // preservar (converter geraria um <hr> preso dentro de um título/lista).
+  const targets = targetBlocksFor(block).filter(b => b.dataset.type !== 'divider');
+  if (targets.length === 0) return;
+
+  captureUndoPoint();
+  const converted = targets.map(b => convertBlockType(b, type, b.dataset.checked === 'true'));
+  renumberLists();
+  clearBlockSelection();
+  hideBlockControls();
+  const lastContent = getContentEl(converted[converted.length - 1]);
+  lastContent.focus();
+  setCaretOffset(lastContent, lastContent.textContent.length);
+  scheduleSave();
+}
+
+function duplicateBlocks(block) {
+  const targets = targetBlocksFor(block);
+  captureUndoPoint();
+  let anchor = targets[targets.length - 1];
+  for (const b of targets) {
+    const clone = createBlockEl(b.dataset.type, getContentEl(b).innerHTML, b.dataset.checked === 'true');
+    anchor.after(clone);
+    anchor = clone;
+  }
+  renumberLists();
+  clearBlockSelection();
+  hideBlockControls();
+  scheduleSave();
+}
+
+function deleteBlocksOrOne(block) {
+  const targets = targetBlocksFor(block);
+  captureUndoPoint();
+
+  const prev = targets[0].previousElementSibling;
+  targets.forEach(b => b.remove());
+  if (root.children.length === 0) root.appendChild(createBlockEl('paragraph'));
+
+  renumberLists();
+  clearBlockSelection();
+  hideBlockControls();
+
+  const focusTarget = (prev && document.body.contains(prev)) ? prev : root.firstElementChild;
+  if (focusTarget) {
+    const c = getContentEl(focusTarget);
+    c.focus();
+    setCaretOffset(c, c.textContent.length);
+  }
+  scheduleSave();
+}
+
+// ── Alça "⠿": clique (menu), Ctrl+clique (seleção), arrastar (mover) ─────────
+// Tudo passa por mousedown/mousemove/mouseup — só decide se virou arrasto
+// depois de um deslocamento mínimo; sem movimento, trata como clique normal.
+// Ctrl (não Shift) pra combinar com o "arrastar pra selecionar" do Windows.
+let pointerDown     = null; // { block, startX, startY, ctrl, moved }
+let reorderState    = null; // { targets, indicator, dropTarget, dropBefore }
+let rangeSelectState = null; // { anchorBlock }
+
+function blockNearestToY(y, exclude = []) {
+  let closest = null, closestDist = Infinity;
+  for (const b of orderedBlocks()) {
+    if (exclude.includes(b)) continue;
+    const rect = b.getBoundingClientRect();
+    const mid  = rect.top + rect.height / 2;
+    const dist = Math.abs(y - mid);
+    if (dist < closestDist) { closestDist = dist; closest = b; }
+  }
+  return closest;
+}
+
+function handleHandleClick(block, ctrl) {
+  if (ctrl) {
+    if (lastHandleClickedId) {
+      const anchor = findBlockById(lastHandleClickedId);
+      if (anchor) selectBlockRange(anchor, block);
+      else setBlockSelection([block.dataset.id]);
+    } else {
+      setBlockSelection([block.dataset.id]);
+    }
+    lastHandleClickedId = block.dataset.id;
+    return;
+  }
+
+  if (!(selectedBlockIds.size > 1 && selectedBlockIds.has(block.dataset.id))) {
+    setBlockSelection([block.dataset.id]);
+  }
+  lastHandleClickedId = block.dataset.id;
+  openBlockMenu(block, blockHandleBtn);
+}
+
+// ── Arrastar pra reordenar (um bloco, ou o grupo selecionado) ────────────────
+function startBlockReorderDrag(block) {
+  const targets = targetBlocksFor(block);
+  const indicator = document.createElement('div');
+  indicator.className = 'block-drop-indicator';
+  indicator.hidden = true;
+  noteEditorEl.appendChild(indicator);
+  targets.forEach(b => b.classList.add('block-dragging'));
+  document.body.style.cursor = 'grabbing';
+  reorderState = { targets, indicator, dropTarget: null, dropBefore: true };
+}
+
+function updateBlockReorderDrag(e) {
+  if (!reorderState) return;
+  const { targets, indicator } = reorderState;
+  const closest = blockNearestToY(e.clientY, targets);
+  reorderState.dropTarget = closest;
+
+  if (!closest) { indicator.hidden = true; return; }
+
+  const rect = closest.getBoundingClientRect();
+  const before = e.clientY < rect.top + rect.height / 2;
+  reorderState.dropBefore = before;
+
+  const containerRect = noteEditorEl.getBoundingClientRect();
+  indicator.style.top = `${(before ? rect.top : rect.bottom) - containerRect.top}px`;
+  indicator.hidden = false;
+}
+
+function finishBlockReorderDrag() {
+  if (!reorderState) return;
+  const { targets, indicator, dropTarget, dropBefore } = reorderState;
+
+  targets.forEach(b => b.classList.remove('block-dragging'));
+  indicator.remove();
+  document.body.style.cursor = '';
+
+  if (dropTarget) {
+    captureUndoPoint();
+    if (dropBefore) {
+      targets.forEach(b => dropTarget.before(b));
+    } else {
+      let anchor = dropTarget;
+      for (const b of targets) { anchor.after(b); anchor = b; }
+    }
+    renumberLists();
+    scheduleSave();
+  }
+
+  reorderState = null;
+}
+
+// ── Ctrl+arrastar pra selecionar um intervalo contínuo ────────────────────────
+// Funciona a partir de qualquer ponto do bloco (não só em cima da alça) —
+// como o "arrastar pra selecionar" do Windows Explorer, só que em blocos.
+function startRangeSelectDrag(block) {
+  rangeSelectState = { anchorBlock: block };
+  setBlockSelection([block.dataset.id]);
+}
+
+function updateRangeSelectDrag(e) {
+  if (!rangeSelectState) return;
+  const target = blockNearestToY(e.clientY);
+  if (!target) return;
+  selectBlockRange(rangeSelectState.anchorBlock, target);
+}
+
+function finishRangeSelectDrag() {
+  if (!rangeSelectState) return;
+  lastHandleClickedId = rangeSelectState.anchorBlock.dataset.id;
+  rangeSelectState = null;
+}
+
+blockHandleBtn.addEventListener('mousedown', e => {
+  if (!hoveredBlock) return;
+  e.preventDefault();
+  pointerDown = { block: hoveredBlock, startX: e.clientX, startY: e.clientY, ctrl: e.ctrlKey || e.metaKey, moved: false };
+});
+
+function finishPointerGesture() {
+  if (!pointerDown) return;
+  if (pointerDown.moved) {
+    if (pointerDown.ctrl) finishRangeSelectDrag();
+    else                  finishBlockReorderDrag();
+  } else {
+    handleHandleClick(pointerDown.block, pointerDown.ctrl);
+  }
+  pointerDown = null;
+}
+
+document.addEventListener('mousemove', e => {
+  if (!pointerDown) return;
+
+  // Botão já não está mais pressionado (ex.: soltou fora da janela, que é
+  // bem fácil de acontecer num painel lateral estreito) — o 'mouseup' pode
+  // nunca chegar; encerra o gesto aqui em vez de deixar preso.
+  if (e.buttons === 0) { finishPointerGesture(); return; }
+
+  if (!pointerDown.moved) {
+    const dx = Math.abs(e.clientX - pointerDown.startX);
+    const dy = Math.abs(e.clientY - pointerDown.startY);
+    if (dx < 4 && dy < 4) return;
+    pointerDown.moved = true;
+    hideBlockControls();
+    if (pointerDown.ctrl) startRangeSelectDrag(pointerDown.block);
+    else                  startBlockReorderDrag(pointerDown.block);
+  }
+
+  if (pointerDown.ctrl) updateRangeSelectDrag(e);
+  else                  updateBlockReorderDrag(e);
+});
+
+document.addEventListener('mouseup', finishPointerGesture);
+
+// ── Ctrl+arrastar a partir de qualquer lugar do bloco (não só a alça) ────────
+// Só ativa como seleção quando o mouse realmente se move — um Ctrl+clique
+// parado continua funcionando normalmente pro menu de cópia de CPF/data/etc.
+let ctrlPointerDown = null; // { startX, startY, moved, anchorBlock }
+
+root.addEventListener('mousedown', e => {
+  if (pointerDown) return; // já é um gesto iniciado pela alça
+  if (!(e.ctrlKey || e.metaKey)) return;
+  const target = e.target.closest('.block');
+  if (!target) return;
+  // Evita que o navegador comece a selecionar texto nativamente enquanto
+  // arrasta; não afeta o Ctrl+clique parado em cima de um <mark> (CPF/data/
+  // cálculo) — aquele menu depende do evento 'click', que ainda dispara normalmente.
+  e.preventDefault();
+  ctrlPointerDown = { startX: e.clientX, startY: e.clientY, moved: false, anchorBlock: target };
+});
+
+document.addEventListener('mousemove', e => {
+  if (!ctrlPointerDown) return;
+
+  if (e.buttons === 0) { ctrlPointerDown = null; return; }
+
+  if (!ctrlPointerDown.moved) {
+    const dx = Math.abs(e.clientX - ctrlPointerDown.startX);
+    const dy = Math.abs(e.clientY - ctrlPointerDown.startY);
+    if (dx < 4 && dy < 4) return;
+    ctrlPointerDown.moved = true;
+    hideBlockControls();
+    startRangeSelectDrag(ctrlPointerDown.anchorBlock);
+  }
+
+  updateRangeSelectDrag(e);
+});
+
+document.addEventListener('mouseup', () => {
+  if (!ctrlPointerDown) return;
+  if (ctrlPointerDown.moved) finishRangeSelectDrag();
+  ctrlPointerDown = null;
+});
+
+document.addEventListener('mousedown', e => {
+  if (blockMenuEl && !blockMenuEl.contains(e.target) && e.target !== blockHandleBtn) closeBlockMenu();
+});

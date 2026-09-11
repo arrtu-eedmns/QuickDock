@@ -75,17 +75,50 @@ export function parseMarkdownToBlocks(markdown) {
   return blocks;
 }
 
-// ── Blocos → texto simples (guardado só pra portabilidade/backup, não precisa
-// reconstruir o markdown com perfeição) ───────────────────────────────────────
+// ── Blocos → texto ─────────────────────────────────────────────────────────
 function htmlToPlainText(html) {
   const div = document.createElement('div');
   div.innerHTML = html ?? '';
   return div.textContent;
 }
 
-export function blocksToPlainText(blocks) {
+// HTML → markdown inline (inverso de parseInlineMarkdown) — reconstrói
+// **negrito**, *itálico*, ~~riscado~~, `código`. As marcações de detecção
+// (<mark> de CPF/data/cálculo) não são formatação de verdade, só o texto
+// interno importa.
+function htmlToMarkdownInline(html) {
+  const div = document.createElement('div');
+  div.innerHTML = html ?? '';
+  return nodeToMarkdown(div);
+}
+
+function nodeToMarkdown(node) {
+  let out = '';
+  for (const child of node.childNodes) {
+    if (child.nodeType === Node.TEXT_NODE) {
+      out += child.data;
+      continue;
+    }
+    if (child.nodeType !== Node.ELEMENT_NODE) continue;
+    const inner = nodeToMarkdown(child);
+    switch (child.tagName) {
+      case 'STRONG': case 'B':          out += `**${inner}**`; break;
+      case 'EM':     case 'I':          out += `*${inner}*`;   break;
+      case 'S': case 'STRIKE': case 'DEL': out += `~~${inner}~~`; break;
+      case 'CODE':                      out += `\`${inner}\``; break;
+      case 'BR':                        out += '\n';           break;
+      default:                          out += inner; // ex.: <mark> de detecção
+    }
+  }
+  return out;
+}
+
+// Markdown completo (bloco + formatação inline) — usado como fallback de
+// portabilidade da nota (campo `content`) e nas exportações/cópia como .md.
+export function blocksToMarkdown(blocks) {
   return (blocks ?? []).map(b => {
-    const text = htmlToPlainText(b.html);
+    if (b.type === 'divider') return '---';
+    const text = htmlToMarkdownInline(b.html);
     switch (b.type) {
       case 'heading1': return `# ${text}`;
       case 'heading2': return `## ${text}`;
@@ -97,8 +130,25 @@ export function blocksToPlainText(blocks) {
       case 'number':   return `1. ${text}`;
       case 'checklist':return `- [${b.checked ? 'x' : ' '}] ${text}`;
       case 'quote':    return `> ${text}`;
-      case 'divider':  return '---';
       default:         return text;
+    }
+  }).join('\n');
+}
+
+// Texto realmente simples — sem nenhum caractere de markdown, só marcadores
+// legíveis (•, ☐/☑, aspas) e numeração de verdade nas listas numeradas.
+export function blocksToPlainText(blocks) {
+  let num = 0;
+  return (blocks ?? []).map(b => {
+    num = b.type === 'number' ? num + 1 : 0;
+    if (b.type === 'divider') return '──────────';
+    const text = htmlToPlainText(b.html);
+    switch (b.type) {
+      case 'bullet':    return `• ${text}`;
+      case 'number':    return `${num}. ${text}`;
+      case 'checklist': return `${b.checked ? '☑' : '☐'} ${text}`;
+      case 'quote':     return `"${text}"`;
+      default:          return text;
     }
   }).join('\n');
 }

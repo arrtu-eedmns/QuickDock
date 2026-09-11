@@ -25,6 +25,22 @@
 /* ===== RESET ===== */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+/* ===== ÍCONES (Material Symbols, Google Fonts — ver index.html) ===== */
+.material-symbols-outlined {
+  font-family: 'Material Symbols Outlined';
+  font-weight: normal;
+  font-style: normal;
+  line-height: 1;
+  letter-spacing: normal;
+  text-transform: none;
+  display: inline-flex;
+  white-space: nowrap;
+  word-wrap: normal;
+  direction: ltr;
+  -webkit-font-feature-settings: 'liga';
+  -webkit-font-smoothing: antialiased;
+}
+
 body {
   font-family: var(--font);
   background: var(--bg);
@@ -107,13 +123,78 @@ body {
 .note-editor-blocks {
   flex: 1;
   overflow-y: auto;
-  padding: 12px 14px 26px;
+  /* padding-left maior que os outros lados: reserva espaço pros controles
+     de bloco (+ / ⠿) que aparecem ao passar o mouse */
+  padding: 12px 14px 26px 34px;
   font-family: var(--font);
   font-size: 13px;
   line-height: 1.65;
   color: var(--text);
   outline: none;
 }
+
+/* Controles de bloco (+ / ⠿) — overlay único que acompanha o bloco sob o
+   mouse, fora do editável (irmão de .note-editor-blocks) */
+.block-controls {
+  position: absolute;
+  left: 4px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 1px;
+}
+.block-controls[hidden] { display: none; }
+
+.block-add-btn,
+.block-handle-btn {
+  width: 15px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1;
+  border-radius: 3px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.block-add-btn:hover,
+.block-handle-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+.block-handle-btn { cursor: grab; font-size: 10px; }
+
+/* Bloco(s) selecionado(s) via Shift+clique/arrastar na alça */
+.note-editor-blocks .block.block-selected {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  outline: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  border-radius: 4px;
+}
+
+/* Bloco(s) sendo arrastado(s) pra reordenar */
+.note-editor-blocks .block.block-dragging {
+  opacity: 0.35;
+}
+
+/* Linha indicadora de onde o bloco vai cair */
+.block-drop-indicator {
+  position: absolute;
+  left: 4px;
+  right: 10px;
+  height: 2px;
+  background: var(--accent);
+  border-radius: 1px;
+  pointer-events: none;
+  z-index: 3;
+}
+.block-drop-indicator[hidden] { display: none; }
+
+.block-menu { min-width: 190px; }
 
 .note-editor-blocks .block {
   outline: none;
@@ -290,33 +371,86 @@ body {
   outline: none;
 }
 
-.note-tab-close {
+.note-tab-icon {
+  font-size: 14px;
+  flex-shrink: 0;
+  cursor: pointer;
+  /* Material Symbols: tamanho fixo, sem depender do peso variável da fonte */
+  font-variation-settings: 'opsz' 20;
+}
+
+.note-tab-menu {
   background: none;
   border: none;
   color: var(--text-muted);
-  font-size: 9px;
+  font-size: 11px;
   cursor: pointer;
-  padding: 1px 2px;
+  padding: 1px 3px;
   border-radius: 3px;
   line-height: 1;
   opacity: 0;
-  transition: opacity 0.12s, color 0.12s;
+  transition: opacity 0.12s, color 0.12s, background 0.12s;
 }
-.note-tab:hover .note-tab-close { opacity: 1; }
-.note-tab-close:hover { color: #dc2626; }
+.note-tab:hover .note-tab-menu { opacity: 1; }
+.note-tab-menu:hover { color: var(--text); background: var(--bg-hover); }
+
+.tab-menu { min-width: 170px; }
+
+/* ===== SELETOR DE MODO DE EXIBIÇÃO (ícone/cor/texto/tudo) ===== */
+.tab-mode-row {
+  display: flex;
+  gap: 2px;
+  padding-bottom: 6px;
+  margin-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+.tab-mode-btn {
+  flex: 1;
+  background: none;
+  border: 1px solid transparent;
+  color: var(--text-muted);
+  font-size: 10px;
+  font-family: var(--font);
+  padding: 3px 2px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.1s, color 0.1s;
+}
+.tab-mode-btn:hover { background: var(--bg-hover); color: var(--text); }
+.tab-mode-btn.active { background: color-mix(in srgb, var(--accent) 14%, var(--bg)); color: var(--accent); border-color: var(--accent); }
+
+.popover-remove-btn {
+  width: 100%;
+  margin-top: 6px;
+  background: none;
+  border: none;
+  border-top: 1px solid var(--border);
+  padding-top: 6px;
+  color: var(--text-muted);
+  font-size: 10.5px;
+  font-family: var(--font);
+  cursor: pointer;
+  text-align: center;
+}
+.popover-remove-btn:hover { color: #dc2626; }
 
 /* ===== SELETOR DE COR DA NOTA ===== */
-.color-popover {
+.color-popover,
+.icon-popover {
   position: fixed;
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 5px;
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 6px;
+  width: 168px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15), 0 2px 6px rgba(0, 0, 0, 0.08);
   z-index: 10000;
+}
+
+.color-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 5px;
 }
 
 .color-swatch {
@@ -329,6 +463,60 @@ body {
   transition: transform 0.1s;
 }
 .color-swatch:hover { transform: scale(1.15); }
+.color-swatch.active { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* ===== SELETOR DE ÍCONE DA NOTA (Material Symbols) ===== */
+.icon-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 3px;
+}
+
+.icon-swatch {
+  width: 32px;
+  height: 28px;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  color: var(--text);
+  font-size: 17px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.icon-swatch:hover { background: var(--bg-hover); }
+.icon-swatch.active { background: color-mix(in srgb, var(--accent) 14%, var(--bg)); border-color: var(--accent); color: var(--accent); }
+
+.icon-custom-row { margin-top: 6px; }
+.icon-custom-input {
+  width: 100%;
+  font-size: 11px;
+  font-family: var(--font);
+  color: var(--text);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 4px 6px;
+  outline: none;
+}
+.icon-custom-input:focus { border-color: var(--accent); }
+
+.icon-hint-link {
+  display: block;
+  margin-top: 5px;
+  font-size: 10px;
+  color: var(--accent);
+  text-decoration: none;
+}
+.icon-hint-link:hover { text-decoration: underline; }
+
+/* ===== LISTA DE NOTAS ("☰") ===== */
+.notes-list-popover { max-height: 320px; overflow-y: auto; min-width: 180px; }
+.notes-list-item { gap: 8px; }
+.notes-list-item.current { background: var(--bg-hover); }
+.notes-list-item .note-tab-dot,
+.notes-list-item .note-tab-icon { flex-shrink: 0; cursor: default; }
 
 /* ===== ALÇA DE REDIMENSIONAMENTO ===== */
 .resize-handle {

@@ -10,17 +10,19 @@ db.version(2).stores({
 // --- NOTAS ---
 export async function loadAllNotesMeta() {
   const notes = await db.notes.orderBy('order').toArray();
-  return notes.map(({ id, title, color, updatedAt }) => ({ id, title, color, updatedAt }));
+  return notes.map(({ id, title, color, icon, tabDisplay, updatedAt }) => ({
+    id, title, color, icon: icon ?? null, tabDisplay: tabDisplay || 'color', updatedAt,
+  }));
 }
 
 export async function getNoteById(id) {
   return db.notes.get(id);
 }
 
-export async function createNoteRecord({ title, content = '', blocks = [], color = null }) {
+export async function createNoteRecord({ title, content = '', blocks = [], color = null, icon = null, tabDisplay = 'color' }) {
   const count = await db.notes.count();
   const now = Date.now();
-  return db.notes.add({ title, content, blocks, color, order: count, createdAt: now, updatedAt: now });
+  return db.notes.add({ title, content, blocks, color, icon, tabDisplay, order: count, createdAt: now, updatedAt: now });
 }
 
 // `blocks` é a fonte de verdade do editor (estilo Notion); `content` é uma

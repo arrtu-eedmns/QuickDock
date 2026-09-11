@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>QuickDock</title>
   <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=block" />
 </head>
 <body>
   <div id="app">
@@ -19,8 +20,10 @@
 
     <section class="note-section">
       <div class="notes-tabbar">
+        <button id="btn-notes-list" class="icon-btn" title="Todas as notas">☰</button>
         <div id="notes-tabs" class="notes-tabs"></div>
-        <button id="btn-new-note" class="icon-btn" title="Nova nota">＋</button>
+        <input type="file" id="note-import-input" accept=".md,.txt,text/markdown,text/plain" hidden />
+        <button id="btn-new-note" class="icon-btn" title="Nova nota / Importar">＋</button>
       </div>
       <div class="note-editor">
         <div id="note-editor-blocks" class="note-editor-blocks" contenteditable="true" spellcheck="false"></div>

@@ -109,3 +109,65 @@ O tamanho da fonte é fixo (não muda por título) de propósito: se um título 
 - **Linha horizontal (`---`)** — vira uma linha fina sob o próprio texto digitado. Não estica de borda a borda do painel (isso exigiria um elemento de bloco à parte, incompatível com o modelo atual de span contínuo).
 - **Checklist (`- [ ] texto`)** — Ctrl+clique na caixa alterna marcado/desmarcado, editando o texto de verdade (não é só visual). Cor muda mesmo sem segurar Ctrl (cinza/verde), igual ao CPF inválido já fazia.
 - Ainda não implementado: links, tabelas, bloco de código multi-linha — não foram pedidos; links e código-bloco são viáveis com mais esforço, tabelas e imagem inline de verdade exigiriam trocar a base do editor (ver explicação acima).
+
+> **Nota (pós v1.4.0)**: a seção "Por que os títulos não ficam com fonte maior" acima descreve a limitação do editor *antigo* (textarea + overlay). Desde a reescrita v1.4.0 pra blocos de verdade (contenteditable), H1–H6 já são tags reais com tamanho de fonte de verdade — essa limitação não existe mais.
+
+## Controles de bloco estilo Notion + Markdown/exportação
+
+### 1. Botão "+" e alça de arrastar (hover no canto esquerdo)
+Overlay flutuante único (não embrulha cada bloco) que segue o mouse sobre `#note-editor-blocks`, descobre o bloco sob o cursor via `getBoundingClientRect` e se posiciona à esquerda dele. Clique no "+" insere parágrafo vazio abaixo; Ctrl+clique insere acima.
+
+### 2. Arrastar e soltar com linha indicadora
+Implementado na mão com mousedown/mousemove/mouseup (não a API nativa de Drag and Drop — comportamento inconsistente com scroll e imagem de arrasto). Move o(s) elemento(s) de verdade no DOM (`insertBefore`/`after`), não recria — formatação não se perde. Linha indicadora fina mostra onde vai cair. Entra no histórico de undo.
+
+### 3. Seleção múltipla de blocos de tipos diferentes
+**Decisão**: Shift+clique nas alças "⠿" — modo de seleção de blocos próprio (independente de seleção de texto), com destaque visual (fundo claro) nos blocos selecionados. Arrastar qualquer um dos selecionados move o grupo inteiro junto, mantendo ordem relativa e formatação de cada um.
+
+### 4. Copiar como Markdown / texto simples
+- Novo `blocksToMarkdown(blocks)` em `blocks.js`: reconstrói bloco + formatação inline (`#`, `-`, `**`, `*`, `~~`, `` ` ``) — mais completo que o `blocksToPlainText` atual, que já perde negrito/itálico ao gerar o campo `content`. Aproveitar pra trocar o campo `content` interno (usado como fallback de notas antigas) por essa versão — deixa a migração mais fiel de quebra.
+- Novo `blocksToPlainText(blocks)` redesenhado: texto realmente simples, sem nenhum caractere de markdown.
+- **Decisão**: Ctrl+C continua copiando texto simples (comportamento já corrigido); "Copiar como Markdown" vira ação separada no menu "⋯" da aba.
+
+### 5. Baixar nota (.txt/.md) e importar (.md/.txt)
+Baixar: Blob + download nativo do navegador, sem permissão nova no manifest. Importar: `<input type="file" accept=".md,.txt">`, conteúdo lido e passado pro mesmo `parseMarkdownToBlocks` já usado na migração (um `.txt` sem sintaxe especial só vira parágrafos, então serve pros dois formatos).
+
+### Decisões confirmadas
+- Multi-seleção: Shift+clique nas alças de bloco.
+- Copiar Markdown / texto / baixar / importar: menu "⋯" por aba de nota (botão de importar ao lado do "+ Nova nota").
+- Ctrl+C padrão continua texto simples.
+- Arrastar blocos: só dentro da mesma nota (mover entre notas continua sendo copiar/colar).
+
+### Ordem de implementação
+1. ✅ Exportar/importar (baixo risco, independente, entrega valor rápido)
+2. ✅ Botão "+" / alça / seleção múltipla / menu "Transformar em"
+3. ✅ Arrastar (um bloco ou grupo selecionado) com linha indicadora
+
+Os três passos planejados estão implementados.
+
+### Adendo: menu da alça "⠿" (inspirado no menu de bloco do Notion)
+
+Ao clicar na alça (sem arrastar) abre um menu com **Transformar em** (lista de tipos, reaproveitando os mesmos itens do menu "/"), **Duplicar** e **Excluir** — não os itens específicos do Notion que não fazem sentido aqui (link pro bloco, comentário, pedir à IA, habilidades).
+
+- Ctrl+clique na alça seleciona um intervalo de blocos (independente do tipo de cada um), com destaque visual.
+- Se o bloco clicado faz parte de uma seleção múltipla ativa, a ação do menu (transformar/duplicar/excluir) vale pra todos ela; senão, só pra esse bloco.
+- Backspace/Delete com blocos selecionados também remove todos de uma vez.
+- `#note-editor-blocks` ganhou padding-left maior (34px) pra abrir espaço pros controles; o overlay fica fora do editável (irmão dele dentro de `.note-editor`), pra não interferir na lógica que trata `root.children` como só blocos.
+
+### Adendo 2: arrastar pra reordenar + Ctrl+arrastar pra selecionar (de qualquer lugar do bloco)
+
+A alça distingue clique de arrasto pelo deslocamento do mouse (menos de ~4px ainda conta como clique). Arrastar a alça sem Ctrl move o bloco (ou o grupo, se ele fizer parte de uma seleção múltipla ativa) — o elemento é realmente movido no DOM (`before`/`after`), não recriado, então a formatação nunca se perde. Uma linha fina indica onde vai cair, calculada pelo bloco mais próximo verticalmente do cursor.
+
+**Revisão**: o gesto de seleção múltipla trocou de Shift pra **Ctrl** (mais parecido com o "arrastar pra selecionar" do Windows, por pedido) e passou a funcionar **a partir de qualquer ponto do bloco** — não só em cima do ícone da alça, que era limitado demais. Um listener separado em `root` escuta `mousedown` com Ctrl segurado em qualquer lugar dentro de um bloco e só ativa a seleção quando o mouse realmente se move; um Ctrl+clique parado (sem arrastar) continua funcionando normal pro menu de cópia de CPF/data/cálculo, que é outro uso já existente do Ctrl no app.
+
+Proteção: se o botão do mouse for solto fora da janela do painel (fácil de acontecer, já que é estreito) e o evento `mouseup` não chegar, o próximo `mousemove` detecta `e.buttons === 0` e encerra o arrasto sozinho, em vez de deixar preso.
+
+## Redesenho do header das abas de notas
+
+Decisões:
+- **Ícones**: fonte completa do Google Fonts (Material Symbols), carregada via `<link>` no `index.html`. Primeira dependência externa da extensão — aceito porque o app só faz sentido com o Chrome aberto e internet disponível (é uma extensão de navegador, não uma ferramenta offline). Renderização via `<span class="material-symbols-outlined">nome_do_icone</span>`, cobre o catálogo inteiro do site — o usuário pode ir em fonts.google.com/icons, pegar qualquer nome e colar.
+- Cada nota ganha `icon` (nome do ícone ou nulo) e `tabDisplay` (`'icon' | 'color' | 'text' | 'all'`, padrão `'color'` — não muda o visual de quem já tem notas).
+- Excluir sai da aba (não fica mais "à mão"), entra no menu "⋯": Renomear, Ícone, Cor — divisor — Copiar Markdown/texto, Baixar .md/.txt — divisor — Excluir.
+- "Ícone" e "Cor" abrem um popover cada um, com um seletor de modo (Ícone/Cor/Texto/Tudo) no topo — dá pra ajustar o modo de exibição sem precisar de um item de menu à parte.
+- Botão "☰" no início da barra: lista todas as notas num popover (resolve depender só da rolagem horizontal).
+- "Nova nota" e "Importar" viram um botão só, com menuzinho de duas opções.
+
