@@ -4,6 +4,8 @@ import {
   getNoteById, detachFilesFromNote, updateNoteBlocksById,
 } from './storage.js';
 import { setDocumentsNote, refreshDocuments } from './documents.js';
+import { positionPopover } from './popover.js';
+import { initTemplates, getTemplates, openTemplatesManager } from './templates.js';
 import { switchToNote, flushSave, getCurrentBlocks, clearCurrentNote } from './note.js';
 import { blocksToMarkdown, blocksToPlainText, parseMarkdownToBlocks } from './blocks.js';
 
@@ -167,6 +169,20 @@ Na prática, é o que evita redigitar: cole o CPF do beneficiário na nota, Ctrl
 
 Uma forma de organizar: uma nota por cliente, por caso ou por dia. Dê nome, cor e ícone a cada aba e ela fica reconhecível de relance mesmo com dez abertas. Se o espaço apertar, marque "Ocultar nome na aba" nas que já têm ícone — a aba encolhe pro ícone colorido e cabe muito mais coisa na barra.
 
+## Modelos de nota
+
+Quando a mesma sequência de conferências se repete todo dia, vale virar modelo. No menu do ＋ aparece a seção "A partir de um modelo": clicar num deles já cria a nota com a estrutura montada, checkbox por checkbox.
+
+Já vem um modelo de exemplo chamado **Atendimento**, com campos de identificação, uma lista de validações e outra de ações. Abra o ＋ e crie uma nota com ele pra ver como fica.
+
+Em "Gerenciar modelos…" você:
+
+- **Salva a nota atual como modelo** — o caminho mais fácil: monte a nota uma vez do jeito que funciona e guarde.
+- **Renomeia** ou **exclui** um modelo (passe o mouse na linha pra ver os botões).
+- **Baixa como .md** e **importa .md/.txt** — é assim que se compartilha. O modelo é markdown puro, então basta mandar o arquivo pro colega e ele importar.
+
+Na prática: se todo pedido de reembolso passa pelas mesmas seis conferências, faça uma nota com elas, salve como "Reembolso", e no próximo atendimento é um clique em vez de digitar tudo de novo — ou lembrar de cabeça o que faltou conferir.
+
 ## Documentos
 
 Na parte de baixo do painel dá pra guardar arquivos e imagens:
@@ -235,14 +251,6 @@ async function reorderNotes(srcId, targetId, before) {
 function setAccent(color) {
   if (color) noteEditorEl.style.setProperty('--note-accent', color);
   else noteEditorEl.style.removeProperty('--note-accent');
-}
-
-export function positionPopover(el, anchorEl) {
-  const rect = anchorEl.getBoundingClientRect();
-  const top  = Math.min(rect.bottom + 4, window.innerHeight - el.offsetHeight - 4);
-  const left = Math.min(rect.left, window.innerWidth - el.offsetWidth - 4);
-  el.style.top  = `${Math.max(4, top)}px`;
-  el.style.left = `${Math.max(4, left)}px`;
 }
 
 function renderTabs() {
@@ -818,24 +826,62 @@ export async function createTutorialNote() {
   scrollTabIntoView(id);
 }
 
-function openNewMenu() {
+// Nota a partir de um modelo: o markdown do modelo passa pelo mesmo parser da
+// importação, então o que estava salvo como texto vira blocos de verdade —
+// checklist clicável, títulos, tabela.
+async function createNoteFromTemplate(tpl) {
+  await flushSave();
+  const blocks  = parseMarkdownToBlocks(tpl.content);
+  const content = blocksToMarkdown(blocks);
+  const id = await createNoteRecord({ title: tpl.name, content, blocks });
+  notesMeta.push({ id, title: tpl.name, color: null, icon: null, updatedAt: Date.now() });
+  await activateNote(id);
+  renderTabs();
+  scrollTabIntoView(id);
+}
+
+async function currentNoteAsMarkdown() {
+  const meta = notesMeta.find(n => n.id === activeId);
+  if (!meta) return null;
+  return { title: meta.title, markdown: blocksToMarkdown(await getBlocksForNote(meta)) };
+}
+
+// textContent, não innerHTML: nome de modelo é texto que o usuário escreveu.
+function newMenuOpt(pop, label, run) {
+  const btn = document.createElement('button');
+  btn.className = 'copy-opt';
+  const span = document.createElement('span');
+  span.className = 'copy-opt-value';
+  span.textContent = label;
+  btn.appendChild(span);
+  btn.addEventListener('mousedown', e => e.stopPropagation());
+  btn.addEventListener('click', async e => { e.stopPropagation(); closeNewMenu(); await run(); });
+  pop.appendChild(btn);
+}
+
+async function openNewMenu() {
   closeNewMenu();
   const pop = document.createElement('div');
-  pop.className = 'copy-menu';
+  pop.className = 'copy-menu new-menu';
 
-  const blankBtn = document.createElement('button');
-  blankBtn.className = 'copy-opt';
-  blankBtn.innerHTML = `<span class="copy-opt-value">Nota em branco</span>`;
-  blankBtn.addEventListener('mousedown', e => e.stopPropagation());
-  blankBtn.addEventListener('click', async () => { closeNewMenu(); await createBlankNote(); });
-  pop.appendChild(blankBtn);
+  newMenuOpt(pop, 'Nota em branco', createBlankNote);
+  newMenuOpt(pop, 'Importar (.md/.txt)', () => importInput.click());
 
-  const importBtn = document.createElement('button');
-  importBtn.className = 'copy-opt';
-  importBtn.innerHTML = `<span class="copy-opt-value">Importar (.md/.txt)</span>`;
-  importBtn.addEventListener('mousedown', e => e.stopPropagation());
-  importBtn.addEventListener('click', () => { closeNewMenu(); importInput.click(); });
-  pop.appendChild(importBtn);
+  const templates = await getTemplates();
+  if (templates.length > 0) {
+    pop.appendChild(Object.assign(document.createElement('div'), { className: 'math-divider' }));
+    const head = document.createElement('div');
+    head.className = 'copy-menu-header';
+    head.textContent = 'A partir de um modelo';
+    pop.appendChild(head);
+    for (const tpl of templates) newMenuOpt(pop, tpl.name, () => createNoteFromTemplate(tpl));
+  }
+
+  pop.appendChild(Object.assign(document.createElement('div'), { className: 'math-divider' }));
+  newMenuOpt(pop, 'Gerenciar modelos…', () => openTemplatesManager(btnNew, {
+    onUse: createNoteFromTemplate,
+    getCurrentNote: currentNoteAsMarkdown,
+  }));
 
   document.body.appendChild(pop);
   newMenuPopover = pop;
@@ -876,6 +922,7 @@ async function activateNote(id) {
 
 export async function initNotesTabs() {
   await migrateLegacyNoteIfNeeded();
+  await initTemplates();
   notesMeta = await loadAllNotesMeta();
 
   // Primeira vez que a extensão é aberta (nenhuma nota, nem legado migrado):

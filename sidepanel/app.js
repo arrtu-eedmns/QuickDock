@@ -1,4 +1,5 @@
-import { initNotesTabs, createTutorialNote, positionPopover } from './modules/notes-tabs.js';
+import { initNotesTabs, createTutorialNote } from './modules/notes-tabs.js';
+import { positionPopover } from './modules/popover.js';
 import { initDocuments } from './modules/documents.js';
 import { loadTheme, saveTheme } from './modules/storage.js';
 import { initResizer } from './modules/resizer.js';

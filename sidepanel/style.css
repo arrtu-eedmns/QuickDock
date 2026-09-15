@@ -821,6 +821,104 @@ body:not(.booting) .note-editor-blocks {
    isto aqui é só o teto quando sobra janela de sobra. */
 .slash-menu { max-height: 280px; overflow-y: auto; }
 
+/* ===== MODELOS DE NOTA ===== */
+.new-menu { min-width: 190px; }
+.templates-manager { min-width: 232px; }
+
+.templates-empty {
+  padding: 6px 10px 8px;
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+
+/* Nome à esquerda ocupa a linha toda; as ações aparecem no hover, pra lista
+   ficar legível quando há vários modelos. */
+.template-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  border-radius: 6px;
+}
+
+.template-row:hover { background: var(--bg-hover); }
+
+.template-use {
+  flex: 1;
+  min-width: 0;
+  padding: 7px 10px;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  font-family: var(--font);
+  font-size: 13px;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.template-actions {
+  display: flex;
+  gap: 1px;
+  padding-right: 4px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.template-row:hover .template-actions,
+.template-row:focus-within .template-actions { opacity: 1; }
+
+.template-btn {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  background: none;
+  border: none;
+  border-radius: 4px;
+  color: var(--text-muted);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.template-btn:hover { background: var(--bg-secondary); color: var(--text); }
+
+.template-name-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 4px;
+}
+
+.template-name-input {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 7px;
+  border: 1px solid var(--accent);
+  border-radius: 5px;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 12.5px;
+  outline: none;
+}
+
+.template-name-ok {
+  flex-shrink: 0;
+  padding: 5px 10px;
+  border: 1px solid var(--accent);
+  border-radius: 5px;
+  background: var(--accent);
+  color: #fff;
+  font-family: var(--font);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.template-name-ok:hover { background: #1b6bb8; }
+
 /* ===== MENU DE LINK ===== */
 .link-menu { min-width: 216px; padding: 6px; }
 

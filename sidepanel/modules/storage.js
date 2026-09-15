@@ -13,6 +13,13 @@ db.version(3).stores({
   files: '++id, name, type, noteId, createdAt',
   notes: '++id, order, updatedAt'
 });
+// Modelos de nota: markdown guardado como texto, igual ao que sai na
+// exportação — é o que deixa importar e compartilhar um .md ser a mesma coisa.
+db.version(4).stores({
+  files: '++id, name, type, noteId, createdAt',
+  notes: '++id, order, updatedAt',
+  templates: '++id, order, name'
+});
 
 // --- NOTAS ---
 export async function loadAllNotesMeta() {
@@ -66,6 +73,37 @@ export async function migrateLegacyNoteIfNeeded() {
 
   await createNoteRecord({ title: 'Nota 1', content: legacy });
   await new Promise(resolve => chrome.storage.local.remove('note_content', resolve));
+}
+
+// --- MODELOS DE NOTA ---
+export async function loadAllTemplates() {
+  const rows = await db.templates.orderBy('order').toArray();
+  return rows.map(({ id, name, content, createdAt }) => ({ id, name, content, createdAt }));
+}
+
+export async function createTemplateRecord({ name, content }) {
+  const count = await db.templates.count();
+  return db.templates.add({ name, content, order: count, createdAt: Date.now() });
+}
+
+export async function updateTemplateById(id, patch) {
+  return db.templates.update(id, patch);
+}
+
+export async function deleteTemplateById(id) {
+  return db.templates.delete(id);
+}
+
+// O modelo de exemplo é semeado uma vez só. A marca fica no chrome.storage pra
+// que apagar o exemplo não o traga de volta na próxima abertura.
+export async function templatesWereSeeded() {
+  return new Promise(resolve => {
+    chrome.storage.local.get('templates_seeded', ({ templates_seeded }) => resolve(!!templates_seeded));
+  });
+}
+
+export async function markTemplatesSeeded() {
+  return new Promise(resolve => chrome.storage.local.set({ templates_seeded: true }, resolve));
 }
 
 // --- NOTA ATIVA ---
