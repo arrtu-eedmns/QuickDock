@@ -11,24 +11,30 @@
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=block" />
   <link rel="stylesheet" href="style.css" />
 </head>
-<body>
+<body class="booting">
+  <!-- Véu de carregamento: cobre o painel inteiro e dissolve quando o app fica
+       pronto, revelando a marca d'água que já estava no lugar por baixo dele. -->
+  <div id="boot-veil" class="boot-veil" aria-hidden="true"></div>
+
   <div id="app">
 
-    <header class="header">
-      <span class="header-title">QuickDock</span>
-      <div class="header-actions">
-        <button id="btn-tutorial" class="icon-btn" title="Ver tutorial (cria uma nova nota)">📘</button>
-        <button id="btn-theme" class="icon-btn" title="Alternar tema">🌙</button>
-        <button id="btn-clear" class="icon-btn" title="Limpar tudo">🗑️</button>
-      </div>
-    </header>
-
+    <!-- Sem header próprio: o painel lateral do Chrome já mostra o ícone e o
+         nome da extensão logo acima. As ações globais moram no menu "⋯". -->
     <section class="note-section">
       <div class="notes-tabbar">
         <button id="btn-notes-list" class="icon-btn" title="Todas as notas">☰</button>
         <div id="notes-tabs" class="notes-tabs"></div>
         <input type="file" id="note-import-input" accept=".md,.txt,text/markdown,text/plain" hidden />
         <button id="btn-new-note" class="icon-btn" title="Nova nota / Importar">＋</button>
+        <button id="btn-app-menu" class="icon-btn" title="Mais opções">⋯</button>
+      </div>
+      <div class="note-watermark" aria-hidden="true">
+        <svg viewBox="22.5 22.5 512 512">
+          <path d="M153.03 153.03 A150 150 0 1 1 358.97 358.97 A150 150 0 0 0 153.03 153.03 Z" />
+          <path d="M153.03 153.03 A150 150 0 1 0 358.97 358.97 A150 150 0 0 1 153.03 153.03 Z" />
+          <path d="M241.59 241.59 L476.35 431.09 L431.09 476.35 Z" />
+          <path d="M0 -58 C0 -10.4 10.4 0 58 0 C10.4 0 0 10.4 0 58 C0 10.4 -10.4 0 -58 0 C-10.4 0 0 -10.4 0 -58 Z" transform="translate(251.23 251.23) rotate(45)" />
+        </svg>
       </div>
       <div class="note-editor">
         <div id="note-editor-blocks" class="note-editor-blocks" contenteditable="true" spellcheck="false"></div>
@@ -41,18 +47,24 @@
     <section class="docs-section">
       <div class="docs-header">
         <span class="docs-title">Documentos</span>
+        <div class="docs-view-switch">
+          <button id="btn-view-note" class="docs-view-opt" title="Só os desta nota (mais os gerais)">Nesta nota</button>
+          <button id="btn-view-all" class="docs-view-opt" title="Todos os documentos, de todas as notas">Todos</button>
+        </div>
         <button id="btn-upload" class="icon-btn" title="Adicionar arquivo">＋</button>
         <input type="file" id="file-input" accept="image/*,.pdf,.txt" multiple hidden />
       </div>
       <div id="group-bar" class="group-bar hidden">
         <span id="group-count"></span>
         <button id="btn-inject-selected" class="group-action-btn" title="Injetar selecionados na página">↗ Injetar</button>
+        <button id="btn-scope-selected" class="group-action-btn" title="Vincular à nota aberta">📌 Vincular</button>
         <button id="btn-delete-selected" class="group-action-btn group-action-danger" title="Remover selecionados">🗑</button>
         <button id="btn-clear-selection" class="group-action-close" title="Cancelar seleção">✕</button>
       </div>
 
       <div id="drop-zone" class="drop-zone">
         <div id="doc-grid" class="doc-grid"></div>
+        <button id="docs-hidden-hint" class="docs-hidden-hint" hidden></button>
         <div id="drop-hint" class="drop-hint">Arraste arquivos aqui, clique em ＋<br>ou cole uma imagem com Ctrl+V</div>
       </div>
     </section>

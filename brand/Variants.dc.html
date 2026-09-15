@@ -1,0 +1,126 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600&display=swap">
+  <style>
+    body { margin: 0; font-family: 'Space Grotesk', 'Segoe UI', system-ui, sans-serif; }
+    a { color: #2383e2; } a:hover { color: #1b6bb8; }
+  </style>
+</helmet>
+<div style="display: flex; flex-direction: column; gap: 40px; width: 1200px; height: 700px; padding: 56px; box-sizing: border-box; background: #0d0d0e;">
+
+  <div style="display: flex; flex-direction: column; gap: 6px;">
+    <div style="font-size: 12px; font-weight: 500; letter-spacing: 0.14em; text-transform: uppercase; color: #6e6e73;">Usos da marca</div>
+    <div style="font-size: 20px; font-weight: 400; color: #d6d6d9;">Uma construção só, seis situações.</div>
+  </div>
+
+  <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 40px 40px;">
+
+    <div style="display: flex; flex-direction: column; align-items: center; gap: 16px;">
+      <svg viewBox="22.5 22.5 512 512" width="168" height="168" xmlns="http://www.w3.org/2000/svg">
+        <path d="M153.03 153.03 A150 150 0 1 1 358.97 358.97 A150 150 0 0 0 153.03 153.03 Z" fill="#f4f4f5"></path>
+        <path d="M153.03 153.03 A150 150 0 1 0 358.97 358.97 A150 150 0 0 1 153.03 153.03 Z" fill="#f4f4f5"></path>
+        <path d="M241.59 241.59 L476.35 431.09 L431.09 476.35 Z" fill="#f4f4f5"></path>
+        <path d="M0 -58 C0 -10.4 10.4 0 58 0 C10.4 0 0 10.4 0 58 C0 10.4 -10.4 0 -58 0 C-10.4 0 0 -10.4 0 -58 Z" transform="translate(251.23 251.23) rotate(45)" fill="#f4f4f5"></path>
+      </svg>
+      <div style="display: flex; flex-direction: column; align-items: center; gap: 5px; text-align: center;">
+        <div style="font-size: 15px; font-weight: 500; color: #f2f2f3;">Positiva</div>
+        <div style="font-size: 12.5px; line-height: 1.45; color: #85858c; text-wrap: pretty; max-width: 240px;">A marca. Branco sobre escuro, uma tinta só — é esta que manda em tudo o mais.</div>
+      </div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; align-items: center; gap: 16px;">
+      <div style="width: 168px; height: 168px; background: #f7f6f3; border-radius: 10px; display: flex; align-items: center; justify-content: center;">
+        <svg viewBox="22.5 22.5 512 512" width="150" height="150" xmlns="http://www.w3.org/2000/svg">
+          <path d="M153.03 153.03 A150 150 0 1 1 358.97 358.97 A150 150 0 0 0 153.03 153.03 Z" fill="#1a1a1a"></path>
+          <path d="M153.03 153.03 A150 150 0 1 0 358.97 358.97 A150 150 0 0 1 153.03 153.03 Z" fill="#1a1a1a"></path>
+          <path d="M241.59 241.59 L476.35 431.09 L431.09 476.35 Z" fill="#1a1a1a"></path>
+          <path d="M0 -58 C0 -10.4 10.4 0 58 0 C10.4 0 0 10.4 0 58 C0 10.4 -10.4 0 -58 0 C-10.4 0 0 -10.4 0 -58 Z" transform="translate(251.23 251.23) rotate(45)" fill="#1a1a1a"></path>
+        </svg>
+      </div>
+      <div style="display: flex; flex-direction: column; align-items: center; gap: 5px; text-align: center;">
+        <div style="font-size: 15px; font-weight: 500; color: #f2f2f3;">Negativa</div>
+        <div style="font-size: 12.5px; line-height: 1.45; color: #85858c; text-wrap: pretty; max-width: 240px;">A mesma marca em tinta escura. Papel, documento, tema claro do app.</div>
+      </div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; align-items: center; gap: 16px;">
+      <svg viewBox="22.5 22.5 512 512" width="168" height="168" xmlns="http://www.w3.org/2000/svg">
+        <path d="M153.03 153.03 A150 150 0 1 1 358.97 358.97 A150 150 0 0 0 153.03 153.03 Z" fill="#f4f4f5"></path>
+        <path d="M153.03 153.03 A150 150 0 1 0 358.97 358.97 A150 150 0 0 1 153.03 153.03 Z" fill="#f4f4f5"></path>
+        <path d="M241.59 241.59 L476.35 431.09 L431.09 476.35 Z" fill="#f4f4f5"></path>
+        <path d="M0 -58 C0 -10.4 10.4 0 58 0 C10.4 0 0 10.4 0 58 C0 10.4 -10.4 0 -58 0 C-10.4 0 0 -10.4 0 -58 Z" transform="translate(251.23 251.23) rotate(45)" fill="#2383e2"></path>
+      </svg>
+      <div style="display: flex; flex-direction: column; align-items: center; gap: 5px; text-align: center;">
+        <div style="font-size: 15px; font-weight: 500; color: #f2f2f3;">Estrela em cor</div>
+        <div style="font-size: 12.5px; line-height: 1.45; color: #85858c; text-wrap: pretty; max-width: 240px;">Guardada como alternativa. Amarra a marca ao azul da interface, mas exige duas tintas.</div>
+      </div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; align-items: center; gap: 16px;">
+      <svg viewBox="22.5 22.5 512 512" width="168" height="168" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="278.45" cy="278.45" r="250" fill="#f4f4f5"></circle>
+        <g transform="translate(278.45 278.45) scale(0.76) translate(-278.45 -278.45)">
+          <path d="M153.03 153.03 A150 150 0 1 1 358.97 358.97 A150 150 0 0 0 153.03 153.03 Z" fill="#0d0d0e"></path>
+          <path d="M153.03 153.03 A150 150 0 1 0 358.97 358.97 A150 150 0 0 1 153.03 153.03 Z" fill="#0d0d0e"></path>
+          <path d="M241.59 241.59 L476.35 431.09 L431.09 476.35 Z" fill="#0d0d0e"></path>
+          <path d="M0 -58 C0 -10.4 10.4 0 58 0 C10.4 0 0 10.4 0 58 C0 10.4 -10.4 0 -58 0 C-10.4 0 0 -10.4 0 -58 Z" transform="translate(251.23 251.23) rotate(45)" fill="#0d0d0e"></path>
+        </g>
+      </svg>
+      <div style="display: flex; flex-direction: column; align-items: center; gap: 5px; text-align: center;">
+        <div style="font-size: 15px; font-weight: 500; color: #f2f2f3;">Em disco</div>
+        <div style="font-size: 12.5px; line-height: 1.45; color: #85858c; text-wrap: pretty; max-width: 240px;">Para avatar e fundo imprevisível — foto, cor chapada, qualquer coisa que engula a marca aberta.</div>
+      </div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; align-items: center; gap: 16px;">
+      <svg viewBox="22.5 22.5 512 512" width="168" height="168" xmlns="http://www.w3.org/2000/svg">
+        <path d="M155.51 155.51 A150 150 0 1 1 356.49 356.49 A150 150 0 0 0 155.51 155.51 Z" fill="#f4f4f5"></path>
+        <path d="M155.51 155.51 A150 150 0 1 0 356.49 356.49 A150 150 0 0 1 155.51 155.51 Z" fill="#f4f4f5"></path>
+        <path d="M241.59 241.59 L484.83 422.61 L422.61 484.83 Z" fill="#f4f4f5"></path>
+        <path d="M0 -64 C0 -11.52 11.52 0 64 0 C11.52 0 0 11.52 0 64 C0 11.52 -11.52 0 -64 0 C-11.52 0 0 -11.52 0 -64 Z" transform="translate(251.23 251.23) rotate(45)" fill="#f4f4f5"></path>
+      </svg>
+      <div style="display: flex; flex-direction: column; align-items: center; gap: 5px; text-align: center;">
+        <div style="font-size: 15px; font-weight: 500; color: #f2f2f3;">Compacta</div>
+        <div style="font-size: 12.5px; line-height: 1.45; color: #85858c; text-wrap: pretty; max-width: 240px;">Luas, rastro e estrela engrossados. É esta que vai no favicon e nos 16px do Chrome.</div>
+      </div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; align-items: center; gap: 16px;">
+      <svg viewBox="22.5 22.5 512 512" width="168" height="168" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <linearGradient id="v-ray" x1="241" y1="241" x2="470" y2="470" gradientUnits="userSpaceOnUse">
+            <stop offset="0" stop-color="#f4f4f5" stop-opacity="1"></stop>
+            <stop offset="1" stop-color="#f4f4f5" stop-opacity="0.18"></stop>
+          </linearGradient>
+          <radialGradient id="v-halo" cx="0.5" cy="0.5" r="0.5">
+            <stop offset="0" stop-color="#f4f4f5" stop-opacity="0.34"></stop>
+            <stop offset="1" stop-color="#f4f4f5" stop-opacity="0"></stop>
+          </radialGradient>
+        </defs>
+        <path d="M153.03 153.03 A150 150 0 1 1 358.97 358.97 A150 150 0 0 0 153.03 153.03 Z" fill="#f4f4f5"></path>
+        <path d="M153.03 153.03 A150 150 0 1 0 358.97 358.97 A150 150 0 0 1 153.03 153.03 Z" fill="#f4f4f5"></path>
+        <path d="M241.59 241.59 L476.35 431.09 L431.09 476.35 Z" fill="url(#v-ray)"></path>
+        <circle cx="251.23" cy="251.23" r="120" fill="url(#v-halo)"></circle>
+        <path d="M0 -58 C0 -10.4 10.4 0 58 0 C10.4 0 0 10.4 0 58 C0 10.4 -10.4 0 -58 0 C-10.4 0 0 -10.4 0 -58 Z" transform="translate(251.23 251.23) rotate(45)" fill="#ffffff"></path>
+      </svg>
+      <div style="display: flex; flex-direction: column; align-items: center; gap: 5px; text-align: center;">
+        <div style="font-size: 15px; font-weight: 500; color: #f2f2f3;">Rastro luminoso</div>
+        <div style="font-size: 12.5px; line-height: 1.45; color: #85858c; text-wrap: pretty; max-width: 240px;">O rastro some ao se afastar da estrela. Só para tela grande em fundo escuro; no papel vira mancha.</div>
+      </div>
+    </div>
+
+  </div>
+</div>
+</x-dc>
+<script data-dc-script data-props='{"$preview":{"width":1200,"height":700}}'>
+class Component extends DCLogic {}
+</script>
+</body>
+</html>

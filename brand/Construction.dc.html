@@ -1,0 +1,91 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500&display=swap">
+  <style>
+    body { margin: 0; font-family: 'Space Grotesk', 'Segoe UI', system-ui, sans-serif; }
+    a { color: #2383e2; } a:hover { color: #1b6bb8; }
+  </style>
+</helmet>
+<div style="display: flex; flex-direction: column; gap: 28px; width: 880px; height: 640px; padding: 56px; box-sizing: border-box; background: #ffffff;">
+
+  <div style="display: flex; flex-direction: column; gap: 6px;">
+    <div style="font-size: 12px; font-weight: 500; letter-spacing: 0.14em; text-transform: uppercase; color: #9b9b9b;">Construção</div>
+    <div style="font-size: 19px; color: #1a1a1a;">Dois círculos iguais, deslocados na diagonal.</div>
+  </div>
+
+  <div style="display: flex; align-items: flex-start; gap: 40px;">
+
+    <svg viewBox="22.5 22.5 512 512" width="420" height="420" xmlns="http://www.w3.org/2000/svg" style="flex-shrink: 0;">
+      <line x1="95" y1="95" x2="510" y2="510" stroke="#e5e5e5" stroke-width="1.6" stroke-dasharray="7 6"></line>
+
+      <path d="M153.03 153.03 A150 150 0 1 1 358.97 358.97 A150 150 0 0 0 153.03 153.03 Z" fill="#1a1a1a"></path>
+      <path d="M153.03 153.03 A150 150 0 1 0 358.97 358.97 A150 150 0 0 1 153.03 153.03 Z" fill="#1a1a1a"></path>
+      <path d="M241.59 241.59 L476.35 431.09 L431.09 476.35 Z" fill="#1a1a1a"></path>
+      <path d="M0 -58 C0 -10.4 10.4 0 58 0 C10.4 0 0 10.4 0 58 C0 10.4 -10.4 0 -58 0 C-10.4 0 0 -10.4 0 -58 Z" transform="translate(251.23 251.23) rotate(45)" fill="#1a1a1a"></path>
+
+      <circle cx="281.456" cy="230.544" r="150" fill="none" stroke="#b4b4b4" stroke-width="1.6" stroke-dasharray="7 6"></circle>
+      <circle cx="230.544" cy="281.456" r="150" fill="none" stroke="#b4b4b4" stroke-width="1.6" stroke-dasharray="7 6"></circle>
+
+      <line x1="230.544" y1="281.456" x2="281.456" y2="230.544" stroke="#2383e2" stroke-width="2.6"></line>
+      <circle cx="281.456" cy="230.544" r="4.5" fill="#2383e2"></circle>
+      <circle cx="230.544" cy="281.456" r="4.5" fill="#2383e2"></circle>
+
+      <circle cx="153.03" cy="153.03" r="6.5" fill="#2383e2"></circle>
+      <circle cx="358.97" cy="358.97" r="6.5" fill="#2383e2"></circle>
+
+      <line x1="128" y1="128" x2="108" y2="108" stroke="#2383e2" stroke-width="1.6"></line>
+      <line x1="384" y1="384" x2="404" y2="332" stroke="#2383e2" stroke-width="1.6"></line>
+
+      <text x="104" y="102" font-family="'Space Grotesk', sans-serif" font-size="21" font-weight="500" fill="#2383e2" text-anchor="end">A</text>
+      <text x="410" y="328" font-family="'Space Grotesk', sans-serif" font-size="21" font-weight="500" fill="#2383e2">B</text>
+    </svg>
+
+    <div style="display: flex; flex-direction: column; gap: 15px; padding-top: 6px;">
+
+      <div style="display: flex; flex-direction: column; gap: 3px;">
+        <div style="font-size: 12.5px; font-weight: 500; color: #1a1a1a;">R = 150, d = 72, a 45°</div>
+        <div style="font-size: 12.5px; line-height: 1.5; color: #9b9b9b; text-wrap: pretty;">Dois círculos de raio igual, com os centros a 72 de distância — 24% do diâmetro. É essa distância, sozinha, que define a grossura das luas.</div>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 3px;">
+        <div style="font-size: 12.5px; font-weight: 500; color: #1a1a1a;">Preenchimento</div>
+        <div style="font-size: 12.5px; line-height: 1.5; color: #9b9b9b; text-wrap: pretty;">Diferença simétrica: o que está em um círculo ou no outro, nunca nos dois. Sobram duas luas e um vazio em forma de lente.</div>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 3px;">
+        <div style="font-size: 12.5px; font-weight: 500; color: #1a1a1a;">Cúspides A e B</div>
+        <div style="font-size: 12.5px; line-height: 1.5; color: #9b9b9b; text-wrap: pretty;">Os dois pontos onde as luas se tocam. A diagonal que passa por elas é o eixo de tudo o que vem depois.</div>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 3px;">
+        <div style="font-size: 12.5px; font-weight: 500; color: #1a1a1a;">Estrela no centro</div>
+        <div style="font-size: 12.5px; line-height: 1.5; color: #9b9b9b; text-wrap: pretty;">Quatro pontas de lados côncavos, r = 58, a 45° — as pontas caem na diagonal. Ocupa o vazio que o Q deixa, em vez de pendurar na borda.</div>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 3px;">
+        <div style="font-size: 12.5px; font-weight: 500; color: #1a1a1a;">Rastro reto, abrindo</div>
+        <div style="font-size: 12.5px; line-height: 1.5; color: #9b9b9b; text-wrap: pretty;">Nasce em ponta escondida dentro da estrela, engrossa até 64 e sai pela cúspide B. Ele passa por cima da lua e continua depois da borda — é essa saída que faz o Q.</div>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 3px;">
+        <div style="font-size: 12.5px; font-weight: 500; color: #1a1a1a;">Enquadramento</div>
+        <div style="font-size: 12.5px; line-height: 1.5; color: #9b9b9b; text-wrap: pretty;">O desenho não é simétrico: o círculo puxa para cima à esquerda e o rastro para baixo à direita. A viewBox é centrada no conjunto dos dois, não no círculo.</div>
+      </div>
+
+    </div>
+  </div>
+
+</div>
+</x-dc>
+<script data-dc-script data-props='{"$preview":{"width":880,"height":640}}'>
+class Component extends DCLogic {}
+</script>
+</body>
+</html>

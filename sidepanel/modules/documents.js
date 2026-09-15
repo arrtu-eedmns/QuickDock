@@ -1,4 +1,7 @@
-import { saveFile, loadAllFilesMeta, deleteFile, loadFileBlob } from './storage.js';
+import {
+  saveFile, loadAllFilesMeta, deleteFile, loadFileBlob, setFileNoteId,
+  loadDocsView, saveDocsView,
+} from './storage.js';
 import { openModal } from './modal.js';
 import { startInject, startInjectMultiple } from './inject.js';
 import { initSelection, clearSelection, getSelectedMetas } from './selection.js';
@@ -12,10 +15,78 @@ const groupCount     = document.getElementById('group-count');
 const btnInjectSel   = document.getElementById('btn-inject-selected');
 const btnDeleteSel   = document.getElementById('btn-delete-selected');
 const btnClearSel    = document.getElementById('btn-clear-selection');
+const btnScopeSel    = document.getElementById('btn-scope-selected');
+const btnViewNote    = document.getElementById('btn-view-note');
+const btnViewAll     = document.getElementById('btn-view-all');
+const hiddenHint     = document.getElementById('docs-hidden-hint');
 
 const ALLOWED_TYPES = ['image/', 'application/pdf', 'text/plain'];
 
+// ── Escopo dos documentos ────────────────────────────────────────────────────
+// Um documento é geral (noteId null, aparece em qualquer nota) ou vinculado a
+// uma nota. Duas visões: "Nesta nota" (os desta nota + os gerais) e "Todos".
+// Guardamos os metas em memória para trocar de nota sem reler o banco.
+let currentNoteId = null;
+let allMetas      = [];
+let viewMode      = 'note';
+let ready         = false;
+
+function isVisible(meta) {
+  if (viewMode === 'all') return true;
+  return meta.noteId === null || meta.noteId === currentNoteId;
+}
+
+function scopeOf(noteId) {
+  if (noteId === null) return 'geral';
+  return noteId === currentNoteId ? 'nota' : 'outra';
+}
+
+async function renderGrid() {
+  clearSelection();
+  grid.innerHTML = '';
+  for (const meta of allMetas.filter(isVisible)) {
+    grid.appendChild(await buildCard(meta));
+  }
+  paintView();
+}
+
+// O ponto da visão "Nesta nota" é filtrar, mas filtrar em silêncio é como se
+// perde arquivo. Sempre que algo fica de fora, o rodapé diz quantos são e leva
+// pra visão completa num clique.
+function paintView() {
+  btnViewNote.classList.toggle('is-on', viewMode === 'note');
+  btnViewAll.classList.toggle('is-on', viewMode === 'all');
+
+  const hidden = allMetas.length - allMetas.filter(isVisible).length;
+  hiddenHint.hidden = hidden === 0;
+  if (hidden > 0) {
+    hiddenHint.textContent = hidden === 1
+      ? '+ 1 documento em outra nota — ver todos'
+      : `+ ${hidden} documentos em outras notas — ver todos`;
+  }
+}
+
+async function setView(view) {
+  if (view === viewMode) return;
+  viewMode = view;
+  await saveDocsView(view);
+  await renderGrid();
+}
+
+btnViewNote.addEventListener('click', () => setView('note'));
+btnViewAll.addEventListener('click',  () => setView('all'));
+hiddenHint.addEventListener('click',  () => setView('all'));
+
 // ── Group bar ────────────────────────────────────────────────────────────────
+// Se algum selecionado ainda não é desta nota, a ação é trazer todos pra cá;
+// se todos já são, a ação vira soltá-los como gerais.
+function selectionWouldPin() {
+  return getSelectedMetas().some(({ id }) => {
+    const meta = allMetas.find(m => m.id === id);
+    return meta && meta.noteId !== currentNoteId;
+  });
+}
+
 function updateGroupBar() {
   const metas = getSelectedMetas();
   if (metas.length === 0) {
@@ -24,6 +95,13 @@ function updateGroupBar() {
   }
   groupBar.classList.remove('hidden');
   groupCount.textContent = `${metas.length} selecionado${metas.length > 1 ? 's' : ''}`;
+
+  const pin = selectionWouldPin();
+  btnScopeSel.hidden      = currentNoteId === null;
+  btnScopeSel.textContent = pin ? '📌 Vincular' : '📌 Tornar geral';
+  btnScopeSel.title       = pin
+    ? 'Mostrar estes documentos só na nota aberta'
+    : 'Mostrar estes documentos em todas as notas';
 }
 
 // ── Ações da group bar ───────────────────────────────────────────────────────
@@ -34,9 +112,17 @@ btnDeleteSel.addEventListener('click', async () => {
   if (!metas.length) return;
   for (const { id } of metas) {
     await deleteFile(id);
-    grid.querySelector(`.doc-card[data-id="${id}"]`)?.remove();
+    forgetMeta(id);
   }
   clearSelection();
+});
+
+btnScopeSel.addEventListener('click', async () => {
+  const metas = getSelectedMetas();
+  if (!metas.length || currentNoteId === null) return;
+  const target = selectionWouldPin() ? currentNoteId : null;
+  for (const { id } of metas) await applyScope(id, target);
+  updateGroupBar();
 });
 
 btnInjectSel.addEventListener('click', async () => {
@@ -48,6 +134,39 @@ btnInjectSel.addEventListener('click', async () => {
 // ── Helpers de renderização ──────────────────────────────────────────────────
 function isAllowed(file) {
   return ALLOWED_TYPES.some(t => file.type.startsWith(t));
+}
+
+function forgetMeta(id) {
+  allMetas = allMetas.filter(m => m.id !== id);
+  grid.querySelector(`.doc-card[data-id="${id}"]`)?.remove();
+  paintView();
+}
+
+// O destino é sempre a nota aberta ou "geral" — nunca outra nota —, então o
+// card nunca some da vista ao mudar de escopo: basta repintar o marcador.
+async function applyScope(id, noteId) {
+  await setFileNoteId(id, noteId);
+  const meta = allMetas.find(m => m.id === id);
+  if (meta) meta.noteId = noteId;
+  const card = grid.querySelector(`.doc-card[data-id="${id}"]`);
+  if (card) paintScope(card, noteId);
+  paintView();
+}
+
+const SCOPE_TITLE = {
+  nota:  'Só nesta nota — clique para mostrar em todas',
+  geral: 'Em todas as notas — clique para vincular só a esta',
+  outra: 'De outra nota — clique para trazer para esta',
+};
+
+function paintScope(card, noteId) {
+  const scope = scopeOf(noteId);
+  card.classList.toggle('scoped',  scope === 'nota');
+  card.classList.toggle('foreign', scope === 'outra');
+  const btn = card.querySelector('.doc-scope');
+  if (!btn) return;
+  btn.classList.toggle('icon-filled', scope === 'nota');
+  btn.title = SCOPE_TITLE[scope];
 }
 
 // Lista ordenada (na ordem exibida no grid) das imagens atuais, para navegação no modal.
@@ -95,8 +214,20 @@ async function buildCard(meta) {
   delBtn.addEventListener('click', async e => {
     e.stopPropagation();
     await deleteFile(id);
-    card.remove();
+    forgetMeta(id);
     // Refresca group bar caso o card deletado estivesse selecionado
+    updateGroupBar();
+  });
+
+  const scopeBtn = document.createElement('button');
+  scopeBtn.className = 'doc-scope material-symbols-rounded';
+  scopeBtn.textContent = 'push_pin';
+  scopeBtn.hidden = currentNoteId === null;
+  scopeBtn.addEventListener('click', async e => {
+    e.stopPropagation();
+    const current = allMetas.find(m => m.id === id)?.noteId ?? null;
+    // já é desta nota → solta como geral; qualquer outro caso → traz pra cá
+    await applyScope(id, scopeOf(current) === 'nota' ? null : currentNoteId);
     updateGroupBar();
   });
 
@@ -115,25 +246,37 @@ async function buildCard(meta) {
   card.appendChild(nameEl);
   card.appendChild(delBtn);
   card.appendChild(injectBtn);
+  card.appendChild(scopeBtn);
+  paintScope(card, meta.noteId ?? null);
 
   return card;
+}
+
+// Documento novo cai na nota aberta: quem está importando quer o arquivo ali,
+// não espalhado por todas. Soltar como geral depois é um clique no alfinete.
+async function addFile(file) {
+  const noteId = currentNoteId;
+  const id     = await saveFile(file, noteId);
+  const meta   = { id, name: file.name, type: file.type, noteId, createdAt: Date.now() };
+  allMetas.push(meta);
+  grid.appendChild(await buildCard(meta));
+  paintView();
 }
 
 async function processFiles(files) {
   for (const file of files) {
     if (!isAllowed(file)) continue;
-    const id   = await saveFile(file);
-    const card = await buildCard({ id, name: file.name, type: file.type });
-    grid.appendChild(card);
+    await addFile(file);
   }
 }
 
 // ── Init ─────────────────────────────────────────────────────────────────────
 export async function initDocuments() {
-  const metas = await loadAllFilesMeta();
-  for (const meta of metas) {
-    grid.appendChild(await buildCard(meta));
-  }
+  // initNotesTabs() já rodou e definiu a nota aberta via setDocumentsNote().
+  viewMode = await loadDocsView();
+  allMetas = await loadAllFilesMeta();
+  ready = true;
+  await renderGrid();
 
   // Clique simples em card abre modal (sem modificadores)
   // Ctrl/Shift são tratados por selection.js via mousedown
@@ -177,9 +320,7 @@ export async function initDocuments() {
     const ts     = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 15);
     const file   = new File([blob], `colado_${ts}.${ext}`, { type: blob.type });
 
-    const id   = await saveFile(file);
-    const card = await buildCard({ id, name: file.name, type: file.type });
-    grid.appendChild(card);
+    await addFile(file);
   });
 
   // Drop externo de arquivos no painel
@@ -201,7 +342,17 @@ export async function initDocuments() {
   });
 }
 
-export function clearDocuments() {
-  grid.innerHTML = '';
-  clearSelection();
+// Troca de nota: só repinta o grid, sem reler o banco.
+export async function setDocumentsNote(noteId) {
+  currentNoteId = noteId;
+  if (ready) await renderGrid();
 }
+
+// Usado quando algo mexeu nos arquivos por fora (ex.: excluir uma nota solta
+// os documentos dela como gerais).
+export async function refreshDocuments() {
+  if (!ready) return;
+  allMetas = await loadAllFilesMeta();
+  await renderGrid();
+}
+

@@ -6,6 +6,13 @@ db.version(2).stores({
   files: '++id, name, type, createdAt',
   notes: '++id, order, updatedAt'
 });
+// noteId indexado só pra conseguir varrer os arquivos de uma nota ao excluí-la.
+// Arquivos criados antes desta versão não têm o campo e ficam fora do índice —
+// que é justamente o que queremos: sem noteId = geral.
+db.version(3).stores({
+  files: '++id, name, type, noteId, createdAt',
+  notes: '++id, order, updatedAt'
+});
 
 // --- NOTAS ---
 export async function loadAllNotesMeta() {
@@ -25,7 +32,7 @@ export async function createNoteRecord({ title, content = '', blocks = [], color
   return db.notes.add({ title, content, blocks, color, icon, iconFilled, titleHidden, order: count, createdAt: now, updatedAt: now });
 }
 
-// `blocks` é a fonte de verdade do editor (estilo Notion); `content` é uma
+// `blocks` é a fonte de verdade do editor; `content` é uma
 // versão em texto simples derivada, guardada só por portabilidade/backup.
 export async function updateNoteBlocksById(id, blocks, content) {
   return db.notes.update(id, { blocks, content, updatedAt: Date.now() });
@@ -74,6 +81,19 @@ export async function saveActiveNoteId(id) {
   });
 }
 
+// --- FILTRO DE DOCUMENTOS ('note' | 'all') ---
+export async function loadDocsView() {
+  return new Promise(resolve => {
+    chrome.storage.local.get('docs_view', ({ docs_view }) => resolve(docs_view === 'all' ? 'all' : 'note'));
+  });
+}
+
+export async function saveDocsView(view) {
+  return new Promise(resolve => {
+    chrome.storage.local.set({ docs_view: view }, resolve);
+  });
+}
+
 // --- LAYOUT (área redimensionável) ---
 export async function loadSplitRatio() {
   return new Promise(resolve => {
@@ -103,18 +123,34 @@ export async function saveTheme(theme) {
 }
 
 // --- ARQUIVOS ---
-export async function saveFile(file) {
+// noteId null  → documento geral: aparece em todas as notas.
+// noteId <id>  → aparece só naquela nota.
+// Quem foi salvo antes deste recurso não tem o campo; o `?? null` na leitura
+// os trata como gerais, que é exatamente o comportamento que já tinham.
+export async function saveFile(file, noteId = null) {
   return db.files.add({
     name: file.name,
     type: file.type,
     blob: file,
+    noteId,
     createdAt: Date.now()
   });
 }
 
 export async function loadAllFilesMeta() {
   const files = await db.files.orderBy('createdAt').toArray();
-  return files.map(({ id, name, type, createdAt }) => ({ id, name, type, createdAt }));
+  return files.map(({ id, name, type, noteId, createdAt }) => ({
+    id, name, type, noteId: noteId ?? null, createdAt
+  }));
+}
+
+export async function setFileNoteId(id, noteId) {
+  return db.files.update(id, { noteId });
+}
+
+// Nota excluída: os documentos dela viram gerais em vez de sumirem junto.
+export async function detachFilesFromNote(noteId) {
+  return db.files.where('noteId').equals(noteId).modify({ noteId: null });
 }
 
 export async function loadFileBlob(id) {
@@ -124,14 +160,6 @@ export async function loadFileBlob(id) {
 
 export async function deleteFile(id) {
   return db.files.delete(id);
-}
-
-export async function clearAll() {
-  await db.files.clear();
-  await db.notes.clear();
-  return new Promise(resolve => {
-    chrome.storage.local.remove(['note_content', 'active_note_id'], resolve);
-  });
 }
 
 // --- HISTÓRICO DE CÁLCULOS ---

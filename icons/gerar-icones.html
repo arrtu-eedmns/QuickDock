@@ -4,138 +4,104 @@
   <meta charset="UTF-8" />
   <title>Gerar ícones QuickDock</title>
   <style>
-    body { font-family: sans-serif; padding: 24px; background: #1a1a2e; color: #eee; }
-    .previews { display: flex; align-items: flex-end; gap: 16px; margin: 20px 0; }
-    canvas { border-radius: 22%; box-shadow: 0 4px 20px rgba(0,0,0,0.5); }
-    .label { text-align: center; font-size: 12px; color: #888; margin-top: 6px; }
+    body { font-family: system-ui, 'Segoe UI', sans-serif; padding: 28px; background: #191919; color: #e8e8e8; }
+    h2 { font-weight: 600; letter-spacing: -0.3px; }
+    p { color: #9b9b9b; font-size: 13px; line-height: 1.55; max-width: 56ch; }
+    code { font-family: 'Cascadia Code', Consolas, monospace; font-size: 12px; color: #e8e8e8; }
+    .previews { display: flex; align-items: flex-end; gap: 20px; margin: 24px 0; }
+    .label { text-align: center; font-size: 12px; color: #5a5a5a; margin-top: 8px; }
     button {
-      padding: 10px 24px; background: #7c3aed; color: #fff;
-      border: none; border-radius: 8px; cursor: pointer; font-size: 14px;
+      padding: 9px 20px; background: #2383e2; color: #fff;
+      border: none; border-radius: 8px; cursor: pointer; font-size: 13px; font-weight: 500;
     }
-    button:hover { background: #6d28d9; }
+    button:hover { background: #1b6bb8; }
   </style>
 </head>
 <body>
   <h2>Ícones — QuickDock</h2>
-  <p style="color:#888">Clique em "Baixar todos" e salve os 3 PNGs na pasta <code>icons/</code>.</p>
+  <p>
+    Desenha a marca a partir dos mesmos paths de <code>quickdock-mark.svg</code>.
+    Clique em "Baixar todos" e salve os 3 PNGs aqui na pasta <code>icons/</code>.
+  </p>
   <div class="previews" id="previews"></div>
   <button onclick="downloadAll()">Baixar todos</button>
 
   <script>
-    const sizes = [16, 48, 128];
+    const LUNE_A = 'M153.03 153.03 A150 150 0 1 1 358.97 358.97 A150 150 0 0 0 153.03 153.03 Z';
+    const LUNE_B = 'M153.03 153.03 A150 150 0 1 0 358.97 358.97 A150 150 0 0 1 153.03 153.03 Z';
+    const LUNE_A_C = 'M155.51 155.51 A150 150 0 1 1 356.49 356.49 A150 150 0 0 0 155.51 155.51 Z';
+    const LUNE_B_C = 'M155.51 155.51 A150 150 0 1 0 356.49 356.49 A150 150 0 0 1 155.51 155.51 Z';
+
+    // Marca cheia e marca compacta: a compacta engrossa tudo ~33% para sobreviver a 16px.
+    const MARKS = {
+      full: {
+        paths: [LUNE_A, LUNE_B, 'M241.59 241.59 L476.35 431.09 L431.09 476.35 Z'],
+        star: 'M0 -58 C0 -10.4 10.4 0 58 0 C10.4 0 0 10.4 0 58 C0 10.4 -10.4 0 -58 0 C-10.4 0 0 -10.4 0 -58 Z',
+        lo: 80.544, hi: 476.35
+      },
+      compact: {
+        paths: [LUNE_A_C, LUNE_B_C, 'M241.59 241.59 L484.83 422.61 L422.61 484.83 Z'],
+        star: 'M0 -64 C0 -11.52 11.52 0 64 0 C11.52 0 0 11.52 0 64 C0 11.52 -11.52 0 -64 0 C-11.52 0 0 -11.52 0 -64 Z',
+        lo: 72.06, hi: 484.83
+      }
+    };
+
+    const STAR_AT = [251.23, 251.23];
+    const BG = '#191919';
+    const INK = '#f4f4f5';
+
+    // Quanto menor o ícone, menos margem cabe — a marca precisa ocupar mais do quadro.
+    function fillFraction(size) {
+      if (size <= 16) return 0.80;
+      if (size <= 48) return 0.72;
+      return 0.70;
+    }
 
     function drawIcon(size) {
-      const c   = document.createElement('canvas');
-      c.width   = size;
-      c.height  = size;
+      const c = document.createElement('canvas');
+      c.width = c.height = size;
       const ctx = c.getContext('2d');
-      const S   = size;
-      const r   = S * 0.22; // raio dos cantos
+      const mark = size <= 32 ? MARKS.compact : MARKS.full;
 
-      // ── Fundo: gradiente diagonal roxo escuro ──
-      const grad = ctx.createLinearGradient(0, 0, S, S);
-      grad.addColorStop(0,   '#4a1a8a');
-      grad.addColorStop(0.5, '#2d1060');
-      grad.addColorStop(1,   '#0e0520');
       ctx.beginPath();
-      ctx.roundRect(0, 0, S, S, r);
-      ctx.fillStyle = grad;
+      ctx.roundRect(0, 0, size, size, size * 0.22);
+      ctx.fillStyle = BG;
       ctx.fill();
 
-      // Tudo que vem a seguir é desenhado em branco
-      ctx.fillStyle   = '#ffffff';
-      ctx.strokeStyle = '#ffffff';
-      ctx.lineCap     = 'round';
-      ctx.lineJoin    = 'round';
+      const span = (mark.hi - mark.lo) / fillFraction(size);
+      const off = (mark.lo + mark.hi) / 2 - span / 2;
+      const k = size / span;
 
-      // Escala relativa ao tamanho
-      const u = S / 128; // unidade base (icon foi desenhado em 128px)
+      ctx.save();
+      ctx.setTransform(k, 0, 0, k, -off * k, -off * k);
+      ctx.fillStyle = INK;
+      mark.paths.forEach(d => ctx.fill(new Path2D(d)));
 
-      // ── Corpo do clipboard ──
-      // Retângulo principal
-      const cbX = 22 * u;
-      const cbY = 28 * u;
-      const cbW = 60 * u;
-      const cbH = 76 * u;
-      const cbR = 8  * u;
-
-      ctx.beginPath();
-      ctx.roundRect(cbX, cbY, cbW, cbH, cbR);
-      ctx.fill();
-
-      // Recorte interno (oco) — subtrai com o fundo
-      const pad  = 7 * u;
-      const ih   = 54 * u;
-      const iR   = 5  * u;
-
-      ctx.globalCompositeOperation = 'destination-out';
-      ctx.beginPath();
-      ctx.roundRect(cbX + pad, cbY + 18 * u, cbW - pad * 2, ih, iR);
-      ctx.fill();
-      ctx.globalCompositeOperation = 'source-over';
-
-      // ── Clipe do topo (retângulo arredondado) ──
-      const clipW = 26 * u;
-      const clipH = 14 * u;
-      const clipX = cbX + (cbW - clipW) / 2;
-      const clipY = cbY - 7 * u;
-      const clipR = 7  * u;
-      ctx.beginPath();
-      ctx.roundRect(clipX, clipY, clipW, clipH, clipR);
-      ctx.fill();
-
-      // Círculo central do clipe
-      ctx.globalCompositeOperation = 'destination-out';
-      ctx.beginPath();
-      ctx.arc(cbX + cbW / 2, clipY + clipH / 2, 4.5 * u, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.globalCompositeOperation = 'source-over';
-
-      // ── Seta apontando para a direita ──
-      // Haste
-      const aY    = 72 * u;
-      const aX1   = 62 * u;
-      const aX2   = 108 * u;
-      const aStroke = 11 * u;
-
-      ctx.lineWidth = aStroke;
-      ctx.beginPath();
-      ctx.moveTo(aX1, aY);
-      ctx.lineTo(aX2 - 4 * u, aY);
-      ctx.stroke();
-
-      // Ponta da seta (triângulo)
-      const tip  = aX2 + 4 * u;
-      const half = 13 * u;
-      ctx.beginPath();
-      ctx.moveTo(tip,        aY);
-      ctx.lineTo(tip - 16 * u, aY - half);
-      ctx.lineTo(tip - 16 * u, aY + half);
-      ctx.closePath();
-      ctx.fill();
+      ctx.translate(STAR_AT[0], STAR_AT[1]);
+      ctx.rotate(Math.PI / 4);
+      ctx.fill(new Path2D(mark.star));
+      ctx.restore();
 
       return c;
     }
 
+    const sizes = [128, 48, 16];
     const previews = document.getElementById('previews');
     sizes.forEach(size => {
       const wrap = document.createElement('div');
-      const canvas = drawIcon(size);
-      canvas.title = `${size}x${size}`;
       const label = document.createElement('div');
       label.className = 'label';
-      label.textContent = `${size}×${size}`;
-      wrap.appendChild(canvas);
+      label.textContent = size + '×' + size;
+      wrap.appendChild(drawIcon(size));
       wrap.appendChild(label);
       previews.appendChild(wrap);
     });
 
     function downloadAll() {
       sizes.forEach(size => {
-        const canvas = drawIcon(size);
         const a = document.createElement('a');
-        a.download = `${size}.png`;
-        a.href = canvas.toDataURL('image/png');
+        a.download = size + '.png';
+        a.href = drawIcon(size).toDataURL('image/png');
         a.click();
       });
     }

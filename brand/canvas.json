@@ -1,0 +1,19 @@
+{
+  "artboards": [
+    { "file": "Main.dc.html", "x": 0, "y": 0, "w": 880, "h": 640 },
+    { "file": "Variants.dc.html", "x": 960, "y": 0, "w": 1200, "h": 700 },
+    { "file": "Lockup.dc.html", "x": 0, "y": 820, "w": 1000, "h": 620 },
+    { "file": "AppIcon.dc.html", "x": 1080, "y": 820, "w": 900, "h": 560 },
+    { "file": "Construction.dc.html", "x": 0, "y": 1560, "w": 880, "h": 640 }
+  ],
+  "annotations": [
+    {
+      "id": "marca-fechada",
+      "x": 0,
+      "y": -300,
+      "w": 420,
+      "text": "Marca fechada, a partir do Quarks-logo.svg: círculo + estrela a 45° no centro + rastro reto que nasce dentro dela e sai pela cúspide.\n\nMonocromática. Os arquivos prontos são brand/quickdock-mark.svg e brand/quickdock-mark-compact.svg — os dois usam currentColor, então herdam a cor do texto ao redor.\n\nÚnica coisa que mudei do seu arquivo: recentrei a viewBox, que estava com o desenho encostado no canto."
+    }
+  ],
+  "launch": { "view": "canvas" }
+}

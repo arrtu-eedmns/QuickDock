@@ -2,3 +2,10 @@ QuickDock.zip
 *.zip
 Thumbs.db
 .DS_Store
+
+# Canvas de design publicado: 2,4 MB de bundle gerado do editor, não é fonte.
+# As fontes da marca (.dc.html, canvas.json, .svg) ficam versionadas.
+brand/quickdock-logo.html
+
+# Arquivo de trava do Affinity, criado enquanto o .af está aberto
+*~lock~

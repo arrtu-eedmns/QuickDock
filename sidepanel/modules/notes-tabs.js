@@ -1,9 +1,10 @@
 import {
   loadAllNotesMeta, createNoteRecord, updateNoteMetaById, deleteNoteRecordById,
   reorderNoteRecords, migrateLegacyNoteIfNeeded, loadActiveNoteId, saveActiveNoteId,
-  getNoteById,
+  getNoteById, detachFilesFromNote, updateNoteBlocksById,
 } from './storage.js';
-import { switchToNote, flushSave, getCurrentBlocks } from './note.js';
+import { setDocumentsNote, refreshDocuments } from './documents.js';
+import { switchToNote, flushSave, getCurrentBlocks, clearCurrentNote } from './note.js';
 import { blocksToMarkdown, blocksToPlainText, parseMarkdownToBlocks } from './blocks.js';
 
 const tabsEl        = document.getElementById('notes-tabs');
@@ -11,6 +12,15 @@ const btnNew        = document.getElementById('btn-new-note');
 const btnNotesList  = document.getElementById('btn-notes-list');
 const importInput   = document.getElementById('note-import-input');
 const noteEditorEl  = document.querySelector('.note-editor');
+
+// A tira de abas só rola na horizontal, mas a roda do mouse manda scroll
+// vertical por padrão (só vira horizontal segurando Shift) — aqui a gente
+// já converte deltaY em scrollLeft direto, sem precisar da tecla.
+tabsEl.addEventListener('wheel', e => {
+  if (e.deltaY === 0) return;
+  e.preventDefault();
+  tabsEl.scrollLeft += e.deltaY;
+}, { passive: false });
 
 // As 7 cores do arco-íris, na ordem — "Nenhuma" fica à parte, sempre primeiro
 // na lista do popover.
@@ -26,9 +36,10 @@ const COLORS = [
 
 // Ícones comuns (Material Symbols) — qualquer outro nome do catálogo
 // (fonts.google.com/icons) também funciona via o campo de texto livre.
+// Onze: com o "nenhum" na frente fecham duas fileiras de seis na grade.
 const COMMON_ICONS = [
-  'note', 'description', 'edit_note', 'checklist', 'star', 'flag',
-  'bookmark', 'folder', 'lightbulb', 'push_pin', 'label', 'event',
+  'note', 'edit_note', 'checklist', 'star', 'flag', 'bookmark',
+  'folder', 'lightbulb', 'push_pin', 'label', 'event',
 ];
 
 // ── Nota-tutorial ──────────────────────────────────────────────────────────
@@ -39,7 +50,7 @@ const COMMON_ICONS = [
 // próprio parser, então os exemplos de sintaxe são descritos por extenso.
 const TUTORIAL_MARKDOWN = `# Bem-vindo ao QuickDock 👋
 
-Esta nota foi criada automaticamente pra te mostrar como usar cada parte do QuickDock. Pode editar ou apagar à vontade — sempre que quiser vê-la de novo, clique no botão de tutorial (📘) ao lado do botão de tema, no topo do painel.
+Esta nota foi criada automaticamente pra te mostrar como usar cada parte do QuickDock. Pode editar ou apagar à vontade — sempre que quiser vê-la de novo, abra o menu ⋯ no fim da barra de abas e escolha "Ver tutorial".
 
 ## Formatação de texto
 
@@ -48,7 +59,21 @@ Esta nota foi criada automaticamente pra te mostrar como usar cada parte do Quic
 - Colocar ~~til duplo~~ dos dois lados vira ~~riscado~~
 - Colocar o texto entre um par de crases vira código em linha
 
-## Blocos, do jeito Notion
+Tudo junto, numa linha de verdade:
+
+**Protocolo 88123** — reembolso *em análise*, prazo ~~15/09~~ 22/09.
+
+## Links
+
+Selecione um texto e aperte Ctrl+K pra transformar em link. Com o cursor dentro de um link já existente, Ctrl+K reabre o menu pra trocar o endereço ou remover.
+
+Colar uma URL também funciona: sem nada selecionado ela entra como link, e com texto selecionado o endereço envolve a seleção.
+
+Pra abrir um link, segure Ctrl e clique — o mesmo gesto da detecção inteligente. Clique normal só posiciona o cursor, senão não daria pra editar o texto. Experimente neste: [catálogo de ícones do Google](https://fonts.google.com/icons)
+
+Na prática, serve pra deixar o caminho de volta salvo junto do caso: o portal da operadora, o formulário que você sempre preenche, a consulta do protocolo.
+
+## Tipos de bloco
 
 Digite uma barra "/" no começo de uma linha vazia pra abrir o menu e escolher o tipo de bloco. Ou use os atalhos abaixo, digitando o símbolo seguido de espaço no início da linha:
 
@@ -62,14 +87,44 @@ Digite uma barra "/" no começo de uma linha vazia pra abrir o menu e escolher o
 
 ### Exemplos ao vivo
 
-> Isso aqui é uma citação — ótima pra destacar um trecho importante.
+Citação — boa pra guardar a fala de alguém sem misturar com a sua anotação:
 
-- [ ] Marque esta tarefa pra ver o checkbox funcionando
-- [x] Esta já vem marcada
+> A beneficiária afirma que enviou a documentação em 02/09. Conferir no protocolo antes de responder.
 
-1. Primeiro passo
-2. Segundo passo
-3. Terceiro passo
+Checklist — clique nas caixas, elas ficam marcadas:
+
+- [x] Solicitar segunda via do boleto
+- [ ] Conferir elegibilidade no portal
+- [ ] Retornar a ligação
+
+Lista numerada — pro passo a passo de um procedimento:
+
+1. Abrir o protocolo no portal da operadora
+2. Anexar o relatório do mês
+3. Registrar o número de retorno nesta nota
+
+---
+
+## Tabelas
+
+Digite "/" e escolha Tabela pra inserir uma. A primeira linha é sempre o cabeçalho.
+
+| Beneficiário | CPF | Status |
+| --- | --- | --- |
+| Ana Souza | 111.444.777-35 | Ativo |
+| João Lima | 11.222.333/0001-81 | Pendente |
+
+- Tab pula pra próxima célula e Shift+Tab volta. Tab na última célula cria uma linha nova.
+- Com o cursor dentro da tabela aparece uma barra com "+ linha", "+ coluna", "− linha" e "− coluna" — as ações valem pra linha e a coluna onde o cursor está.
+- Enter dentro de uma célula quebra linha ali dentro, sem sair da tabela.
+- Em painel estreito a tabela rola na horizontal em vez de espremer as colunas.
+- A detecção inteligente (CPF, data, cálculo) ainda não roda dentro das células — por isso os números da tabela acima não ficam sublinhados.
+
+### Colar do Excel ou do Google Sheets
+
+Selecione as células lá, copie, e cole aqui: vira uma tabela de verdade, com as colunas separadas. Vale pro Excel, pro Google Sheets e pra qualquer coisa que copie em colunas separadas por tabulação.
+
+Na prática: recorte do relatório só as linhas que interessam ao caso e cole aqui, em vez de deixar a planilha inteira aberta numa aba ao lado.
 
 ---
 
@@ -81,6 +136,8 @@ Passe o mouse na margem esquerda de qualquer bloco (inclusive este) pra ver dois
 - A alça de arrastar (os pontinhos): clique nela pra abrir o menu do bloco — Transformar em, Duplicar, Excluir. Ou arraste pra reordenar sem perder a formatação.
 - Segure Ctrl e arraste a partir de qualquer ponto do texto (não só a alça) pra selecionar vários blocos de uma vez e mover, duplicar ou excluir juntos.
 - Ctrl+Z desfaz e Ctrl+Shift+Z refaz — inclusive troca de tipo de bloco.
+
+Experimente agora nesta linha: passe o mouse na margem, clique na alça, escolha "Transformar em" e depois "Citação". Ctrl+Z traz de volta.
 
 ## Detecção inteligente (a parte de "cálculo")
 
@@ -96,14 +153,19 @@ Segure Ctrl e clique em cima de qualquer valor sublinhado abaixo pra ver um menu
 
 No cálculo, o menu mostra o passo a passo e o resultado, com um botão pra copiar. CPF e CNPJ também mostram se o número é válido.
 
+Na prática, é o que evita redigitar: cole o CPF do beneficiário na nota, Ctrl+clique e copie já sem pontuação direto pro campo do sistema. O cálculo confere um repasse sem abrir a calculadora, e a data já traz a idade calculada junto, pronta pra copiar.
+
 ---
 
 ## Várias notas
 
 - As abas da nota ficam no topo desta seção. Clique no ☰ pra ver a lista completa (útil quando há muitas abas abertas).
 - O botão ＋ cria uma nota em branco ou importa um arquivo .md ou .txt.
-- Em cada aba, o menu ⋯ tem: Renomear, Ícone e cor, Copiar como Markdown, Copiar como texto, Baixar .md, Baixar .txt e Excluir.
-- Em "Ícone e cor" dá pra escolher um ícone comum, digitar o nome de qualquer ícone do catálogo do Google Fonts, alternar entre contorno e preenchido, e escolher uma cor — inclusive uma cor personalizada.
+- Dê um duplo clique numa aba pra abrir o menu dela: Renomear, Ícone e cor, Copiar como Markdown, Copiar como texto, Baixar .md, Baixar .txt, Limpar conteúdo e Excluir. Pela lista do ☰ o mesmo menu abre no botão de editar de cada linha.
+- "Limpar conteúdo" esvazia só o texto daquela nota — o nome, a cor e os documentos dela continuam onde estão. "Excluir" some com a nota inteira.
+- Em "Ícone e cor" dá pra escolher um ícone comum ou digitar o nome de qualquer ícone do catálogo do Google Fonts e clicar no botão ao lado do campo pra aplicar. Também dá pra alternar entre contorno e preenchido e escolher a cor — a última bolinha, com arco-íris, abre o seletor de cor livre.
+
+Uma forma de organizar: uma nota por cliente, por caso ou por dia. Dê nome, cor e ícone a cada aba e ela fica reconhecível de relance mesmo com dez abertas. Se o espaço apertar, marque "Ocultar nome na aba" nas que já têm ícone — a aba encolhe pro ícone colorido e cabe muito mais coisa na barra.
 
 ## Documentos
 
@@ -112,6 +174,21 @@ Na parte de baixo do painel dá pra guardar arquivos e imagens:
 - Clique no ＋ da seção Documentos, arraste arquivos pra dentro da área, ou cole uma imagem direto com Ctrl+V.
 - Clique em uma imagem pra abrir o visualizador — zoom, girar, navegar entre várias com as setas.
 - Selecione vários arquivos pra injetar direto na página que você está usando ou apagar em lote.
+
+### Documento de uma nota ou de todas
+
+Todo arquivo novo entra vinculado à nota aberta. O alfinete no canto do arquivo alterna entre duas situações:
+
+- **Vinculado** (alfinete azul, sempre visível): aparece só nesta nota.
+- **Geral** (alfinete some quando o mouse sai): aparece em todas as notas. Bom pra modelo, logo, formulário em branco — coisas que você usa o tempo todo.
+
+No cabeçalho da seção, "Nesta nota" mostra os desta nota mais os gerais, e "Todos" mostra o acervo inteiro, com os de outras notas em tom apagado. Sempre que o filtro esconder alguma coisa, aparece um rodapé dizendo quantos arquivos ficaram de fora, com um clique pra ver todos — nenhum arquivo some sem aviso.
+
+Pra mover vários de uma vez, selecione e use "📌 Vincular" ou "📌 Tornar geral" na barra azul.
+
+Excluir uma nota **não apaga** os arquivos dela: eles viram gerais.
+
+Na prática: abra a nota do caso e arraste pra dentro o PDF da carteirinha e o print do protocolo — eles ficam vinculados àquela nota e somem da vista quando você troca de aba. Já o modelo de e-mail que você usa em todo atendimento vale deixar geral, pra ter à mão em qualquer nota.
 
 ---
 
@@ -160,7 +237,7 @@ function setAccent(color) {
   else noteEditorEl.style.removeProperty('--note-accent');
 }
 
-function positionPopover(el, anchorEl) {
+export function positionPopover(el, anchorEl) {
   const rect = anchorEl.getBoundingClientRect();
   const top  = Math.min(rect.bottom + 4, window.innerHeight - el.offsetHeight - 4);
   const left = Math.min(rect.left, window.innerWidth - el.offsetWidth - 4);
@@ -237,7 +314,7 @@ function buildTab(meta) {
   });
   tab.addEventListener('dblclick', e => {
     e.preventDefault();
-    openTabMenu(meta, tab, title);
+    openTabMenu(meta, tab);
   });
 
   tab.addEventListener('dragstart', e => {
@@ -268,38 +345,9 @@ function buildTab(meta) {
   return tab;
 }
 
-function startRename(meta, titleEl) {
-  const input = document.createElement('input');
-  input.className = 'note-tab-rename';
-  input.value = meta.title;
-  titleEl.replaceWith(input);
-  input.focus();
-  input.select();
-
-  let done = false;
-  const commit = async () => {
-    if (done) return;
-    done = true;
-    const val = input.value.trim() || 'Sem título';
-    await updateNoteMetaById(meta.id, { title: val });
-    meta.title = val;
-    renderTabs();
-  };
-
-  input.addEventListener('keydown', e => {
-    if (e.key === 'Enter')  input.blur();
-    if (e.key === 'Escape') { done = true; renderTabs(); }
-  });
-  input.addEventListener('blur', commit);
-}
-
-// ── Popover de aparência (ícone + cor juntos) ─────────────────────────────────
-// Um popover só, com as duas seções — escolher um ícone ou uma cor não fecha
-// a tela, só atualiza o que está marcado, pra dar pra ajustar os dois sem
-// reabrir o popover a cada escolha.
-let appearancePopover = null;
-function closeAppearancePicker() { appearancePopover?.remove(); appearancePopover = null; }
-
+// ── Conteúdo de ícone + cor (embutido dentro do menu "⋯", ver openTabMenu) ───
+// Escolher um ícone ou uma cor não fecha o menu, só re-renderiza este bloco
+// no lugar, pra dar pra ajustar os dois sem reabrir nada.
 function renderAppearanceContent(pop, meta) {
   pop.innerHTML = '';
 
@@ -363,25 +411,42 @@ function renderAppearanceContent(pop, meta) {
   const iconInput = document.createElement('input');
   iconInput.type = 'text';
   iconInput.className = 'icon-custom-input';
-  iconInput.placeholder = 'nome_do_ícone (personalizado)';
+  iconInput.placeholder = 'nome_do_ícone';
   const initialCustomName = (meta.icon && !COMMON_ICONS.includes(meta.icon)) ? meta.icon : '';
   iconInput.value = initialCustomName;
 
-  const iconPreview = document.createElement('span');
-  iconPreview.className = 'icon-custom-preview material-symbols-rounded' + filledClass;
-  iconPreview.textContent = initialCustomName;
+  // O preview é o próprio botão de aplicar: antes era um <span> e não dava pra
+  // confirmar o ícone personalizado a não ser apertando Enter.
+  const iconApply = document.createElement('button');
+  iconApply.className = 'icon-custom-apply material-symbols-rounded' + filledClass;
+  iconApply.title = 'Usar este ícone';
+
+  const syncApply = () => {
+    const name = iconInput.value.trim();
+    iconApply.textContent = name || 'add';
+    iconApply.disabled = !name || name === meta.icon;
+    iconApply.classList.toggle('is-empty', !name);
+  };
+  syncApply();
+
+  const applyCustomIcon = () => {
+    const name = iconInput.value.trim();
+    if (name) pickIcon(name);
+  };
 
   iconInput.addEventListener('mousedown', e => e.stopPropagation());
-  iconInput.addEventListener('input', () => {
-    iconPreview.textContent = iconInput.value.trim();
-  });
+  iconInput.addEventListener('input', syncApply);
   iconInput.addEventListener('keydown', e => {
     e.stopPropagation();
     if (e.key !== 'Enter') return;
-    const name = iconInput.value.trim();
-    if (name) pickIcon(name);
+    e.preventDefault();
+    applyCustomIcon();
   });
-  iconCustomRow.append(iconInput, iconPreview);
+
+  iconApply.addEventListener('mousedown', e => { e.stopPropagation(); e.preventDefault(); });
+  iconApply.addEventListener('click', e => { e.stopPropagation(); applyCustomIcon(); });
+
+  iconCustomRow.append(iconInput, iconApply);
   pop.appendChild(iconCustomRow);
 
   const hint = document.createElement('a');
@@ -427,20 +492,25 @@ function renderAppearanceContent(pop, meta) {
     sw.addEventListener('click', e => { e.stopPropagation(); pickColor(hex); });
     colorGrid.appendChild(sw);
   }
-  pop.appendChild(colorGrid);
+  // "Outra cor" entra como a última bolinha da própria grade, em vez de uma
+  // linha solta embaixo — é o que deixava a seção desalinhada.
+  const isCustomColor = !!meta.color && !COLORS.some(c => c.hex === meta.color);
+  const customSwatch = document.createElement('label');
+  customSwatch.className = 'color-swatch color-swatch-custom' + (isCustomColor ? ' active' : '');
+  customSwatch.title = 'Outra cor…';
+  if (isCustomColor) customSwatch.style.background = meta.color;
 
-  const colorCustomRow = document.createElement('label');
-  colorCustomRow.className = 'color-custom-row';
   const colorInput = document.createElement('input');
   colorInput.type  = 'color';
   colorInput.className = 'color-custom-input';
   colorInput.value = (meta.color && /^#[0-9a-f]{6}$/i.test(meta.color)) ? meta.color : '#888888';
   colorInput.addEventListener('mousedown', e => e.stopPropagation());
+  colorInput.addEventListener('input',  e => { e.target.closest('.color-swatch').style.background = e.target.value; });
   colorInput.addEventListener('change', e => { e.stopPropagation(); pickColor(e.target.value); });
-  const colorLabel = document.createElement('span');
-  colorLabel.textContent = 'Outra cor…';
-  colorCustomRow.append(colorInput, colorLabel);
-  pop.appendChild(colorCustomRow);
+
+  customSwatch.appendChild(colorInput);
+  colorGrid.appendChild(customSwatch);
+  pop.appendChild(colorGrid);
 
   // Ocultar o nome só faz sentido se sobrar ícone ou cor pra identificar a
   // aba — sem isso a aba ficaria completamente vazia, então a opção nem
@@ -467,21 +537,7 @@ function renderAppearanceContent(pop, meta) {
   }
 }
 
-function openAppearancePicker(meta, anchorEl) {
-  closeAppearancePicker();
-  const pop = document.createElement('div');
-  pop.className = 'copy-menu appearance-popover';
-  renderAppearanceContent(pop, meta);
-  document.body.appendChild(pop);
-  appearancePopover = pop;
-  positionPopover(pop, anchorEl);
-}
-
-document.addEventListener('mousedown', e => {
-  if (appearancePopover && !appearancePopover.contains(e.target)) closeAppearancePicker();
-});
-
-// ── Menu "⋯" (renomear / ícone / cor / copiar / baixar / excluir) ────────────
+// ── Menu "⋯" (nome / ícone / cor / copiar / baixar / excluir) ────────────────
 // Pega os blocos da nota pedida: se for a nota aberta na tela, lê o DOM ao
 // vivo (depois de garantir que está salvo); se for outra aba, lê do banco —
 // mesma lógica de fallback usada ao trocar de nota.
@@ -511,12 +567,63 @@ function downloadText(filename, text) {
 }
 
 let tabMenuEl = null;
-function closeTabMenu() { tabMenuEl?.remove(); tabMenuEl = null; }
+let tabMenuAppearanceOpen = false;
 
-function openTabMenu(meta, anchorEl, titleEl) {
-  closeTabMenu();
-  const menu = document.createElement('div');
+function closeTabMenu() {
+  tabMenuEl?.remove();
+  tabMenuEl = null;
+  tabMenuAppearanceOpen = false;
+}
+
+function renderTabMenu(meta, anchorEl) {
+  const menu = tabMenuEl ?? document.createElement('div');
   menu.className = 'copy-menu tab-menu';
+  menu.innerHTML = '';
+
+  // Nome — o próprio input já dentro do menu, sem botão "Renomear" separado.
+  const renameInput = document.createElement('input');
+  renameInput.className = 'tab-menu-rename';
+  renameInput.value = meta.title;
+  renameInput.placeholder = 'Sem título';
+  renameInput.addEventListener('mousedown', e => e.stopPropagation());
+  renameInput.addEventListener('keydown', e => {
+    e.stopPropagation();
+    if (e.key === 'Enter')  renameInput.blur();
+    if (e.key === 'Escape') { renameInput.value = meta.title; renameInput.blur(); }
+  });
+  renameInput.addEventListener('blur', async () => {
+    const val = renameInput.value.trim() || 'Sem título';
+    if (val === meta.title) return;
+    await updateNoteMetaById(meta.id, { title: val });
+    meta.title = val;
+    renderTabs();
+  });
+  menu.appendChild(renameInput);
+
+  menu.appendChild(Object.assign(document.createElement('div'), { className: 'math-divider' }));
+
+  // Ícone e cor — dropdown embutido no mesmo menu, em vez de abrir outro
+  // popover por cima. Expande/recolhe sem fechar o menu.
+  const appearanceToggle = document.createElement('button');
+  appearanceToggle.className = 'copy-opt tab-menu-appearance-toggle';
+  appearanceToggle.innerHTML =
+    `<span class="copy-opt-value">Ícone e cor</span><span class="copy-opt-hint">${tabMenuAppearanceOpen ? '▲' : '▼'}</span>`;
+  appearanceToggle.addEventListener('mousedown', e => e.stopPropagation());
+  appearanceToggle.addEventListener('click', e => {
+    e.stopPropagation();
+    tabMenuAppearanceOpen = !tabMenuAppearanceOpen;
+    renderTabMenu(meta, anchorEl);
+  });
+  menu.appendChild(appearanceToggle);
+
+  if (tabMenuAppearanceOpen) {
+    const wrap = document.createElement('div');
+    wrap.className = 'tab-menu-appearance';
+    renderAppearanceContent(wrap, meta);
+    menu.appendChild(wrap);
+  }
+
+  menu.appendChild(Object.assign(document.createElement('div'), { className: 'math-divider' }));
 
   const addOpt = (label, run) => {
     const btn = document.createElement('button');
@@ -526,12 +633,6 @@ function openTabMenu(meta, anchorEl, titleEl) {
     btn.addEventListener('click', async e => { e.stopPropagation(); closeTabMenu(); await run(); });
     menu.appendChild(btn);
   };
-  const addDivider = () => menu.appendChild(Object.assign(document.createElement('div'), { className: 'math-divider' }));
-
-  addOpt('Renomear',   () => startRename(meta, titleEl));
-  addOpt('Ícone e cor', () => openAppearancePicker(meta, anchorEl));
-
-  addDivider();
 
   addOpt('Copiar como Markdown', async () => {
     const text = blocksToMarkdown(await getBlocksForNote(meta));
@@ -550,20 +651,39 @@ function openTabMenu(meta, anchorEl, titleEl) {
     downloadText(`${safeFilename(meta.title)}.txt`, text);
   });
 
-  addDivider();
+  menu.appendChild(Object.assign(document.createElement('div'), { className: 'math-divider' }));
+
+  addOpt('Limpar conteúdo', async () => {
+    if (!confirm(`Limpar o conteúdo de "${meta.title}"?\n\nO nome, a cor e os documentos da nota não mudam.`)) return;
+    if (meta.id === activeId) await clearCurrentNote();
+    else await updateNoteBlocksById(meta.id, [], '');
+  });
 
   addOpt('Excluir', async () => {
     if (notesMeta.length <= 1) { alert('Deve existir ao menos uma nota.'); return; }
     if (!confirm(`Excluir a nota "${meta.title}"?`)) return;
+    // Os documentos vinculados viram gerais: some a nota, não os arquivos.
+    await detachFilesFromNote(meta.id);
     await deleteNoteRecordById(meta.id);
     notesMeta = notesMeta.filter(n => n.id !== meta.id);
     if (activeId === meta.id) await activateNote(notesMeta[0].id);
+    await refreshDocuments();
     renderTabs();
   });
 
-  document.body.appendChild(menu);
-  tabMenuEl = menu;
+  if (!tabMenuEl) {
+    document.body.appendChild(menu);
+    tabMenuEl = menu;
+  }
   positionPopover(menu, anchorEl);
+}
+
+function openTabMenu(meta, anchorEl) {
+  closeTabMenu();
+  renderTabMenu(meta, anchorEl);
+  const renameInput = tabMenuEl.querySelector('.tab-menu-rename');
+  renameInput?.focus();
+  renameInput?.select();
 }
 
 document.addEventListener('mousedown', e => {
@@ -580,13 +700,12 @@ function closeNotesListPopover() { notesListPopover?.remove(); notesListPopover 
 // da área visível pela rolagem horizontal).
 function openTabMenuForNote(meta) {
   closeNotesListPopover();
-  const tabEl   = tabsEl.querySelector(`.note-tab[data-id="${meta.id}"]`);
-  const titleEl = tabEl?.querySelector('.note-tab-title');
-  if (!tabEl || !titleEl) return;
+  const tabEl = tabsEl.querySelector(`.note-tab[data-id="${meta.id}"]`);
+  if (!tabEl) return;
   // Sem "smooth" aqui: o menu abre logo em seguida e precisa da posição
   // final da aba, não de uma posição no meio de uma animação de rolagem.
   tabEl.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-  openTabMenu(meta, tabEl, titleEl);
+  openTabMenu(meta, tabEl);
 }
 
 let listDropIndicatorEl = null;
@@ -751,6 +870,7 @@ async function activateNote(id) {
   const meta = notesMeta.find(n => n.id === id);
   setAccent(meta?.color);
   await switchToNote(id);
+  await setDocumentsNote(id);
   await saveActiveNoteId(id);
 }
 
@@ -771,15 +891,4 @@ export async function initNotesTabs() {
   await activateNote(initial.id);
   renderTabs();
   scrollTabIntoView(initial.id);
-}
-
-// Usado por "limpar tudo": recria uma única nota vazia.
-export async function resetNotesTabs() {
-  const id = await createNoteRecord({ title: 'Nota 1', content: '' });
-  notesMeta = [{ id, title: 'Nota 1', color: null, icon: null, updatedAt: Date.now() }];
-  activeId  = id;
-  setAccent(null);
-  await switchToNote(id);
-  await saveActiveNoteId(id);
-  renderTabs();
 }

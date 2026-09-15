@@ -6,9 +6,9 @@
 
 Itens 1–5 **implementados** (v1.3.0). Item 6 (calculadora avançada) segue pendente de detalhamento.
 
-## Reescrita v1.4.0: editor de blocos (estilo Notion)
+## Reescrita v1.4.0: editor de blocos
 
-O editor de notas deixou de ser um textarea com camada de decoração por cima e virou um editor de **blocos reais** (`contenteditable`), parecido com o Notion:
+O editor de notas deixou de ser um textarea com camada de decoração por cima e virou um editor de **blocos reais** (`contenteditable`):
 
 - Digitar `# `, `## `, `### `, `- `, `1. `, `- [ ] `, `> ` ou `---` no início de um bloco vazio **transforma o bloco na hora** (o marcador digitado desaparece, vira formatação de verdade — título com fonte grande de verdade, não só negrito/cor).
 - `**negrito**`, `*itálico*`, `` `código` ``, `~~riscado~~` também convertem sozinhos assim que você fecha a sintaxe, virando `<strong>/<em>/<code>/<s>` reais.
@@ -24,7 +24,7 @@ O editor de notas deixou de ser um textarea com camada de decoração por cima e
 ### Limitações conhecidas / não implementado nessa rodada
 
 - **Sem indentação/lista aninhada** (Tab pra sub-nível) — não foi pedido, ficou fora por controle de escopo.
-- **Sem arrastar blocos** para reordenar (o "⋮⋮" do Notion) — não foi pedido.
+- **Sem arrastar blocos** para reordenar (a alça "⋮⋮") — não foi pedido.
 - Negrito/itálico **dentro** de um título ou citação não renderiza (título e citação reivindicam o bloco inteiro pra estilizar; limitação aceita, é bem incomum precisar disso).
 - Bloco de código: sem numeração de linha, sem highlight de sintaxe por linguagem — é só monoespaçado com fundo.
 - **Não testei rodando no Chrome de verdade** — o navegador desta sessão não consegue carregar extensões descompactadas (`chrome://extensions` não é acessível aqui). Editor com `contenteditable` é historicamente cheio de detalhe fino (posição de cursor, seleção, etc.) — é bem provável que apareça alguma quina pra ajustar depois de testar de verdade. Ver seção de teste no fim do documento.
@@ -51,7 +51,7 @@ Sugestão à parte (a decidir depois): um **export/import em JSON** (backup manu
 
 ## 3. Cores por nota ✅
 
-Consequência natural do item 2: cada nota no Dexie ganha um campo `color`, com um seletor de paleta (tipo Google Keep/Notion) e a cor aplicada como indicador visual na lista/aba da nota. Precisa de um conjunto de cores que funcione nos dois temas (claro/escuro).
+Consequência natural do item 2: cada nota no Dexie ganha um campo `color`, com um seletor de paleta e a cor aplicada como indicador visual na lista/aba da nota. Precisa de um conjunto de cores que funcione nos dois temas (claro/escuro).
 
 ## 4. Redimensionar área de notas x área de arquivos ✅
 
@@ -112,7 +112,7 @@ O tamanho da fonte é fixo (não muda por título) de propósito: se um título 
 
 > **Nota (pós v1.4.0)**: a seção "Por que os títulos não ficam com fonte maior" acima descreve a limitação do editor *antigo* (textarea + overlay). Desde a reescrita v1.4.0 pra blocos de verdade (contenteditable), H1–H6 já são tags reais com tamanho de fonte de verdade — essa limitação não existe mais.
 
-## Controles de bloco estilo Notion + Markdown/exportação
+## Controles de bloco + Markdown/exportação
 
 ### 1. Botão "+" e alça de arrastar (hover no canto esquerdo)
 Overlay flutuante único (não embrulha cada bloco) que segue o mouse sobre `#note-editor-blocks`, descobre o bloco sob o cursor via `getBoundingClientRect` e se posiciona à esquerda dele. Clique no "+" insere parágrafo vazio abaixo; Ctrl+clique insere acima.
@@ -144,9 +144,9 @@ Baixar: Blob + download nativo do navegador, sem permissão nova no manifest. Im
 
 Os três passos planejados estão implementados.
 
-### Adendo: menu da alça "⠿" (inspirado no menu de bloco do Notion)
+### Adendo: menu da alça "⠿"
 
-Ao clicar na alça (sem arrastar) abre um menu com **Transformar em** (lista de tipos, reaproveitando os mesmos itens do menu "/"), **Duplicar** e **Excluir** — não os itens específicos do Notion que não fazem sentido aqui (link pro bloco, comentário, pedir à IA, habilidades).
+Ao clicar na alça (sem arrastar) abre um menu com **Transformar em** (lista de tipos, reaproveitando os mesmos itens do menu "/"), **Duplicar** e **Excluir** — sem os itens de editores colaborativos que não fazem sentido aqui (link pro bloco, comentário, pedir à IA).
 
 - Ctrl+clique na alça seleciona um intervalo de blocos (independente do tipo de cada um), com destaque visual.
 - Se o bloco clicado faz parte de uma seleção múltipla ativa, a ação do menu (transformar/duplicar/excluir) vale pra todos ela; senão, só pra esse bloco.
