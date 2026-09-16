@@ -349,6 +349,34 @@ for (const { nome, blocks } of BLOCOS_V18) {
      funil.includes('ANCORA'), funil.slice(0, 120));
 }
 
+// ── 5b. Modo modelo não pode gravar por cima da nota ─────────────────────────
+// Foi um bug de perda de nota inteira, e de ordem de duas linhas.
+{
+  const { readFile } = await import('node:fs/promises');
+  const abas = await readFile(new URL('../sidepanel/modules/notes-tabs.js', import.meta.url), 'utf8');
+  const tpl  = await readFile(new URL('../sidepanel/modules/templates.js', import.meta.url), 'utf8');
+
+  // switchToNote começa com um flushSave, e o modo modelo é justamente o que
+  // bloqueia esse save. Limpar a marca ANTES de a nota voltar pra tela faz o
+  // save serializar os blocos do MODELO e gravá-los por cima da nota aberta.
+  const sair = /async function exitTemplate\([\s\S]*?\n\}/.exec(abas)?.[0] ?? '';
+  ok('modo modelo · exitTemplate continua existindo', !!sair);
+
+  const iVolta = sair.indexOf('activateNote(');
+  const iLimpa = sair.indexOf('clearTemplateEditing()');
+  ok('modo modelo · a nota volta pra tela ANTES de o modo ser desligado',
+     iVolta !== -1 && iLimpa > iVolta,
+     `activateNote em ${iVolta}, clearTemplateEditing em ${iLimpa}`);
+
+  // Salvar um pedaço da nota como modelo é guardar, não trocar de tela: quem
+  // clicou ali estava escrevendo, e ver só o trecho salvo parece perda de nota.
+  const salvar = /export function openSaveBlockTemplate\([\s\S]*?\n\}/.exec(tpl)?.[0] ?? '';
+  ok('modelos · openSaveBlockTemplate continua existindo', !!salvar);
+  ok('modelos · salvar um bloco como modelo não abre o editor de modelos',
+     !/requestTemplateEdit|createAndEdit/.test(salvar),
+     salvar.slice(0, 160));
+}
+
 // ── 6. Indentação do editor (Tab / Shift+Tab) ────────────────────────────────
 {
   const { rodarTestesDeIndentacao } = await import('./indent.mjs');

@@ -310,7 +310,7 @@ Numa linha vazia o modelo ocupa o lugar dela; com texto na linha, ele entra logo
 
 Vem um de exemplo chamado **Conferência** — um subtítulo, três checkboxes e o campo de quem conferiu.
 
-Pra criar o seu: selecione os blocos que quer guardar (segure Ctrl e arraste pra pegar vários), abra o menu da alça e escolha "Salvar como modelo de bloco".
+Pra criar o seu: selecione os blocos que quer guardar (basta arrastar por cima deles), abra o menu da alça e escolha "Salvar como modelo de bloco". Aparece um campo com um nome sugerido a partir da primeira linha — confirme e pronto. Você continua na nota, no mesmo lugar: salvar um modelo não mexe no que está escrito.
 
 ### Criar e editar um modelo
 
@@ -1066,12 +1066,20 @@ async function exitTemplate(salvar) {
   }
 
   editingTpl = null;
-  clearTemplateEditing();
   templateBar.hidden = true;
   noteSection.classList.remove('template-mode');
 
   const voltarPara = notesMeta.some(n => n.id === returnNoteId) ? returnNoteId : notesMeta[0]?.id;
+
+  // O modo modelo só é desligado DEPOIS de a nota voltar pra tela.
+  //
+  // Desligar antes era perda de nota: switchToNote começa com um flushSave, e
+  // esse save é justamente o que o modo modelo existe pra bloquear. Com a
+  // marca já limpa, ele serializava o que estava na tela — os blocos do
+  // MODELO — e gravava por cima da nota que estava aberta. Valia pra toda
+  // saída, inclusive pelo "Cancelar".
   if (voltarPara != null) await activateNote(voltarPara);
+  clearTemplateEditing();
   renderTabs();
 }
 

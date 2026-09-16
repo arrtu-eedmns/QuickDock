@@ -134,11 +134,77 @@ function opt(label, onClick, className = '') {
 }
 
 
-// Salvar a seleção como modelo de bloco: cria e já abre no editor, onde dá
-// pra dar o nome e ajustar antes de usar.
-export async function openSaveBlockTemplate(_anchorEl, markdown, onSaved) {
-  await createAndEdit({ name: 'Novo modelo', content: markdown, kind: 'block' });
-  onSaved?.();
+// ── Salvar um pedaço da nota como modelo ──────────────────────────────────────
+// Sugere um nome a partir da primeira linha com texto, sem a marcação. É o que
+// a pessoa reconhece depois na lista — "Novo modelo" não diz nada.
+function nomeSugerido(markdown) {
+  const primeira = (markdown ?? '').split('\n').map(l => l.trim()).find(Boolean) ?? '';
+  const limpo = primeira
+    .replace(/^(?:>\s*)+/, '')            // citação
+    .replace(/^\[![a-z]+\]\s*/i, '')      // marcador de destaque
+    .replace(/^(?:#{1,6}|[-*]|\d+\.)\s+/, '')
+    .replace(/^\[[ xX]\]\s*/, '')         // caixa de checklist
+    .replace(/[*`~]/g, '')                // ênfase inline
+    .trim();
+  return limpo.slice(0, 40) || 'Novo modelo';
+}
+
+let nameMenuEl = null;
+export function closeNameMenu() { nameMenuEl?.remove(); nameMenuEl = null; }
+
+/**
+ * Salvar a seleção como modelo de bloco.
+ *
+ * NÃO abre o editor de modelos. Quem clicou aqui estava escrevendo uma nota e
+ * pediu pra guardar um pedaço dela — trocar a tela pelo modelo tirava a pessoa
+ * do lugar onde ela estava, e o que ficava à vista era só o trecho salvo, como
+ * se o resto da nota tivesse sumido. O nome é pedido aqui mesmo, num popover.
+ */
+export function openSaveBlockTemplate(anchorEl, markdown, onSaved) {
+  closeTemplatesManager();
+  closeNameMenu();
+
+  const pop = document.createElement('div');
+  pop.className = 'copy-menu name-menu';
+
+  const head = document.createElement('div');
+  head.className = 'copy-menu-header';
+  head.textContent = 'Salvar como modelo de bloco';
+
+  const campo = document.createElement('input');
+  campo.className = 'link-input';
+  campo.type = 'text';
+  campo.value = nomeSugerido(markdown);
+  campo.placeholder = 'Nome do modelo';
+
+  const salvar = async () => {
+    const nome = campo.value.trim() || 'Novo modelo';
+    closeNameMenu();
+    await createTemplateRecord({ name: nome, content: markdown, kind: 'block' });
+    await refreshTemplates();
+    onSaved?.(nome);
+  };
+
+  campo.addEventListener('mousedown', e => e.stopPropagation());
+  campo.addEventListener('keydown', e => {
+    e.stopPropagation();
+    if (e.key === 'Enter')  { e.preventDefault(); salvar(); }
+    if (e.key === 'Escape') { e.preventDefault(); closeNameMenu(); }
+  });
+
+  const ok = document.createElement('button');
+  ok.className = 'copy-opt';
+  ok.innerHTML = '<span class="copy-opt-value">Salvar</span>';
+  ok.addEventListener('mousedown', e => e.stopPropagation());
+  ok.addEventListener('click', salvar);
+
+  pop.append(head, campo, ok);
+  pop.addEventListener('mousedown', e => e.stopPropagation());
+  document.body.appendChild(pop);
+  nameMenuEl = pop;
+  positionPopover(pop, anchorEl);
+  campo.focus();
+  campo.select();
 }
 
 /**
@@ -228,10 +294,15 @@ export async function openTemplatesManager(anchorEl, opts) {
 
   pop.appendChild(Object.assign(document.createElement('div'), { className: 'math-divider' }));
 
+  // Salvar guarda e pronto — não troca a tela pelo modelo. Só "criar do zero"
+  // abre o editor, porque aí não existe nada pra guardar: o editor É a tarefa.
   pop.appendChild(opt('Salvar a nota atual como modelo', async () => {
     const atual = await getCurrentNote();
     if (!atual?.markdown?.trim()) { alert('A nota atual está vazia.'); return; }
-    await createAndEdit({ name: atual.title || 'Novo modelo', content: atual.markdown, kind: 'note' });
+    await createTemplateRecord({
+      name: atual.title || 'Novo modelo', content: atual.markdown, kind: 'note',
+    });
+    await reopen();
   }));
 
   pop.appendChild(opt('Criar modelo do zero', () =>
@@ -265,8 +336,11 @@ export async function openTemplatesManager(anchorEl, opts) {
 
 document.addEventListener('mousedown', e => {
   if (managerEl && !managerEl.contains(e.target)) closeTemplatesManager();
+  if (nameMenuEl && !nameMenuEl.contains(e.target)) closeNameMenu();
 });
 
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') closeTemplatesManager();
+  if (e.key !== 'Escape') return;
+  closeTemplatesManager();
+  closeNameMenu();
 });

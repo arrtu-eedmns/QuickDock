@@ -1220,6 +1220,11 @@ body:not(.booting) .note-editor-blocks {
 /* ===== MENU DE LINK ===== */
 .link-menu { min-width: 216px; padding: 6px; }
 
+/* Popover de nomear modelo — mesmo desenho do menu de link, que é o padrão
+   desta extensão pra pedir um texto curto: dentro da extensão, nunca num
+   dialog do navegador. */
+.name-menu { min-width: 216px; padding: 6px; }
+
 .link-input {
   width: 100%;
   box-sizing: border-box;
