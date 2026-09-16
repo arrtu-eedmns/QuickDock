@@ -579,6 +579,7 @@ function createBlockElFrom(bruto) {
   setBlockDepth(el, b.depth ?? 0);
   setBlockQuoted(el, !!b.quoted);
   setBlockCallout(el, b.callout);
+  setBlockUnderlined(el, !!b.underlined);
   if (b.type === 'image') setImageData(el, b);
   return el;
 }
@@ -600,6 +601,22 @@ function setBlockQuoted(el, on) {
 // com rótulo dos sites de documentação. No markdown ela é exatamente isso —
 // uma citação com um marcador na primeira linha —, então tirar a citação tira
 // o destaque junto (ver setBlockQuoted).
+// Título sublinhado. Também é decoração, não tipo — senão seriam mais duas
+// entradas num menu que já estava grande demais. No arquivo isso vira setext
+// (o texto com === ou --- embaixo), que é markdown de verdade.
+//
+// Só título 1 e 2: é o que o setext alcança, e é onde um traço embaixo lê bem.
+const PODE_SUBLINHAR = new Set(['heading1', 'heading2']);
+
+function isBlockUnderlined(el) {
+  return el?.dataset?.underlined === 'true';
+}
+
+function setBlockUnderlined(el, on) {
+  if (on && PODE_SUBLINHAR.has(el.dataset.type)) el.dataset.underlined = 'true';
+  else delete el.dataset.underlined;
+}
+
 function setBlockCallout(el, tipo) {
   if (tipo && CALLOUT_TYPES.includes(tipo)) {
     el.dataset.quoted  = 'true';
@@ -990,6 +1007,9 @@ function convertBlockType(blockEl, newType, checked = false) {
   setBlockDepth(newBlock, blockDepth(blockEl));
   setBlockQuoted(newBlock, isBlockQuoted(blockEl));
   setBlockCallout(newBlock, blockEl.dataset.callout);
+  // O sublinhado só sobrevive entre tipos que o suportam — virar parágrafo o
+  // descarta, que é o esperado.
+  setBlockUnderlined(newBlock, isBlockUnderlined(blockEl));
   blockEl.replaceWith(newBlock);
   return newBlock;
 }
@@ -1262,6 +1282,7 @@ function serializeBlockEl(block) {
   if (depth) b.depth = depth;   // ausente = nível 0, que é o formato de antes
   if (isBlockQuoted(block)) b.quoted = true;
   if (block.dataset.callout) b.callout = block.dataset.callout;
+  if (isBlockUnderlined(block)) b.underlined = true;
   if (type === 'divider') return b;
   if (type === 'image') {
     const fileId = Number(block.dataset.fileId);
@@ -1932,27 +1953,86 @@ root.addEventListener('copy', e => {
 });
 
 // ── Menu "/" (trocar tipo de bloco) ───────────────────────────────────────────
+// Os tipos de bloco, em grade e agrupados.
+//
+// Eram dezoito numa lista de uma coluna, e o menu virou uma rolagem sem fim —
+// achar "Tabela" custava mais que criar a tabela. Em três colunas os mesmos
+// dezoito cabem em sete linhas, e o grupo diz de cara em que vizinhança
+// procurar.
+//
+// `label` é o nome inteiro: é o que o filtro casa e o que aparece ao passar o
+// mouse. `short` é o que cabe embaixo do ícone.
+const CALLOUT_ICONS = {
+  note: 'info', tip: 'lightbulb', important: 'priority_high',
+  warning: 'warning', caution: 'dangerous',
+};
+
 const SLASH_ITEMS = [
-  { key: 'texto',      label: 'Texto',                 hint: 'parágrafo',  type: 'paragraph' },
-  { key: 'titulo1',    label: 'Título 1',               hint: '#',          type: 'heading1'  },
-  { key: 'titulo2',    label: 'Título 2',               hint: '##',         type: 'heading2'  },
-  { key: 'titulo3',    label: 'Título 3',               hint: '###',        type: 'heading3'  },
-  { key: 'lista',      label: 'Lista com marcadores',   hint: '-',          type: 'bullet'    },
-  { key: 'numerada',   label: 'Lista numerada',         hint: '1.',         type: 'number'    },
-  { key: 'checklist',  label: 'Checklist',              hint: '[ ]',        type: 'checklist' },
-  { key: 'citacao',    label: 'Citação',                hint: '>',          type: 'quote'     },
+  { key: 'texto',     label: 'Texto',               short: 'Texto',     hint: 'parágrafo', icon: 'notes',                 grupo: 'Texto',     type: 'paragraph' },
+  { key: 'titulo1',   label: 'Título 1',            short: 'Título 1',  hint: '#',         icon: 'format_h1',             grupo: 'Texto',     type: 'heading1'  },
+  { key: 'titulo2',   label: 'Título 2',            short: 'Título 2',  hint: '##',        icon: 'format_h2',             grupo: 'Texto',     type: 'heading2'  },
+  { key: 'titulo3',   label: 'Título 3',            short: 'Título 3',  hint: '###',       icon: 'format_h3',             grupo: 'Texto',     type: 'heading3'  },
+
+  { key: 'lista',     label: 'Lista com marcadores', short: 'Lista',    hint: '-',         icon: 'format_list_bulleted',  grupo: 'Listas',    type: 'bullet'    },
+  { key: 'numerada',  label: 'Lista numerada',       short: 'Numerada', hint: '1.',        icon: 'format_list_numbered',  grupo: 'Listas',    type: 'number'    },
+  { key: 'checklist', label: 'Checklist',            short: 'Checklist',hint: '[ ]',       icon: 'checklist',             grupo: 'Listas',    type: 'checklist' },
+
+  { key: 'citacao',   label: 'Citação',              short: 'Citação',  hint: '>',         icon: 'format_quote',          grupo: 'Destaques', type: 'quote'     },
   ...CALLOUT_TYPES.map(t => ({
     key:   CALLOUT_LABELS[t].toLowerCase(),
     label: `Destaque · ${CALLOUT_LABELS[t]}`,
+    short: CALLOUT_LABELS[t],
     hint:  `[!${t}]`,
+    icon:  CALLOUT_ICONS[t],
+    grupo: 'Destaques',
     type:  `callout:${t}`,
   })),
-  { key: 'codigo',     label: 'Código',                 hint: '```',        type: 'code'      },
-  { key: 'calculo',    label: 'Cálculo',                hint: '= ao vivo',  type: 'calc'      },
-  { key: 'tabela',     label: 'Tabela',                 hint: '| |',        type: 'table'     },
-  { key: 'imagem',     label: 'Imagem',                 hint: 'arquivo',    type: 'image'     },
-  { key: 'divisor',    label: 'Divisor',                hint: '---',        type: 'divider'   },
+
+  { key: 'codigo',    label: 'Código',               short: 'Código',   hint: '```',       icon: 'code',                  grupo: 'Blocos',    type: 'code'      },
+  { key: 'calculo',   label: 'Cálculo',              short: 'Cálculo',  hint: '= ao vivo', icon: 'calculate',             grupo: 'Blocos',    type: 'calc'      },
+  { key: 'tabela',    label: 'Tabela',               short: 'Tabela',   hint: '| |',       icon: 'table',                 grupo: 'Blocos',    type: 'table'     },
+  { key: 'imagem',    label: 'Imagem',               short: 'Imagem',   hint: 'arquivo',   icon: 'image',                 grupo: 'Blocos',    type: 'image'     },
+  { key: 'divisor',   label: 'Divisor',              short: 'Divisor',  hint: '---',       icon: 'horizontal_rule',       grupo: 'Blocos',    type: 'divider'   },
 ];
+
+// Monta a grade de tipos, com um cabeçalho por grupo. Serve o menu "/" e o
+// "Transformar em" — os dois mostram a mesma lista e tinham o mesmo problema.
+function buildTypeGrid(itens, aoEscolher) {
+  const wrap = document.createElement('div');
+  wrap.className = 'type-grid-wrap';
+
+  let grupoAtual = null;
+  let grade = null;
+
+  itens.forEach((it, i) => {
+    if (it.grupo !== grupoAtual) {
+      grupoAtual = it.grupo;
+      const cab = document.createElement('div');
+      cab.className = 'copy-menu-header';
+      cab.textContent = grupoAtual;
+      wrap.appendChild(cab);
+      grade = document.createElement('div');
+      grade.className = 'type-grid';
+      wrap.appendChild(grade);
+    }
+
+    const btn = document.createElement('button');
+    btn.className = 'type-cell';
+    btn.title = it.hint ? `${it.label} · ${it.hint}` : it.label;
+    const ico = document.createElement('span');
+    ico.className = 'material-symbols-rounded';
+    ico.textContent = it.icon;
+    const nome = document.createElement('span');
+    nome.className = 'type-cell-label';
+    nome.textContent = it.short;   // textContent: nome de modelo é texto do usuário
+    btn.append(ico, nome);
+    btn.addEventListener('mousedown', e => { e.preventDefault(); e.stopPropagation(); });
+    btn.addEventListener('click', e => { e.stopPropagation(); aoEscolher(i); });
+    grade.appendChild(btn);
+  });
+
+  return wrap;
+}
 
 // Tipos que não são conversão de um parágrafo, e sim inserção de uma estrutura
 // própria: substituem o bloco e abrem um parágrafo livre logo abaixo.
@@ -1992,9 +2072,12 @@ function slashItemsWithTemplates() {
   return [
     ...SLASH_ITEMS,
     ...blockTemplates().map(t => ({
-      key: t.name.toLowerCase(),
+      key:   t.name.toLowerCase(),
       label: t.name,
-      hint: 'modelo',
+      short: t.name,
+      hint:  'modelo',
+      icon:  'bookmark',
+      grupo: 'Modelos',
       template: t.content,
     })),
   ];
@@ -2017,15 +2100,7 @@ function renderSlashMenu(block) {
   closeSlashMenuEl();
   const menu = document.createElement('div');
   menu.className = 'copy-menu slash-menu';
-
-  slashItems.forEach((it, i) => {
-    const btn = document.createElement('button');
-    btn.className = 'copy-opt slash-opt' + (i === slashIndex ? ' active' : '');
-    btn.innerHTML = `<span class="copy-opt-value">${escHtml(it.label)}</span><span class="copy-opt-hint">${escHtml(it.hint)}</span>`;
-    btn.addEventListener('mousedown', e => e.preventDefault());
-    btn.addEventListener('click', () => { slashIndex = i; confirmSlashSelection(); });
-    menu.appendChild(btn);
-  });
+  menu.appendChild(buildTypeGrid(slashItems, i => { slashIndex = i; confirmSlashSelection(); }));
 
   document.body.appendChild(menu);
   slashMenuEl = menu;
@@ -2039,14 +2114,43 @@ function renderSlashMenu(block) {
 // quando a pessoa digita mais uma letra depois da barra.
 function highlightSlashItem() {
   if (!slashMenuEl) return;
-  const opcoes = slashMenuEl.querySelectorAll('.slash-opt');
-  opcoes.forEach((btn, i) => btn.classList.toggle('active', i === slashIndex));
-  // Sem isto o item ativo some da vista quando a lista é mais alta que o menu.
-  opcoes[slashIndex]?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  const celulas = slashMenuEl.querySelectorAll('.type-cell');
+  celulas.forEach((btn, i) => btn.classList.toggle('active', i === slashIndex));
+  // Sem isto o item ativo some da vista quando a grade é mais alta que o menu.
+  celulas[slashIndex]?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
 }
 
+// Esquerda/direita andam item a item na ordem da lista.
 function moveSlashSelection(delta) {
   slashIndex = (slashIndex + delta + slashItems.length) % slashItems.length;
+  highlightSlashItem();
+}
+
+// Cima/baixo pulam de linha. A linha é descoberta pela posição na tela, e não
+// contando "de três em três": os grupos têm tamanhos diferentes, então a
+// última linha de um grupo quase nunca está cheia, e contar erraria toda vez
+// que a seta cruzasse de um grupo pro outro.
+function moveSlashRow(direcao) {
+  if (!slashMenuEl) return;
+  const celulas = [...slashMenuEl.querySelectorAll('.type-cell')];
+  const atual = celulas[slashIndex];
+  if (!atual) return;
+
+  const r = atual.getBoundingClientRect();
+  let melhor = -1, menorDistancia = Infinity;
+
+  celulas.forEach((c, i) => {
+    const cr = c.getBoundingClientRect();
+    const dy = cr.top - r.top;
+    if (direcao > 0 ? dy <= 1 : dy >= -1) return;   // não está na direção pedida
+    // A linha pesa mil vezes mais que a coluna: primeiro a linha mais próxima,
+    // e dentro dela a célula mais alinhada horizontalmente.
+    const dist = Math.abs(dy) * 1000 + Math.abs(cr.left - r.left);
+    if (dist < menorDistancia) { menorDistancia = dist; melhor = i; }
+  });
+
+  // Sem linha na direção pedida: vai pra ponta, como numa lista.
+  slashIndex = melhor !== -1 ? melhor : (direcao > 0 ? 0 : celulas.length - 1);
   highlightSlashItem();
 }
 
@@ -2470,8 +2574,10 @@ root.addEventListener('keydown', e => {
   }
 
   if (slashMenuEl) {
-    if (e.key === 'ArrowDown') { e.preventDefault(); moveSlashSelection(1);  return; }
-    if (e.key === 'ArrowUp')   { e.preventDefault(); moveSlashSelection(-1); return; }
+    if (e.key === 'ArrowDown')  { e.preventDefault(); moveSlashRow(1);  return; }
+    if (e.key === 'ArrowUp')    { e.preventDefault(); moveSlashRow(-1); return; }
+    if (e.key === 'ArrowRight') { e.preventDefault(); moveSlashSelection(1);  return; }
+    if (e.key === 'ArrowLeft')  { e.preventDefault(); moveSlashSelection(-1); return; }
     if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); confirmSlashSelection(); return; }
     if (e.key === 'Escape') { e.preventDefault(); cancelSlashMenu(); return; }
   }
@@ -3357,14 +3463,33 @@ function openBlockMenu(block, anchorEl) {
     header.textContent = scopeCount > 1 ? `Transformar em (${scopeCount} blocos)` : 'Transformar em';
     menu.appendChild(header);
 
-    for (const it of getTransformTypes()) {
-      const btn = document.createElement('button');
-      btn.className = 'copy-opt';
-      btn.innerHTML = `<span class="copy-opt-value">${escHtml(it.label)}</span><span class="copy-opt-hint">${escHtml(it.hint)}</span>`;
-      btn.addEventListener('mousedown', e => e.stopPropagation());
-      btn.addEventListener('click', () => { closeBlockMenu(); transformBlocks(block, it.type); });
-      menu.appendChild(btn);
-    }
+    // A mesma grade do menu "/": é a mesma lista, e tinha o mesmo problema de
+    // virar uma coluna comprida demais pra achar qualquer coisa nela.
+    const tipos = getTransformTypes();
+    menu.appendChild(buildTypeGrid(tipos, i => {
+      closeBlockMenu();
+      transformBlocks(block, tipos[i].type);
+    }));
+
+    menu.appendChild(Object.assign(document.createElement('div'), { className: 'math-divider' }));
+  }
+
+  // Sublinhado só existe pra título 1 e 2 — é o que o markdown alcança com o
+  // traço embaixo. Interruptor contextual em vez de dois tipos novos no menu.
+  if (PODE_SUBLINHAR.has(block.dataset.type)) {
+    const sublinhado = isBlockUnderlined(block);
+    const btn = document.createElement('button');
+    btn.className = 'copy-opt';
+    btn.innerHTML = `<span class="copy-opt-value">${sublinhado ? 'Tirar sublinhado' : 'Sublinhar título'}</span><span class="copy-opt-hint">${sublinhado ? '#' : '==='}</span>`;
+    btn.addEventListener('mousedown', e => e.stopPropagation());
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      closeBlockMenu();
+      captureUndoPoint();
+      for (const b of targetBlocksFor(block)) setBlockUnderlined(b, !sublinhado);
+      scheduleSave();
+    });
+    menu.appendChild(btn);
 
     menu.appendChild(Object.assign(document.createElement('div'), { className: 'math-divider' }));
   }

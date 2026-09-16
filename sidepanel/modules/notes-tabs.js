@@ -119,7 +119,13 @@ Digite uma barra "/" no começo de uma linha vazia pra abrir o menu e escolher o
 - Três hífens sozinhos na linha → divisor
 - Três crases sozinhas na linha → bloco de código
 
-O menu do "/" também traz o que não tem atalho de teclado: Tabela, Imagem, os cinco destaques e os seus modelos de bloco. Setas pra escolher, Enter pra confirmar.
+O menu do "/" mostra os tipos numa grade de ícones, separados por grupo — Texto, Listas, Destaques, Blocos e os seus modelos. É onde estão as coisas que não têm atalho de teclado, como Tabela, Imagem e Cálculo. Setas pra andar (esquerda e direita de um em um, cima e baixo de linha em linha), Enter pra confirmar. Digitar depois da barra filtra.
+
+### Título sublinhado
+
+Título 1 e Título 2 podem ganhar um traço embaixo. Abra o menu da alça com o cursor no título e escolha "Sublinhar título".
+
+Isso não é um tipo de bloco novo, é uma marca — e no arquivo vira a forma original do markdown de escrever título, com o traço na linha de baixo. Ou seja: dá a volta inteira e abre certo em qualquer editor.
 
 ### Exemplos ao vivo
 

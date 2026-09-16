@@ -315,6 +315,27 @@ export function parseMarkdownToBlocks(markdown) {
       }
     }
 
+    // Título sublinhado (setext): o texto numa linha e "===" ou "---" na de
+    // baixo. É markdown de verdade — a própria forma original de escrever
+    // título 1 e 2 —, e o traço embaixo é literalmente o sublinhado.
+    //
+    // Só vale depois de uma linha de texto comum. É o que separa "Texto" +
+    // "---" (título sublinhado) de "---" sozinho (divisor).
+    {
+      const abaixo = (lines[i + 1] ?? '').trim();
+      const eSetext = /^=+$/.test(abaixo) || /^-+$/.test(abaixo);
+      const eTextoComum = rest.trim() !== '' && !/^(#{1,6} |[-*] |\d+\. |\||>|`{3,}|~{3,})/.test(rest);
+      if (eSetext && eTextoComum) {
+        add({
+          type: abaixo.startsWith('=') ? 'heading1' : 'heading2',
+          html: parseInlineMarkdown(rest),
+          underlined: true,
+        });
+        i++;   // consome a linha do traço
+        continue;
+      }
+    }
+
     if ((m = /^(#{1,6}) (.+)$/.exec(rest))) {
       add({ type: `heading${m[1].length}`, html: parseInlineMarkdown(m[2]) });
     } else if ((m = /^([-*]) \[([ xX])\] (.+)$/.exec(rest))) {
@@ -431,13 +452,28 @@ export function blocksToMarkdown(blocks, opts = {}) {
         return `${abre}${corpo}${fecha}`;
       }
 
-      if (b.type === 'divider') return `${pad}${q}---`;
+      if (b.type === 'divider') {
+        // "---" logo abaixo de uma linha de texto é lido de volta como
+        // sublinhado de título, não como divisor. "***" é o mesmo divisor pro
+        // markdown e não tem essa ambiguidade — só é usado quando ela existe.
+        const acima = lista[i - 1];
+        const ambiguo = !!acima
+          && !['divider', 'table', 'image', 'code', 'calc'].includes(acima.type)
+          && htmlToPlainText(acima.html ?? '').trim() !== '';
+        return `${pad}${q}${ambiguo ? '***' : '---'}`;
+      }
       if (b.type === 'table')   return tableToMarkdown(b.rows, `${pad}${q}`);
       if (b.type === 'image')   return `${pad}${q}![${(b.alt ?? '').replace(/[\[\]]/g, '')}](${imageSrcOf(b)})`;
       const text = htmlToMarkdownInline(b.html);
       switch (b.type) {
-        case 'heading1': return `${pad}${q}# ${text}`;
-        case 'heading2': return `${pad}${q}## ${text}`;
+        // Sublinhado sai como setext — a forma do markdown que desenha o
+        // traço embaixo. Sem sublinhado continua a forma com cerquilha.
+        case 'heading1':
+          return b.underlined ? `${pad}${q}${text}
+${pad}${q}===` : `${pad}${q}# ${text}`;
+        case 'heading2':
+          return b.underlined ? `${pad}${q}${text}
+${pad}${q}---` : `${pad}${q}## ${text}`;
         case 'heading3': return `${pad}${q}### ${text}`;
         case 'heading4': return `${pad}${q}#### ${text}`;
         case 'heading5': return `${pad}${q}##### ${text}`;

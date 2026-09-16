@@ -357,6 +357,72 @@ body:not(.booting) .note-editor-blocks {
 .note-editor-blocks h3.block:first-child,
 .note-editor-blocks h4.block:first-child { margin-top: 0; }
 
+/* ===== GRADE DE TIPOS DE BLOCO =====
+   Serve o menu "/" e o "Transformar em". Eram dezoito itens numa coluna só, e
+   o menu virou uma rolagem sem fim; em três colunas os mesmos dezoito cabem em
+   sete linhas, com um cabeçalho por grupo dizendo onde procurar. */
+.type-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1px;
+  padding: 0 0 2px;
+}
+
+/* O cabeçalho de grupo aqui é bem mais apertado que o dos outros menus: são
+   cinco deles, e na altura original custavam juntos o mesmo que seis itens —
+   comiam todo o ganho de ter posto os tipos em três colunas. */
+.type-grid-wrap .copy-menu-header {
+  padding: 5px 8px 1px;
+  font-size: 9px;
+  opacity: 0.75;
+}
+
+.type-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  padding: 5px 2px;
+  border: none;
+  background: none;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  cursor: pointer;
+  font-family: var(--font);
+  font-size: 10px;
+  line-height: 1.15;
+  text-align: center;
+  transition: background 0.12s, color 0.12s;
+}
+
+.type-cell .material-symbols-rounded { font-size: 19px; --icon-opsz: 20; }
+
+.type-cell:hover { background: var(--bg-hover); color: var(--text); }
+
+/* O item escolhido pelas setas precisa ser mais forte que o hover: quem navega
+   pelo teclado não pode perder o lugar só porque o mouse ficou parado em cima
+   de outra célula. */
+.type-cell.active,
+.type-cell.active:hover {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--text);
+}
+
+/* Nome curto, com o inteiro no tooltip. Sem o corte, "Lista com marcadores"
+   esticaria a coluna e desalinharia a grade toda. */
+.type-cell-label {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Título sublinhado — o "===" do markdown virando desenho. */
+.note-editor-blocks .block[data-underlined="true"] {
+  border-bottom: 2px solid color-mix(in srgb, var(--note-accent, var(--accent)) 40%, transparent);
+  padding-bottom: 3px;
+}
+
 /* Citação. Não é um tipo de bloco e sim uma marca que qualquer bloco pode ter
    — por isso o seletor é de atributo e não de elemento: um título citado
    continua sendo um <h4> e mantém o tamanho e o peso dele.
@@ -1164,7 +1230,11 @@ body:not(.booting) .note-editor-blocks {
 /* ===== MENU "/" (trocar tipo de bloco) ===== */
 /* A altura real é calculada em positionMenu() conforme o espaço disponível —
    isto aqui é só o teto quando sobra janela de sobra. */
-.slash-menu { max-height: 280px; overflow-y: auto; }
+.slash-menu {
+  min-width: 236px;      /* três colunas cabem sem espremer o nome */
+  max-height: 280px;
+  overflow-y: auto;
+}
 
 /* ===== MODELOS DE NOTA ===== */
 .new-menu { min-width: 190px; }

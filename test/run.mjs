@@ -36,6 +36,7 @@ function forma(blocks) {
     if (b.depth)                 f.depth = b.depth;    // ausente e 0 são a mesma coisa
     if (b.quoted)                f.quoted = b.quoted;
     if (b.callout)               f.callout = b.callout;
+    if (b.underlined)            f.underlined = b.underlined;
     return f;
   });
 }
@@ -230,6 +231,60 @@ for (const { nome, blocks } of BLOCOS_V18) {
     const txt = blocksToPlainText(parseMarkdownToBlocks('> [!WARNING]\n> Confira o prazo.'));
     ok('destaque · texto simples traz o rótulo', txt.includes('ATENÇÃO'), txt);
     ok('destaque · e o conteúdo', txt.includes('Confira o prazo.'), txt);
+  }
+}
+
+// ── 3c3. Título sublinhado (setext) ──────────────────────────────────────────
+// O sublinhado não é um tipo novo: é o markdown original de título 1 e 2, com
+// o traço embaixo. O traço é literalmente o que se vê na tela.
+{
+  {
+    const md = ['Resultado do trimestre', '===', '', 'Detalhes', '---'].join('\n');
+    const b = parseMarkdownToBlocks(md);
+    igual('setext · "===" vira título 1 sublinhado',
+      [b[0].type, b[0].underlined], ['heading1', true]);
+    igual('setext · "---" vira título 2 sublinhado',
+      [b[2].type, b[2].underlined], ['heading2', true]);
+    igual('setext · o traço não sobra como bloco', b.length, 3);
+    igual('setext · dá a volta inteira', blocksToMarkdown(b), md);
+  }
+
+  // Título com cerquilha continua sem sublinhado — as duas formas convivem.
+  {
+    const b = parseMarkdownToBlocks('# Com cerquilha');
+    ok('setext · título com cerquilha não vem sublinhado', !b[0].underlined);
+    igual('setext · e volta com cerquilha', blocksToMarkdown(b), '# Com cerquilha');
+  }
+
+  // ── A ambiguidade que o "---" cria ─────────────────────────────────────────
+  // "---" sozinho é divisor; "---" logo abaixo de texto é sublinhado. Um
+  // divisor depois de um parágrafo precisa sair de outro jeito, senão a nota
+  // volta com o parágrafo virado título.
+  {
+    const blocos = [
+      { id: 'a', type: 'paragraph', html: 'Uma linha de texto.' },
+      { id: 'b', type: 'divider' },
+    ];
+    const md = blocksToMarkdown(blocos);
+    ok('divisor · depois de texto não sai como "---"', !md.includes('---'), md);
+
+    const volta = parseMarkdownToBlocks(md);
+    igual('divisor · e volta como divisor, não como título',
+      volta.map(b => b.type), ['paragraph', 'divider']);
+    ok('divisor · com o parágrafo intacto', !volta[0].underlined);
+  }
+
+  // Divisor isolado continua saindo como "---", que é o que se reconhece.
+  {
+    const md = blocksToMarkdown([{ id: 'd', type: 'divider' }]);
+    igual('divisor · sozinho continua "---"', md, '---');
+  }
+
+  // A nota antiga que tem parágrafo e divisor tem que abrir igual.
+  for (const { nome, blocks } of BLOCOS_V18) {
+    const volta = parseMarkdownToBlocks(blocksToMarkdown(blocks));
+    igual(`setext · ${nome} · nenhum bloco virou título sublinhado`,
+      volta.filter(b => b.underlined).length, 0);
   }
 }
 
