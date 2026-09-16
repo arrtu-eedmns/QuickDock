@@ -69,7 +69,7 @@ O layout do painel é uma coluna única (`#app { flex-direction: column }` em `s
 
 Já existe uma base pronta e **não usada**: `loadMathHistory`/`saveMathHistory` em `sidepanel/modules/storage.js`, e um parser matemático seguro e robusto em `sidepanel/modules/math-parser.js` (usado hoje só pra detectar contas soltas dentro do texto da nota). Isso já é meio caminho andado pra uma calculadora com histórico.
 
-**Pendente**: detalhes de como a calculadora deve funcionar (a definir).
+**Definido** — virou a rodada v2.0, no fim deste documento: um bloco de cálculo com variáveis, moeda como unidade e resultado por linha.
 
 ---
 
@@ -269,3 +269,105 @@ Também apareceram na conferência dois problemas de perda de conteúdo que não
 `node test/run.mjs` — 134 verificações. Cobre: blocos no formato v1.8 abrindo e voltando iguais, markdown de fora, indentação vinda de 2/3/4 espaços e tab, citação com filhos, imagens (inclusive a regra de privacidade e a de não embutir base64 no autosave), backup, atalhos ao digitar, e a nota-tutorial inteira.
 
 O que os testes **não** cobrem, e por que: o editor só existe dentro do navegador. `test/indent.mjs` contorna isso recortando as funções de indentação do `note.js` e rodando-as contra blocos de mentira — o que é testado é o código de verdade, mas o recorte é por nome e quebra se alguém renomear as funções (de propósito: quebrar alto é melhor que testar uma cópia velha). Colar, arrastar, o visualizador e o ciclo de vida dos objectURL continuam sem cobertura automatizada.
+
+
+## v2.0 — Bloco de cálculo
+
+Uma folha de conta dentro da nota: variáveis, fórmulas e o resultado de cada linha aparecendo ao lado enquanto se digita.
+
+```
+boleto = R$ 1.000,00            R$ 1.000,00
+imposto = 15%                          15 %
+calculo = boleto - imposto        R$ 850,00
+```
+
+### O que já está pronto
+
+Metade do problema já foi resolvida no `math-parser.js`, e a rodada se apoia nisso em vez de recomeçar:
+
+- **Sem `eval` nem `Function`** — parser recursivo descendente escrito à mão. Não é preferência: MV3 proíbe, e a política de conteúdo da extensão não abre exceção.
+- **Percentual contextual** — `1000 - 15%` já subtrai 15% *de* 1000. É exatamente a semântica que o exemplo acima exige.
+- **Número pt-BR** — `1.000,00` já entra certo, com a regra do ponto só valer como milhar quando vem seguido de três dígitos.
+- **Passo a passo** de cada operação e formatação de saída em pt-BR.
+
+Falta a camada de cima: valor com unidade, variáveis, várias linhas com estado entre elas, e o resultado na tela.
+
+### As decisões, e por quê
+
+**Cada linha é um bloco `calc`; linhas coladas formam uma folha.** É o mesmo padrão do destaque: o modelo continua plano e a "folha" é a sequência contígua. O ganho é grande — Enter, Backspace, setas, arrastar, selecionar, desfazer, indentar e imprimir já funcionam, sem construir um mini-editor dentro de um bloco. A alternativa (um bloco multilinha com `<br>`, como o de código) obrigaria a reimplementar navegação de linha na mão, e ainda deixaria o resultado sem onde morar.
+
+**A folha é o escopo das variáveis.** Uma linha em branco ou um parágrafo comum encerra a folha e começa outra. Sem efeito à distância: nada de um bloco lá em cima quebrar um cálculo muito abaixo.
+
+**O resultado não é conteúdo editável.** Vive num `<span contenteditable="false">` à direita, na mesma estrutura de dois elementos que lista e checklist já usam (marcador + `.block-content`). Isso faz `getContentEl`, a serialização e o salvamento continuarem valendo sem tocar em nada — e impede que o cursor entre no resultado ou que ele seja apagado sem querer.
+
+**O resultado nunca é gravado.** O banco guarda só o texto da linha. Guardar o número criaria a chance de ele discordar da conta, e não haveria como saber qual dos dois está certo.
+
+**Variável guarda tipo, não número.** É a consequência menos óbvia e a que decide se a coisa funciona:
+
+```
+imposto = 15%
+calculo = boleto - imposto
+```
+
+Para isso dar R$ 850,00, `imposto` não pode virar `0,15` na hora em que é definido — ele precisa continuar sendo "quinze por cento" até ser usado, e só então descobrir de quem. Então o avaliador deixa de devolver `number` e passa a devolver `{ n, moeda, pct }`.
+
+Regras de unidade:
+
+| Operação | Resultado |
+|---|---|
+| moeda + número puro | moeda (o número puro herda) |
+| moeda × número | moeda |
+| moeda ÷ moeda | número puro (é uma razão) |
+| valor + p% | p% *do* valor à esquerda |
+| valor × p% | p/100 como fator |
+
+**`let` é opcional.** `let boleto = 1000` e `boleto = 1000` são a mesma coisa. Quem não programa não vai escrever `let`, e recusar seria implicância.
+
+**Linha que não é conta é só texto.** "Cliente ligou 3ª vez" fica lá, sem resultado e sem erro. Erro só aparece quando a linha *é* uma conta e falha — variável que não existe, parêntese aberto. A regra: linha com `=` é uma atribuição e erra alto; linha sem `=` que não avalia é texto e fica quieta. `//` no começo também é comentário.
+
+### Etapa 0 — Valor com unidade
+
+Só o avaliador, sem interface. O `math-parser.js` passa a trabalhar com `{ n, moeda, pct }` em vez de `number`, reconhece `R$` na entrada e devolve o resultado formatado com a unidade.
+
+Vem primeiro de propósito: é a única parte **testável de ponta a ponta fora do navegador**, e é onde moram as decisões difíceis. Entra na suíte junto com o resto.
+
+### Etapa 1 — O bloco e a folha
+
+Tipo `calc` no menu "/" e no "Transformar em". Cada linha calcula sozinha, ainda sem variáveis, e mostra o resultado à direita. Marcação das pontas da folha (primeira e última linha) pra que uma sequência leia como um bloco só — mesma mecânica do `markCalloutEdges`.
+
+`calc` entra no `NO_DETECTION`: a folha inteira é cálculo, então a detecção de CPF/data/conta em texto solto não tem o que fazer ali dentro.
+
+### Etapa 2 — Variáveis
+
+Avaliação sequencial da folha, de cima pra baixo, carregando um mapa de variáveis. Atribuição, reatribuição e referência.
+
+Como a avaliação é em uma passada e de cima pra baixo, **ciclo não existe**: usar antes de definir é erro de "ainda não definido", e não travamento. Recalcula a cada tecla — a folha tem dezenas de linhas, não milhares.
+
+### Etapa 3 — Funções e `acima`
+
+`soma()`, `média()`, `arredondar()`, e uma palavra para "tudo que está acima": empilhar valores e fechar o total sem repetir nome de variável.
+
+**`acima` para na primeira linha sem valor** (texto livre ou linha em branco). É o que torna previsível uma folha com vários blocos de soma.
+
+Palavra reservada não pode virar nome de variável — `soma = 10` dá erro claro, em vez de quebrar a função em silêncio.
+
+### Etapa 4 — Exportar com o resultado
+
+```
+boleto = R$ 1.000,00            // R$ 1.000,00
+calculo = boleto - imposto      // R$ 850,00
+```
+
+Dentro de um bloco cercado com marca `calc`. Quem recebe vê o valor sem ter o QuickDock; fora daqui é um bloco de código comum.
+
+**O resultado só entra na exportação, nunca no `content` interno** — mesma divisão da imagem, que guarda referência e só vira base64 ao sair. Na reimportação o comentário é descartado e tudo é recalculado, então dentro da extensão nunca existe valor desatualizado.
+
+### Riscos conhecidos
+
+**Ponto flutuante em dinheiro.** `0,1 + 0,2` não dá exatamente `0,3`. Hoje o `fmt` limpa isso na exibição com `toPrecision(10)`, e para a escala de um bloco de notas isso resolve. A alternativa correta — guardar centavos como inteiro — muda o avaliador inteiro. **Decisão: fica como está, documentado.** Se aparecer diferença de um centavo somando muitos valores, aí sim vale mudar.
+
+**Coluna estreita.** O painel é estreito e o resultado disputa espaço com a fórmula. O resultado tem largura máxima e o texto encolhe antes dele; se ainda assim não couber, a fórmula quebra em duas linhas e o resultado fica na última.
+
+### Fora desta rodada
+
+Data e prazo (`hoje + 15 dias`), dias úteis e feriados, mais de uma moeda, gráfico, e referência de uma folha em outra. Data é uma segunda linguagem dentro da mesma — vale fazer depois, vendo como a primeira é usada, em vez de adivinhar agora.
