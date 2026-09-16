@@ -2968,7 +2968,7 @@ function currentLinkEl() {
 let linkMenuEl = null;
 function closeLinkMenu() { linkMenuEl?.remove(); linkMenuEl = null; }
 
-function openLinkMenu(anchorRect, { href = '', canRemove = false, onApply, onRemove }) {
+function openLinkMenu(anchorRect, { href = '', texto = '', canRemove = false, onApply, onRemove }) {
   closeLinkMenu();
   const menu = document.createElement('div');
   menu.className = 'copy-menu link-menu';
@@ -2977,11 +2977,26 @@ function openLinkMenu(anchorRect, { href = '', canRemove = false, onApply, onRem
   header.className   = 'copy-menu-header';
   header.textContent = canRemove ? 'Editar link' : 'Novo link';
 
-  const input = document.createElement('input');
-  input.className   = 'link-input';
-  input.type        = 'text';
-  input.value       = href;
-  input.placeholder = 'exemplo.com.br';
+  // Dois campos, com rótulo: só o endereço não bastava — trocar a palavra que
+  // aparece na nota obrigava a apagar o link e refazer.
+  const campo = (rotulo, valor, placeholder) => {
+    const wrap = document.createElement('label');
+    wrap.className = 'link-field';
+    const nome = document.createElement('span');
+    nome.className = 'link-field-label';
+    nome.textContent = rotulo;
+    const input = document.createElement('input');
+    input.className   = 'link-input';
+    input.type        = 'text';
+    input.value       = valor;
+    input.placeholder = placeholder;
+    wrap.append(nome, input);
+    return { wrap, input };
+  };
+
+  const campoTexto = campo('Texto',    texto, 'o que aparece na nota');
+  const campoHref  = campo('Endereço', href,  'exemplo.com.br');
+  const input = campoHref.input;
 
   const error = document.createElement('div');
   error.className   = 'link-error';
@@ -2992,16 +3007,20 @@ function openLinkMenu(anchorRect, { href = '', canRemove = false, onApply, onRem
     const url = safeHref(input.value);
     if (!url) { error.hidden = false; input.focus(); return; }
     closeLinkMenu();
-    onApply(url);
+    // Texto vazio: o endereço vira o rótulo, como já acontece ao colar uma URL
+    // sem nada selecionado.
+    onApply(url, campoTexto.input.value.trim() || url);
   };
 
-  input.addEventListener('mousedown', e => e.stopPropagation());
-  input.addEventListener('input', () => { error.hidden = true; });
-  input.addEventListener('keydown', e => {
-    e.stopPropagation();
-    if (e.key === 'Enter')  { e.preventDefault(); apply(); }
-    if (e.key === 'Escape') { e.preventDefault(); closeLinkMenu(); }
-  });
+  for (const { input: campoEl } of [campoTexto, campoHref]) {
+    campoEl.addEventListener('mousedown', e => e.stopPropagation());
+    campoEl.addEventListener('input', () => { error.hidden = true; });
+    campoEl.addEventListener('keydown', e => {
+      e.stopPropagation();
+      if (e.key === 'Enter')  { e.preventDefault(); apply(); }
+      if (e.key === 'Escape') { e.preventDefault(); closeLinkMenu(); }
+    });
+  }
 
   const actions = document.createElement('div');
   actions.className = 'link-actions';
@@ -3022,12 +3041,16 @@ function openLinkMenu(anchorRect, { href = '', canRemove = false, onApply, onRem
     actions.appendChild(rmBtn);
   }
 
-  menu.append(header, input, error, actions);
+  menu.append(header, campoTexto.wrap, campoHref.wrap, error, actions);
   document.body.appendChild(menu);
   linkMenuEl = menu;
   positionMenu(menu, anchorRect);
-  input.focus();
-  input.select();
+
+  // O foco vai pro campo que falta preencher: com texto já vindo da seleção,
+  // o que a pessoa veio fazer é digitar o endereço.
+  const primeiro = texto ? campoHref.input : campoTexto.input;
+  primeiro.focus();
+  primeiro.select();
 }
 
 document.addEventListener('mousedown', e => {
@@ -3037,14 +3060,16 @@ document.addEventListener('mousedown', e => {
 function applyLink() {
   const sel      = document.getSelection();
   const existing = currentLinkEl();
-  const hasText  = sel && sel.rangeCount > 0 && !sel.isCollapsed
-                   && root.contains(sel.getRangeAt(0).commonAncestorContainer);
+  const dentro   = sel && sel.rangeCount > 0 && root.contains(sel.getRangeAt(0).commonAncestorContainer);
+  const hasText  = dentro && !sel.isCollapsed;
 
-  if (!existing && !hasText) { showFeedback('Selecione o texto do link'); return; }
+  // Sem seleção e sem link não é mais recusa: agora existe um campo de texto,
+  // então dá pra criar o link inteiro pelo menu.
+  if (!existing && !dentro) { showFeedback('Ponha o cursor na nota primeiro'); return; }
 
   // O range e o bloco são guardados agora: abrir o menu tira o foco do editor
   // e a seleção deixa de existir quando o callback roda.
-  const range = hasText ? sel.getRangeAt(0).cloneRange() : null;
+  const range = dentro ? sel.getRangeAt(0).cloneRange() : null;
   const block = getBlockFromNode(existing ?? range.commonAncestorContainer);
   const rect  = (existing ?? range).getBoundingClientRect();
 
@@ -3054,16 +3079,28 @@ function applyLink() {
   };
 
   openLinkMenu(rect, {
-    href: existing?.getAttribute('href') ?? '',
+    href:  existing?.getAttribute('href') ?? '',
+    texto: existing?.textContent ?? (hasText ? range.toString() : ''),
     canRemove: !!existing,
-    onApply: url => {
+    onApply: (url, novoTexto) => {
       captureUndoPoint();
       if (existing) {
         existing.setAttribute('href', url);
+        // Só reescreve o texto se ele mudou de verdade: um link com negrito
+        // dentro perderia a formatação à toa se fosse refeito a cada ajuste
+        // de endereço.
+        if (novoTexto !== existing.textContent) existing.textContent = novoTexto;
       } else {
         const a = document.createElement('a');
         a.setAttribute('href', url);
-        a.appendChild(range.extractContents());
+        if (hasText && novoTexto === range.toString()) {
+          // Texto inalterado: move o conteúdo original pra dentro do link e
+          // preserva o negrito/itálico que já estava lá.
+          a.appendChild(range.extractContents());
+        } else {
+          range.deleteContents();
+          a.textContent = novoTexto;
+        }
         range.insertNode(a);
       }
       done();

@@ -1404,6 +1404,24 @@ body:not(.booting) .note-editor-blocks {
    dialog do navegador. */
 .name-menu { min-width: 216px; padding: 6px; }
 
+/* Dois campos rotulados: "Texto" e "Endereço". Sem o rótulo, dois campos
+   iguais um embaixo do outro viram adivinhação. */
+.link-field {
+  display: block;
+  padding: 2px 2px 0;
+}
+
+.link-field-label {
+  display: block;
+  font-size: 9.5px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  padding: 3px 2px 1px;
+  user-select: none;
+}
+
 .link-input {
   width: 100%;
   box-sizing: border-box;

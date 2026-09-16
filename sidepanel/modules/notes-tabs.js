@@ -77,7 +77,9 @@ Tudo junto, numa linha de verdade:
 
 ## Links
 
-Selecione um texto e aperte Ctrl+K pra transformar em link. Com o cursor dentro de um link já existente, Ctrl+K reabre o menu pra trocar o endereço ou remover.
+Ctrl+K abre o menu de link, com dois campos: **Texto** (o que aparece na nota) e **Endereço**. Com texto selecionado, ele já vem preenchido e o cursor cai direto no endereço. Sem nada selecionado, dá pra escrever os dois e o link nasce ali.
+
+Com o cursor dentro de um link que já existe, Ctrl+K reabre o menu com os dois campos preenchidos — dá pra trocar só a palavra, só o endereço, ou remover o link.
 
 Colar uma URL também funciona: sem nada selecionado ela entra como link, e com texto selecionado o endereço envolve a seleção.
 
