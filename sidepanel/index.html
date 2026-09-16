@@ -28,6 +28,19 @@
         <button id="btn-new-note" class="icon-btn" title="Nova nota / Importar">＋</button>
         <button id="btn-app-menu" class="icon-btn" title="Mais opções">⋯</button>
       </div>
+      <!-- Barra de modo modelo: o editor abaixo é o mesmo de sempre, só que
+           o que se edita é um modelo e não uma nota. -->
+      <div id="template-bar" class="template-bar" hidden>
+        <span class="template-bar-tag">Modelo</span>
+        <input id="template-bar-name" class="template-bar-name" type="text" placeholder="Nome do modelo" />
+        <select id="template-bar-kind" class="template-bar-kind" title="Onde este modelo é usado">
+          <option value="note">Nota inteira</option>
+          <option value="block">Bloco</option>
+        </select>
+        <button id="template-bar-cancel" class="template-bar-btn" title="Sair sem salvar">Cancelar</button>
+        <button id="template-bar-save" class="template-bar-btn template-bar-primary">Salvar</button>
+      </div>
+
       <div class="note-watermark" aria-hidden="true">
         <svg viewBox="22.5 22.5 512 512">
           <path d="M153.03 153.03 A150 150 0 1 1 358.97 358.97 A150 150 0 0 0 153.03 153.03 Z" />

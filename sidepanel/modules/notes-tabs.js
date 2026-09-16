@@ -2,18 +2,28 @@ import {
   loadAllNotesMeta, createNoteRecord, updateNoteMetaById, deleteNoteRecordById,
   reorderNoteRecords, migrateLegacyNoteIfNeeded, loadActiveNoteId, saveActiveNoteId,
   getNoteById, detachFilesFromNote, updateNoteBlocksById,
+  updateTemplateById, gcInlineFiles,
 } from './storage.js';
 import { setDocumentsNote, refreshDocuments } from './documents.js';
 import { positionPopover } from './popover.js';
-import { initTemplates, getTemplates, openTemplatesManager } from './templates.js';
-import { switchToNote, flushSave, getCurrentBlocks, clearCurrentNote } from './note.js';
+import {
+  initTemplates, getTemplates, noteTemplates, openTemplatesManager,
+  refreshTemplates, closeTemplatesManager,
+} from './templates.js';
+import {
+  switchToNote, flushSave, getCurrentBlocks, clearCurrentNote,
+  openTemplateInEditor, currentTemplateMarkdown, clearTemplateEditing,
+  blocksToExportMarkdown, absorbDataUrls,
+} from './note.js';
 import { blocksToMarkdown, blocksToPlainText, parseMarkdownToBlocks } from './blocks.js';
+import { buildBackup, parseBackup } from './backup.js';
 
 const tabsEl        = document.getElementById('notes-tabs');
 const btnNew        = document.getElementById('btn-new-note');
 const btnNotesList  = document.getElementById('btn-notes-list');
 const importInput   = document.getElementById('note-import-input');
 const noteEditorEl  = document.querySelector('.note-editor');
+const noteSection   = document.querySelector('.note-section');
 
 // A tira de abas só rola na horizontal, mas a roda do mouse manda scroll
 // vertical por padrão (só vira horizontal segurando Shift) — aqui a gente
@@ -75,6 +85,27 @@ Pra abrir um link, segure Ctrl e clique — o mesmo gesto da detecção intelige
 
 Na prática, serve pra deixar o caminho de volta salvo junto do caso: o portal da operadora, o formulário que você sempre preenche, a consulta do protocolo.
 
+Digitar também funciona: escreva o texto entre colchetes seguido do endereço entre parênteses e, ao fechar o parêntese, vira link sozinho.
+
+## Indentação
+
+Tab indenta o bloco e Shift+Tab desindenta — até cinco níveis, que é o que cabe num painel estreito. Vale pra qualquer bloco, não só lista: parágrafo, título e até tabela.
+
+- Fruta
+  - Maçã
+    - Fuji
+  - Pera
+- Legume
+
+Repare em três coisas: o marcador muda a cada nível, a lista numerada recomeça a contagem dentro de cada nível, e indentar um item leva os itens de dentro dele junto.
+
+1. Abrir o protocolo
+  1. Anexar o relatório
+  2. Conferir o prazo
+2. Registrar o retorno
+
+Pra sair de um nível sem usar Shift+Tab: Enter numa linha vazia ou Backspace no começo da linha.
+
 ## Tipos de bloco
 
 Digite uma barra "/" no começo de uma linha vazia pra abrir o menu e escolher o tipo de bloco. Ou use os atalhos abaixo, digitando o símbolo seguido de espaço no início da linha:
@@ -84,8 +115,11 @@ Digite uma barra "/" no começo de uma linha vazia pra abrir o menu e escolher o
 - "1." + espaço → lista numerada
 - Hífen, espaço e colchetes "[ ]" → checklist
 - Maior-que (>) + espaço → citação
+- Colchete, exclamação, o tipo e colchete + espaço → destaque colorido
 - Três hífens sozinhos na linha → divisor
 - Três crases sozinhas na linha → bloco de código
+
+O menu do "/" também traz o que não tem atalho de teclado: Tabela, Imagem, os cinco destaques e os seus modelos de bloco. Setas pra escolher, Enter pra confirmar.
 
 ### Exemplos ao vivo
 
@@ -93,11 +127,60 @@ Citação — boa pra guardar a fala de alguém sem misturar com a sua anotaçã
 
 > A beneficiária afirma que enviou a documentação em 02/09. Conferir no protocolo antes de responder.
 
+A citação não é um tipo de bloco e sim uma marca: qualquer bloco pode ser citado e continua sendo o que era. Por isso título, lista e checklist funcionam dentro dela:
+
+> #### Retorno da operadora
+>
+> - Protocolo aceito
+> - Prazo de 5 dias úteis
+>
+> - [ ] Conferir no dia 22
+
+Pra tirar a citação: Backspace no começo da linha, ou o botão de aspas na barra que aparece ao selecionar texto.
+
+### Destaques
+
+Aquela caixa colorida de aviso que todo manual tem. São cinco tipos, cada um com sua cor:
+
+> [!NOTE]
+> Um recado que a pessoa precisa ler, sem urgência nenhuma.
+
+> [!TIP]
+> Um atalho que economiza tempo.
+
+> [!IMPORTANT]
+> Algo que muda o resultado se for ignorado.
+
+> [!WARNING]
+> Um cuidado a tomar antes de seguir.
+
+> [!CAUTION]
+> Um risco de verdade — dá pra perder trabalho aqui.
+
+Pra criar: digite "/" e procure por Destaque, ou escreva o marcador direto no início da linha — colchete, exclamação, o nome do tipo em inglês, colchete e espaço. O rótulo colorido aparece sozinho; ele não é texto da nota, então não dá pra apagar sem querer.
+
+O destaque é uma citação com um marcador — por isso tudo que funciona dentro de uma citação funciona dentro dele, e a caixa cresce conforme você aperta Enter:
+
+> [!WARNING]
+> **Antes de enviar o protocolo**
+>
+> - [ ] CPF confere com o do titular
+> - [ ] Documentação dentro da validade
+
+Isso é markdown de verdade, o mesmo que o GitHub usa. Baixe a nota como .md, abra lá, e a caixa aparece colorida do mesmo jeito.
+
 Checklist — clique nas caixas, elas ficam marcadas:
 
 - [x] Solicitar segunda via do boleto
 - [ ] Conferir elegibilidade no portal
 - [ ] Retornar a ligação
+
+Checklist aninhada conversa entre si: marcar um item marca tudo que está dentro dele, e completar os itens de dentro completa o de fora. Enquanto só uma parte está feita, o item de fora mostra um tracinho em vez do visto. Experimente marcar os dois itens de dentro:
+
+- [ ] Documentação do beneficiário
+  - [ ] Documento com foto
+  - [ ] Comprovante de residência
+- [ ] Enviar para análise
 
 Lista numerada — pro passo a passo de um procedimento:
 
@@ -130,13 +213,44 @@ Na prática: recorte do relatório só as linhas que interessam ao caso e cole a
 
 ---
 
+## Imagens
+
+Três jeitos de colocar uma imagem dentro da nota:
+
+- Cole com Ctrl+V depois de clicar na nota — um print recém-tirado entra direto. O que decide o destino é onde você clicou por último: clicou na nota, a imagem entra no texto; clicou na seção Documentos, ela vai pra lá.
+- Arraste o arquivo de imagem pra dentro do editor
+- Digite "/" e escolha Imagem
+
+Passe o mouse na imagem pra ver a barra de botões:
+
+- **Mover p/ Documentos** — tira a imagem do meio do texto e guarda na seção de baixo, vinculada a esta nota. Serve pra quando o arquivo importa mas não precisa ocupar espaço na leitura.
+- **Trocar** — troca por outro arquivo, mantendo o lugar dela na nota.
+- **Texto** — a descrição da imagem. Serve pra quem usa leitor de tela e é o que aparece caso o arquivo se perca.
+- **Remover** — tira a imagem da nota.
+
+Clique na imagem pra abrir o visualizador, com zoom, girar e setas pra passar pelas outras imagens da nota.
+
+A imagem é guardada como arquivo de verdade, não embutida no texto da nota. Isso é o que mantém a nota leve por mais prints que ela tenha. Quando você baixa a nota como .md, aí sim ela vai embutida — o arquivo abre em qualquer editor, com as imagens dentro.
+
+Imagem colada na nota não aparece na seção Documentos: ela já está visível aqui. E imagem com endereço da internet não é exibida de propósito — abrir a nota avisaria o site de onde ela veio que você abriu, e quando. Nesses casos o endereço vira um link, e você decide se quer abrir.
+
+---
+
 ## Controles de cada bloco
 
 Passe o mouse na margem esquerda de qualquer bloco (inclusive este) pra ver dois ícones aparecerem:
 
 - O símbolo "+" adiciona um bloco novo logo abaixo. Segure Ctrl e clique nele pra adicionar acima.
-- A alça de arrastar (os pontinhos): clique nela pra abrir o menu do bloco — Transformar em, Duplicar, Excluir. Ou arraste pra reordenar sem perder a formatação.
-- Segure Ctrl e arraste a partir de qualquer ponto do texto (não só a alça) pra selecionar vários blocos de uma vez e mover, duplicar ou excluir juntos.
+- A alça de arrastar (os pontinhos): clique nela pra abrir o menu do bloco, ou arraste pra reordenar sem perder a formatação.
+- No topo do menu fica uma fileira de ícones com o que mais se usa: copiar como texto, copiar imagem, duplicar e excluir. Ela não sai do lugar enquanto você rola o resto do menu.
+- Pra mexer em vários blocos de uma vez: selecione por cima deles arrastando o texto normalmente, sem tecla nenhuma. Os blocos inteiros ficam marcados, e a partir daí a alça de qualquer um deles move o grupo todo — e o menu da alça passa a valer pros três ("Transformar em (3 blocos)").
+- Ctrl e arrastar também seleciona, a partir de qualquer ponto do bloco. Serve pros casos em que não há texto pra arrastar por cima, como um bloco de imagem sozinho.
+
+### Mandar um pedaço da nota como imagem
+
+No menu da alça tem "Copiar imagem" e "Baixar imagem (.png)". Vale pro bloco sozinho ou pro grupo selecionado, e serve pra mandar um trecho num aplicativo de conversa sem ter que explicar o que é markdown.
+
+A imagem sai exatamente como está na tela — com as cores da nota, os destaques e as checklists —, mas sem nada que seja controle: sem o realce de seleção, sem os ícones da margem e sem a barra de botões da tabela. E com a mesma margem do editor em volta, pra que o texto não fique colado na borda.
 - Ctrl+Z desfaz e Ctrl+Shift+Z refaz — inclusive troca de tipo de bloco.
 
 Experimente agora nesta linha: passe o mouse na margem, clique na alça, escolha "Transformar em" e depois "Citação". Ctrl+Z traz de volta.
@@ -162,26 +276,67 @@ Na prática, é o que evita redigitar: cole o CPF do beneficiário na nota, Ctrl
 ## Várias notas
 
 - As abas da nota ficam no topo desta seção. Clique no ☰ pra ver a lista completa (útil quando há muitas abas abertas).
-- O botão ＋ cria uma nota em branco ou importa um arquivo .md ou .txt.
+- O botão ＋ abre um menu: nota em branco, importar um .md ou .txt, criar a partir de um modelo, e gerenciar os modelos.
 - Dê um duplo clique numa aba pra abrir o menu dela: Renomear, Ícone e cor, Copiar como Markdown, Copiar como texto, Baixar .md, Baixar .txt, Limpar conteúdo e Excluir. Pela lista do ☰ o mesmo menu abre no botão de editar de cada linha.
 - "Limpar conteúdo" esvazia só o texto daquela nota — o nome, a cor e os documentos dela continuam onde estão. "Excluir" some com a nota inteira.
 - Em "Ícone e cor" dá pra escolher um ícone comum ou digitar o nome de qualquer ícone do catálogo do Google Fonts e clicar no botão ao lado do campo pra aplicar. Também dá pra alternar entre contorno e preenchido e escolher a cor — a última bolinha, com arco-íris, abre o seletor de cor livre.
 
 Uma forma de organizar: uma nota por cliente, por caso ou por dia. Dê nome, cor e ícone a cada aba e ela fica reconhecível de relance mesmo com dez abertas. Se o espaço apertar, marque "Ocultar nome na aba" nas que já têm ícone — a aba encolhe pro ícone colorido e cabe muito mais coisa na barra.
 
-## Modelos de nota
+### Backup de tudo
 
-Quando a mesma sequência de conferências se repete todo dia, vale virar modelo. No menu do ＋ aparece a seção "A partir de um modelo": clicar num deles já cria a nota com a estrutura montada, checkbox por checkbox.
+No menu ⋯ tem "Baixar todas as notas": gera um arquivo só, com todas as notas dentro e as imagens embutidas. Fora daqui ele é um markdown comum, que abre em qualquer editor.
 
-Já vem um modelo de exemplo chamado **Atendimento**, com campos de identificação, uma lista de validações e outra de ações. Abra o ＋ e crie uma nota com ele pra ver como fica.
+Pra restaurar, use Importar e escolha esse arquivo — o QuickDock reconhece que é um backup e recria as notas separadas, uma a uma, com os nomes originais. Restaurar sempre adiciona notas novas: nada do que já existe é alterado, então importar um backup antigo por engano não apaga o trabalho de hoje.
 
-Em "Gerenciar modelos…" você:
+## Modelos
 
-- **Salva a nota atual como modelo** — o caminho mais fácil: monte a nota uma vez do jeito que funciona e guarde.
-- **Renomeia** ou **exclui** um modelo (passe o mouse na linha pra ver os botões).
-- **Baixa como .md** e **importa .md/.txt** — é assim que se compartilha. O modelo é markdown puro, então basta mandar o arquivo pro colega e ele importar.
+Quando a mesma sequência de conferências se repete todo dia, vale virar modelo. Existem dois tipos, e a diferença é só o tamanho do que eles trazem.
 
-Na prática: se todo pedido de reembolso passa pelas mesmas seis conferências, faça uma nota com elas, salve como "Reembolso", e no próximo atendimento é um clique em vez de digitar tudo de novo — ou lembrar de cabeça o que faltou conferir.
+### Modelo de nota — cria a nota inteira
+
+No menu do ＋ aparece a seção "A partir de um modelo": clicar num deles já cria a nota com a estrutura montada, checkbox por checkbox.
+
+Já vem um de exemplo chamado **Atendimento**, com campos de identificação, uma lista de validações e outra de ações. Abra o ＋ e crie uma nota com ele pra ver como fica.
+
+### Modelo de bloco — entra no meio da nota
+
+Esse não cria nota nenhuma: insere um pedaço onde o cursor está. Duas formas de chamar:
+
+- Digite "/" numa linha vazia e comece a escrever o nome do modelo — ele aparece na lista junto com os tipos de bloco, marcado como "modelo".
+- Ou abra o menu da alça do bloco: os modelos ficam na seção "Inserir modelo", logo abaixo de "Transformar em".
+
+Numa linha vazia o modelo ocupa o lugar dela; com texto na linha, ele entra logo abaixo.
+
+Vem um de exemplo chamado **Conferência** — um subtítulo, três checkboxes e o campo de quem conferiu.
+
+Pra criar o seu: selecione os blocos que quer guardar (segure Ctrl e arraste pra pegar vários), abra o menu da alça e escolha "Salvar como modelo de bloco".
+
+### Criar e editar um modelo
+
+Você não escreve modelo em lugar nenhum diferente: **o modelo abre no editor normal**, este mesmo. Checkbox clicável, menu "/", tabela, negrito — tudo igual a editar uma nota, porque é o mesmo editor.
+
+O que muda é uma barra azul que aparece no topo, com a etiqueta **MODELO**. Nela ficam o nome, o tipo e os botões Salvar e Cancelar.
+
+Três formas de chegar lá, todas no menu do ＋ → "Gerenciar modelos…":
+
+- No ✎ de um modelo que já existe (passe o mouse na linha pra ver os botões).
+- Em "Criar modelo do zero", pra começar em branco.
+- Em "Salvar a nota atual como modelo", que leva o conteúdo da nota aberta pro modelo novo.
+
+O **tipo** na barra converte um modelo de nota em modelo de bloco e vice-versa — serve quando a importação entrou no tipo errado.
+
+Duas coisas pra não tomar susto: enquanto um modelo está aberto **não existe salvamento automático**, ele só grava no botão Salvar. E **trocar de aba sai sem salvar**, como se você tivesse clicado em Cancelar.
+
+### Compartilhar
+
+O modelo é markdown puro, o mesmo formato da exportação. Então compartilhar é só isso:
+
+- **↓** baixa o modelo como .md — mande o arquivo pro colega.
+- Quem recebe usa **"Importar como modelo de nota"** ou **"...de bloco"**. São dois botões porque o .md sozinho não diz qual dos dois ele é.
+- **✕** exclui.
+
+Na prática: se todo pedido de reembolso passa pelas mesmas seis conferências, faça uma nota com elas e salve como modelo de nota "Reembolso". Já um trecho que você cola no meio de qualquer atendimento — o bloco de conferência, o de encerramento — vale guardar como modelo de bloco, pra chamar com "/" sem sair da nota.
 
 ## Documentos
 
@@ -558,6 +713,20 @@ async function getBlocksForNote(meta) {
   return (note?.blocks?.length) ? note.blocks : parseMarkdownToBlocks(note?.content ?? '');
 }
 
+// Cria uma nota a partir de markdown de fora (.md importado, backup).
+// A nota nasce vazia de propósito: a imagem em base64 precisa de um noteId pra
+// virar arquivo, e só depois disso é que os blocos são gravados — senão o
+// registro da nota carregaria os megabytes e seria regravado inteiro a cada
+// autosave.
+async function createNoteFromMarkdown(title, md) {
+  const brutos = parseMarkdownToBlocks(md);
+  const id     = await createNoteRecord({ title, content: '', blocks: [] });
+  const blocks = await absorbDataUrls(brutos, id);
+  await updateNoteBlocksById(id, blocks, blocksToMarkdown(blocks));
+  notesMeta.push({ id, title, color: null, icon: null, updatedAt: Date.now() });
+  return id;
+}
+
 function safeFilename(title) {
   return (title || 'nota').replace(/[\\/:*?"<>|]/g, '_').trim() || 'nota';
 }
@@ -572,6 +741,22 @@ function downloadText(filename, text) {
   a.click();
   a.remove();
   URL.revokeObjectURL(url);
+}
+
+// ── Backup de todas as notas ──────────────────────────────────────────────────
+// Um arquivo só, e não um por nota: um download não pede permissão de "vários
+// downloads" ao navegador, e um arquivo único é mais fácil de guardar e de
+// conferir. O formato e a leitura de volta estão em backup.js.
+export async function downloadAllNotes() {
+  await flushSave();
+
+  const notas = [];
+  for (const meta of notesMeta) {
+    notas.push({ title: meta.title, md: await blocksToExportMarkdown(await getBlocksForNote(meta)) });
+  }
+
+  const carimbo = new Date().toISOString().slice(0, 10);
+  downloadText(`quickdock-backup-${carimbo}.md`, buildBackup(notas));
 }
 
 let tabMenuEl = null;
@@ -643,7 +828,7 @@ function renderTabMenu(meta, anchorEl) {
   };
 
   addOpt('Copiar como Markdown', async () => {
-    const text = blocksToMarkdown(await getBlocksForNote(meta));
+    const text = await blocksToExportMarkdown(await getBlocksForNote(meta));
     await navigator.clipboard.writeText(text);
   });
   addOpt('Copiar como texto', async () => {
@@ -651,7 +836,7 @@ function renderTabMenu(meta, anchorEl) {
     await navigator.clipboard.writeText(text);
   });
   addOpt('Baixar .md', async () => {
-    const text = blocksToMarkdown(await getBlocksForNote(meta));
+    const text = await blocksToExportMarkdown(await getBlocksForNote(meta));
     downloadText(`${safeFilename(meta.title)}.md`, text);
   });
   addOpt('Baixar .txt', async () => {
@@ -673,6 +858,8 @@ function renderTabMenu(meta, anchorEl) {
     // Os documentos vinculados viram gerais: some a nota, não os arquivos.
     await detachFilesFromNote(meta.id);
     await deleteNoteRecordById(meta.id);
+    // Imagem inline só existe dentro daquela nota: sem a nota, é lixo.
+    await gcInlineFiles();
     notesMeta = notesMeta.filter(n => n.id !== meta.id);
     if (activeId === meta.id) await activateNote(notesMeta[0].id);
     await refreshDocuments();
@@ -831,14 +1018,73 @@ export async function createTutorialNote() {
 // checklist clicável, títulos, tabela.
 async function createNoteFromTemplate(tpl) {
   await flushSave();
-  const blocks  = parseMarkdownToBlocks(tpl.content);
-  const content = blocksToMarkdown(blocks);
-  const id = await createNoteRecord({ title: tpl.name, content, blocks });
-  notesMeta.push({ id, title: tpl.name, color: null, icon: null, updatedAt: Date.now() });
+  // Passa pelo mesmo caminho da importação: um modelo compartilhado por outra
+  // pessoa pode trazer imagem em base64, que tem que virar arquivo.
+  const id = await createNoteFromMarkdown(tpl.name, tpl.content);
   await activateNote(id);
   renderTabs();
   scrollTabIntoView(id);
 }
+
+// ── Modo modelo ───────────────────────────────────────────────────────────────
+// O editor de blocos é um só, ligado a #note-editor-blocks. Em vez de construir
+// um segundo editor, ele empresta: carrega o modelo, mostra esta barra e o que
+// for digitado volta pro modelo em vez de pra uma nota.
+const templateBar    = document.getElementById('template-bar');
+const templateName   = document.getElementById('template-bar-name');
+const templateKind   = document.getElementById('template-bar-kind');
+const templateCancel = document.getElementById('template-bar-cancel');
+const templateSave   = document.getElementById('template-bar-save');
+
+let editingTpl  = null;   // {id, name, kind} do modelo aberto
+let returnNoteId = null;  // nota pra onde voltar ao sair
+
+export async function editTemplate(tpl) {
+  closeTemplatesManager();
+  returnNoteId = activeId;
+  editingTpl = { id: tpl.id, name: tpl.name, kind: tpl.kind };
+
+  await openTemplateInEditor(tpl);
+
+  templateName.value = tpl.name;
+  templateKind.value = tpl.kind;
+  templateBar.hidden = false;
+  noteSection.classList.add('template-mode');
+}
+
+async function exitTemplate(salvar) {
+  if (!editingTpl) return;
+
+  if (salvar) {
+    const nome = templateName.value.trim() || editingTpl.name;
+    await updateTemplateById(editingTpl.id, {
+      name: nome,
+      kind: templateKind.value,
+      content: currentTemplateMarkdown(),
+    });
+    await refreshTemplates();
+  }
+
+  editingTpl = null;
+  clearTemplateEditing();
+  templateBar.hidden = true;
+  noteSection.classList.remove('template-mode');
+
+  const voltarPara = notesMeta.some(n => n.id === returnNoteId) ? returnNoteId : notesMeta[0]?.id;
+  if (voltarPara != null) await activateNote(voltarPara);
+  renderTabs();
+}
+
+// Evento em vez de import: templates.js e note.js precisam pedir "abre este
+// modelo no editor", e os dois seriam import circular com este módulo.
+document.addEventListener('quickdock:edit-template', e => { editTemplate(e.detail); });
+
+templateSave.addEventListener('click', () => exitTemplate(true));
+templateCancel.addEventListener('click', () => exitTemplate(false));
+templateName.addEventListener('keydown', e => {
+  e.stopPropagation();
+  if (e.key === 'Enter') { e.preventDefault(); exitTemplate(true); }
+});
 
 async function currentNoteAsMarkdown() {
   const meta = notesMeta.find(n => n.id === activeId);
@@ -867,7 +1113,8 @@ async function openNewMenu() {
   newMenuOpt(pop, 'Nota em branco', createBlankNote);
   newMenuOpt(pop, 'Importar (.md/.txt)', () => importInput.click());
 
-  const templates = await getTemplates();
+  await getTemplates();               // atualiza o cache antes de listar
+  const templates = noteTemplates();  // o menu do ＋ cria notas, não insere blocos
   if (templates.length > 0) {
     pop.appendChild(Object.assign(document.createElement('div'), { className: 'math-divider' }));
     const head = document.createElement('div');
@@ -898,14 +1145,24 @@ importInput.addEventListener('change', async () => {
   importInput.value = '';
   if (!file) return;
 
-  const text    = await file.text();
-  const blocks  = parseMarkdownToBlocks(text);
-  const title   = file.name.replace(/\.(md|txt)$/i, '') || 'Nota importada';
-  const content = blocksToMarkdown(blocks);
-
+  const text = await file.text();
   await flushSave();
-  const id = await createNoteRecord({ title, content, blocks });
-  notesMeta.push({ id, title, color: null, icon: null, updatedAt: Date.now() });
+
+  // Arquivo de backup: vem com várias notas dentro, cada uma com o seu título.
+  // Restaurar cria notas novas — nunca sobrescreve as que já existem, senão
+  // um backup antigo apagaria o trabalho de quem o importou por engano.
+  const backup = parseBackup(text);
+  if (backup) {
+    if (!confirm(`Este arquivo é um backup com ${backup.length} nota(s).\n\nElas serão adicionadas como notas novas — nada do que já existe é alterado.`)) return;
+    let ultimoId = null;
+    for (const { title, md } of backup) ultimoId = await createNoteFromMarkdown(title, md);
+    if (ultimoId != null) await activateNote(ultimoId);
+    renderTabs();
+    return;
+  }
+
+  const title = file.name.replace(/\.(md|txt)$/i, '') || 'Nota importada';
+  const id = await createNoteFromMarkdown(title, text);
   await activateNote(id);
   renderTabs();
 });
@@ -922,6 +1179,10 @@ async function activateNote(id) {
 
 export async function initNotesTabs() {
   await migrateLegacyNoteIfNeeded();
+  // Faxina de imagem órfã. Roda na abertura de propósito: é o único momento em
+  // que não existe histórico de desfazer que pudesse trazer de volta um bloco
+  // cujo arquivo acabou de ser apagado.
+  await gcInlineFiles();
   await initTemplates();
   notesMeta = await loadAllNotesMeta();
 

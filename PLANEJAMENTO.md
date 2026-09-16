@@ -171,3 +171,101 @@ Decisões:
 - Botão "☰" no início da barra: lista todas as notas num popover (resolve depender só da rolagem horizontal).
 - "Nova nota" e "Importar" viram um botão só, com menuzinho de duas opções.
 
+
+## v1.9 — Imagens na nota, aninhamento e correções de colagem
+
+### O diagnóstico: uma lacuna explica quase tudo
+
+O modelo de blocos é **plano**: uma linha = um bloco, e um bloco tem um tipo só. Não existe "bloco que contém blocos". Isso é a causa única de coisas que parecem separadas:
+
+- Colar uma citação com título e lista dentro (markdown básico) produz seis blocos soltos, com `####` e `-` virando texto literal.
+- Não há lista dentro de lista, nem parágrafo dentro de item.
+- Toggle, callout e coluna — os itens que faltam pro padrão de editor de blocos — são todos "bloco com filhos".
+
+Por isso a Etapa 1 abaixo é a alavanca: sem ela, cada um desses vira uma gambiarra isolada.
+
+### Segurança dos dados existentes — regras que valem para todas as etapas
+
+Ninguém pode perder nota por causa desta rodada. São regras, não boas intenções:
+
+1. **Todo campo novo é opcional, com default seguro na leitura.** `depth ?? 0`, `quoted ?? false`. Nunca uma migração que varre e reescreve o banco.
+2. **O leitor aceita formato velho e novo; o escritor só emite o novo.** Uma nota antiga só muda de forma quando a pessoa a editar. Quem não abrir a nota, não corre risco nenhum.
+3. **Dexie só ganha `version()` que adiciona índice.** Nunca remover store nem campo. O padrão já usado em `noteId` (documentos) e `kind` (modelos) deu certo duas vezes.
+4. **O campo `content` continua sendo gravado a cada save.** Ele é markdown completo e é a rede de recuperação se `blocks` ficar inválido por um bug nosso. Hoje já funciona assim; a partir daqui é obrigação, não detalhe.
+5. **Backup em lote antes de mexer no modelo.** Um item "Baixar todas as notas (.md)" no menu ⋯, que gera um arquivo por nota. É meia tarde de trabalho e é o seguro de todo o resto. **Entra antes da Etapa 1.**
+6. **Fixtures de regressão.** Um arquivo com blocos reais no formato de hoje, e um teste que faz `parse → serialize → parse` e compara. Roda antes e depois de cada etapa. Sem isso, "não quebrou" é chute.
+
+### Etapa 0 — Correções de perda de conteúdo
+
+Pequenas, independentes do resto, e as únicas que hoje **perdem** o que a pessoa colou:
+
+- **Tabela colada como texto markdown vira tabela vazia.** O parser acerta as linhas, mas `pasteMultilineText` monta os blocos sem repassar `rows`. Auditar todas as chamadas de `createBlockEl` — essa assinatura já tem quatro parâmetros e é fácil esquecer o último.
+- **Colar imagem com o cursor na nota.** Os dois handlers disparam: o de `note.js` (em `root`) e o de `documents.js` (em `document`). O primeiro não interrompe a propagação. Hoje o efeito é benigno porque a nota não trata imagem, mas vira conflito na Etapa 3 — resolver a precedência agora.
+
+### Etapa 1 — Indentação e aninhamento
+
+**Decisão: profundidade plana, não árvore.** Cada bloco ganha `depth: 0..5`. O pai é implícito — o bloco anterior com `depth` menor.
+
+Por que não árvore de filhos: `serializeBlocks()` continua devolvendo um array simples, e com isso arrastar pra reordenar, seleção múltipla, undo por `innerHTML` e renumeração continuam funcionando sem reescrita. Uma árvore obrigaria a refazer os quatro. O custo é que relações pai/filho são convenção, não estrutura — suficiente pra lista aninhada e citação com conteúdo, que é o grosso do uso.
+
+- **Tab indenta, Shift+Tab desindenta.** Tab já tem dois donos: navegar célula de tabela e confirmar item no menu "/". Precedência: célula > menu > indentar.
+- **Teto de 5 níveis.** O painel é estreito; escada infinita vira texto de 3 colunas.
+- **Parser**: espaços/tabs à esquerda viram `depth`. Serializador emite dois espaços por nível — que é o que o markdown espera e o que qualquer outro editor vai ler de volta.
+- **`renumberLists()`** passa a numerar por nível, reiniciando a cada mudança de profundidade.
+- **Migração**: bloco sem `depth` é nível 0. Visualmente nada muda pra quem já tem notas.
+
+### Etapa 2 — Citação com filhos
+
+**Decisão: `quoted` é decoração, não tipo.** Um bloco ganha `quoted: true` de forma ortogonal ao `type`. Assim `> #### Resultado` vira um `heading4` com `quoted`, e é isso que faz o título e a lista funcionarem dentro da citação — o conteúdo depois do `>` é reprocessado como linha normal, em vez de virar texto literal.
+
+- **Compatibilidade**: o tipo `quote` continua sendo lido. Na leitura, normaliza pra `paragraph + quoted`; o escritor emite a forma nova. Nota antiga abre igual.
+- **Render**: blocos `quoted` consecutivos ganham uma barra lateral contínua, em vez de uma barra por linha.
+- Resolve exatamente o exemplo que motivou esta rodada.
+
+### Etapa 3 — Imagens na nota
+
+**Decisão: guardar Blob, exportar base64.** Base64 dentro do bloco parece simples e é a escolha errada: a nota inteira é regravada a cada autosave (800 ms depois de parar de digitar), então um print de 2 MB embutido significa 2 MB reescritos a cada pausa.
+
+- **Guardar** na tabela `files`, que já existe, com marca de `inline` — imagem da nota não aparece na seção Documentos.
+- **Bloco**: `{ type: 'image', fileId, alt }`, `contenteditable="false"`, mesmo padrão da tabela.
+- **Render** por `URL.createObjectURL`. **Revogar ao trocar de nota** — senão vaza memória a cada troca de aba.
+- **Ações no hover**: trocar, remover, texto alternativo.
+- **Clique abre o visualizador** do `modal.js`, que já tem zoom, girar e navegação entre imagens.
+- **Colar**: cursor na nota → inline; fora → Documentos. Depende da precedência resolvida na Etapa 0.
+- **Arrastar** arquivo de imagem pra dentro do editor → inline.
+- **Exportar**: `![alt](data:image/...;base64,...)` na hora de gerar o `.md`. Nota leve no banco e exportação portátil; o custo é exportação lenta em nota cheia de imagem.
+- **Importar**: `data:` vira Blob. URL remota é decisão de privacidade — abrir a nota faria a imagem ser baixada do servidor de terceiro, entregando IP e momento da leitura. Recomendação: baixar e embutir na importação, ou avisar explicitamente.
+- **Excluir nota**: hoje `detachFilesFromNote` transforma os arquivos em gerais. Imagem inline precisa de regra própria — ela só existe dentro daquela nota, então vai junto.
+
+### Etapa 4 — Inline que ainda falta
+
+`**negrito**`, `*itálico*`, `~~riscado~~` e crase **já convertem ao digitar** (`INLINE_SHORTCUTS`). Falta:
+
+- `[texto](url)` virar link ao digitar. O mecanismo atual assume um grupo de captura por atalho; link precisa de dois.
+- `![alt](url)` virar imagem, depois da Etapa 3.
+
+### Ordem
+
+Backup em lote → fixtures de regressão → Etapa 0 → 1 → 2 → 3 → 4.
+
+As duas primeiras não são features, são a condição pra mexer no modelo sem apostar. A Etapa 0 vem antes porque é correção de perda de dado e não depende de nada. A 2 depende da 1, e a 4 depende da 3.
+
+### Fora desta rodada
+
+Toggle, callout, colunas, banco de dados, menções, comentários e blocos sincronizados. Todos ficam substancialmente mais baratos depois da Etapa 1 — vale reavaliar só depois dela.
+
+### O que mudou na execução
+
+Três decisões saíram diferentes do planejado, e por bons motivos:
+
+1. **O backup virou um arquivo só, e restaurável.** O plano pedia um arquivo por nota. Vários downloads de uma vez fazem o navegador pedir permissão, e um punhado de arquivos soltos é pior de guardar. O formato ganhou um marcador por nota (`<!-- quickdock:nota "…" -->`), e a importação reconhece e recria as notas separadas. Restaurar passou a ser um recurso, não um trabalho manual. Fora do QuickDock continua sendo markdown comum.
+2. **Endereço remoto de imagem não vira imagem.** O plano deixava em aberto entre baixar-e-embutir ou avisar. Nenhum dos dois: vira link. Assim nada é baixado sem a pessoa pedir, e o endereço não se perde — clicar continua abrindo.
+3. **A imagem órfã é recolhida na abertura do painel, não na hora.** Apagar o arquivo junto com o bloco quebraria o Ctrl+Z: o bloco voltaria sem a imagem. Na abertura não existe histórico de desfazer pra atrapalhar.
+
+Também apareceram na conferência dois problemas de perda de conteúdo que não estavam no plano, do mesmo tipo do da tabela colada: **duplicar uma tabela** devolvia uma tabela vazia, e **"Transformar em"** aplicado a uma tabela despejava o HTML dela dentro de um parágrafo. A causa é a mesma — `createBlockEl` tem parâmetros posicionais e é fácil esquecer o último —, então a correção foi eliminar a causa: existe um `createBlockElFrom(bloco)` só, e um teste que falha se alguém voltar a montar bloco na mão.
+
+### Testes
+
+`node test/run.mjs` — 134 verificações. Cobre: blocos no formato v1.8 abrindo e voltando iguais, markdown de fora, indentação vinda de 2/3/4 espaços e tab, citação com filhos, imagens (inclusive a regra de privacidade e a de não embutir base64 no autosave), backup, atalhos ao digitar, e a nota-tutorial inteira.
+
+O que os testes **não** cobrem, e por que: o editor só existe dentro do navegador. `test/indent.mjs` contorna isso recortando as funções de indentação do `note.js` e rodando-as contra blocos de mentira — o que é testado é o código de verdade, mas o recorte é por nome e quebra se alguém renomear as funções (de propósito: quebrar alto é melhor que testar uma cópia velha). Colar, arrastar, o visualizador e o ciclo de vida dos objectURL continuam sem cobertura automatizada.

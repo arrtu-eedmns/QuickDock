@@ -4,12 +4,13 @@
 // serem a mesma coisa — quem recebe importa o arquivo e tem o modelo de volta.
 
 import {
-  loadAllTemplates, createTemplateRecord, updateTemplateById, deleteTemplateById,
-  templatesWereSeeded, markTemplatesSeeded,
+  loadAllTemplates, createTemplateRecord, deleteTemplateById,
+  wasSeeded, markSeeded,
 } from './storage.js';
 import { positionPopover } from './popover.js';
 
-const EXEMPLO = {
+const EXEMPLO_NOTA = {
+  kind: 'note',
   name: 'Atendimento',
   content: `# Atendimento —
 
@@ -44,17 +45,49 @@ const EXEMPLO = {
 `,
 };
 
-// Semeia o exemplo uma vez só. A marca fica fora da tabela pra que apagar o
-// exemplo não o traga de volta na próxima abertura.
+// Modelo de bloco: um pedaço que entra no meio da nota, não uma nota inteira.
+const EXEMPLO_BLOCO = {
+  kind: 'block',
+  name: 'Conferência',
+  content: `## Conferência
+
+- [ ] Documento legível e dentro da validade
+- [ ] Dados batem com o cadastro
+- [ ] Prazo ainda em aberto
+
+**Conferido por:**
+**Data:**
+`,
+};
+
+// O menu "/" é montado de forma síncrona enquanto a pessoa digita, então os
+// modelos ficam em cache na memória em vez de serem lidos do banco na hora.
+let cache = [];
+
+export async function refreshTemplates() {
+  cache = await loadAllTemplates();
+  return cache;
+}
+
+export function noteTemplates()  { return cache.filter(t => t.kind === 'note'); }
+export function blockTemplates() { return cache.filter(t => t.kind === 'block'); }
+
 export async function initTemplates() {
-  if (await templatesWereSeeded()) return;
-  await createTemplateRecord(EXEMPLO);
-  await markTemplatesSeeded();
+  for (const [chave, exemplo] of [
+    ['templates_seeded', EXEMPLO_NOTA],
+    ['block_template_seeded', EXEMPLO_BLOCO],
+  ]) {
+    if (await wasSeeded(chave)) continue;
+    await createTemplateRecord(exemplo);
+    await markSeeded(chave);
+  }
+  await refreshTemplates();
 }
 
 export async function getTemplates() {
-  return loadAllTemplates();
+  return refreshTemplates();
 }
+
 
 function safeFilename(name) {
   return (name || 'modelo').replace(/[\\/:*?"<>|]+/g, '-').trim() || 'modelo';
@@ -68,6 +101,20 @@ function downloadText(filename, text) {
   a.download = filename;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+// Pedir "abre este modelo no editor". Vai por evento porque quem atende é o
+// notes-tabs, que já importa este módulo — chamar de volta seria ciclo.
+export function requestTemplateEdit(tpl) {
+  closeTemplatesManager();
+  document.dispatchEvent(new CustomEvent('quickdock:edit-template', { detail: tpl }));
+}
+
+// Cria o registro e abre direto no editor, pra nomear e ajustar lá.
+async function createAndEdit({ name, content, kind }) {
+  const id = await createTemplateRecord({ name, content, kind });
+  await refreshTemplates();
+  requestTemplateEdit({ id, name, content, kind });
 }
 
 // ── Gerenciador ──────────────────────────────────────────────────────────────
@@ -86,94 +133,43 @@ function opt(label, onClick, className = '') {
   return btn;
 }
 
-// Campo de nome embutido no próprio popover, em vez de um prompt() do
-// navegador — mesmo critério do menu de link.
-function nameField({ value, placeholder, onConfirm, onCancel }) {
-  const row = document.createElement('div');
-  row.className = 'template-name-row';
 
-  const input = document.createElement('input');
-  input.type = 'text';
-  input.className = 'template-name-input';
-  input.value = value ?? '';
-  input.placeholder = placeholder ?? 'Nome do modelo';
-
-  const ok = document.createElement('button');
-  ok.className = 'template-name-ok';
-  ok.textContent = 'Salvar';
-
-  const commit = async () => {
-    const nome = input.value.trim();
-    if (!nome) { input.focus(); return; }
-    await onConfirm(nome);
-  };
-
-  input.addEventListener('mousedown', e => e.stopPropagation());
-  input.addEventListener('keydown', e => {
-    e.stopPropagation();
-    if (e.key === 'Enter')  { e.preventDefault(); commit(); }
-    if (e.key === 'Escape') { e.preventDefault(); onCancel?.(); }
-  });
-  ok.addEventListener('mousedown', e => { e.stopPropagation(); e.preventDefault(); });
-  ok.addEventListener('click', e => { e.stopPropagation(); commit(); });
-
-  row.append(input, ok);
-  queueMicrotask(() => { input.focus(); input.select(); });
-  return row;
+// Salvar a seleção como modelo de bloco: cria e já abre no editor, onde dá
+// pra dar o nome e ajustar antes de usar.
+export async function openSaveBlockTemplate(_anchorEl, markdown, onSaved) {
+  await createAndEdit({ name: 'Novo modelo', content: markdown, kind: 'block' });
+  onSaved?.();
 }
 
 /**
  * @param anchorEl  elemento que ancora o popover
- * @param onUse     (template) => void — cria a nota a partir do modelo
- * @param getCurrentNote  () => Promise<{title, markdown}> — pra "salvar nota atual"
+ * @param opts.onUse           (template) => void — usa o modelo
+ * @param opts.getCurrentNote  () => Promise<{title, markdown}> — pra "salvar nota atual"
  */
-/**
- * @param state  null | {mode:'rename', id} | {mode:'save', nome, markdown}
- *               — qual campo de nome está aberto no momento
- */
-export async function openTemplatesManager(anchorEl, opts, state = null) {
+export async function openTemplatesManager(anchorEl, opts) {
   const { onUse, getCurrentNote } = opts;
   closeTemplatesManager();
 
   const pop = document.createElement('div');
   pop.className = 'copy-menu templates-manager';
 
-  const reopen = (proximo = null) => openTemplatesManager(anchorEl, opts, proximo);
+  const reopen = async () => {
+    await refreshTemplates();
+    return openTemplatesManager(anchorEl, opts);
+  };
 
-  const header = document.createElement('div');
-  header.className = 'copy-menu-header';
-  header.textContent = 'Modelos de nota';
-  pop.appendChild(header);
+  const templates = await refreshTemplates();
 
-  const templates = await loadAllTemplates();
-
-  if (templates.length === 0) {
-    const vazio = document.createElement('div');
-    vazio.className = 'templates-empty';
-    vazio.textContent = 'Nenhum modelo salvo ainda.';
-    pop.appendChild(vazio);
-  }
-
-  for (const tpl of templates) {
-    if (state?.mode === 'rename' && state.id === tpl.id) {
-      pop.appendChild(nameField({
-        value: tpl.name,
-        onConfirm: async nome => {
-          if (nome !== tpl.name) await updateTemplateById(tpl.id, { name: nome });
-          await reopen();
-        },
-        onCancel: () => reopen(),
-      }));
-      continue;
-    }
-
+  const renderRow = (tpl) => {
     const row = document.createElement('div');
     row.className = 'template-row';
 
     const use = document.createElement('button');
     use.className = 'template-use';
     use.textContent = tpl.name;
-    use.title = 'Criar uma nota com este modelo';
+    use.title = tpl.kind === 'block'
+      ? 'Inserir este bloco na nota aberta'
+      : 'Criar uma nota com este modelo';
     use.addEventListener('mousedown', e => e.stopPropagation());
     use.addEventListener('click', async e => {
       e.stopPropagation();
@@ -198,7 +194,7 @@ export async function openTemplatesManager(anchorEl, opts, state = null) {
       mk('↓', 'Baixar .md para compartilhar', () => {
         downloadText(`${safeFilename(tpl.name)}.md`, tpl.content);
       }),
-      mk('✎', 'Renomear', () => reopen({ mode: 'rename', id: tpl.id })),
+      mk('✎', 'Editar no editor de notas', () => requestTemplateEdit(tpl)),
       mk('✕', 'Excluir modelo', async () => {
         if (!confirm(`Excluir o modelo "${tpl.name}"?`)) return;
         await deleteTemplateById(tpl.id);
@@ -208,47 +204,59 @@ export async function openTemplatesManager(anchorEl, opts, state = null) {
 
     row.append(use, acoes);
     pop.appendChild(row);
+  };
+
+  const grupos = [
+    ['Modelos de nota',  templates.filter(t => t.kind === 'note'),  'Nenhum modelo de nota ainda.'],
+    ['Modelos de bloco', templates.filter(t => t.kind === 'block'), 'Nenhum modelo de bloco ainda.'],
+  ];
+
+  for (const [titulo, lista, vazioTxt] of grupos) {
+    const head = document.createElement('div');
+    head.className = 'copy-menu-header';
+    head.textContent = titulo;
+    pop.appendChild(head);
+
+    if (lista.length === 0) {
+      const vazio = document.createElement('div');
+      vazio.className = 'templates-empty';
+      vazio.textContent = vazioTxt;
+      pop.appendChild(vazio);
+    }
+    lista.forEach(renderRow);
   }
 
   pop.appendChild(Object.assign(document.createElement('div'), { className: 'math-divider' }));
 
-  if (state?.mode === 'save') {
-    const aviso = document.createElement('div');
-    aviso.className = 'copy-menu-header';
-    aviso.textContent = 'Nome do novo modelo';
-    pop.appendChild(aviso);
-    pop.appendChild(nameField({
-      value: state.nome,
-      onConfirm: async nome => {
-        await createTemplateRecord({ name: nome, content: state.markdown });
-        await reopen();
-      },
-      onCancel: () => reopen(),
-    }));
-  } else {
-    pop.appendChild(opt('Salvar a nota atual como modelo', async () => {
-      const atual = await getCurrentNote();
-      if (!atual?.markdown?.trim()) { alert('A nota atual está vazia.'); return; }
-      await reopen({ mode: 'save', nome: atual.title || 'Novo modelo', markdown: atual.markdown });
-    }));
-  }
+  pop.appendChild(opt('Salvar a nota atual como modelo', async () => {
+    const atual = await getCurrentNote();
+    if (!atual?.markdown?.trim()) { alert('A nota atual está vazia.'); return; }
+    await createAndEdit({ name: atual.title || 'Novo modelo', content: atual.markdown, kind: 'note' });
+  }));
 
+  pop.appendChild(opt('Criar modelo do zero', () =>
+    createAndEdit({ name: 'Novo modelo', content: '', kind: 'note' })));
+
+  // Dois botões em vez de um: o arquivo .md não diz se é nota ou bloco, e
+  // adivinhar erraria justamente no caso de compartilhar um modelo de bloco.
   const importInput = document.createElement('input');
   importInput.type = 'file';
   importInput.accept = '.md,.txt,text/markdown,text/plain';
   importInput.hidden = true;
+  let importKind = 'note';
   importInput.addEventListener('change', async () => {
     const file = importInput.files[0];
     importInput.value = '';
     if (!file) return;
     const content = await file.text();
     const name = file.name.replace(/\.(md|txt)$/i, '') || 'Modelo importado';
-    await createTemplateRecord({ name, content });
+    await createTemplateRecord({ name, content, kind: importKind });
     await reopen();
   });
   pop.appendChild(importInput);
 
-  pop.appendChild(opt('Importar modelo (.md/.txt)', () => importInput.click()));
+  pop.appendChild(opt('Importar como modelo de nota', () => { importKind = 'note'; importInput.click(); }));
+  pop.appendChild(opt('Importar como modelo de bloco', () => { importKind = 'block'; importInput.click(); }));
 
   document.body.appendChild(pop);
   managerEl = pop;

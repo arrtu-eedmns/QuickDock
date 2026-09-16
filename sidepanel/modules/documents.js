@@ -5,6 +5,7 @@ import {
 import { openModal } from './modal.js';
 import { startInject, startInjectMultiple } from './inject.js';
 import { initSelection, clearSelection, getSelectedMetas } from './selection.js';
+import { setActiveArea } from './active-area.js';
 
 const grid           = document.getElementById('doc-grid');
 const dropZone       = document.getElementById('drop-zone');
@@ -19,6 +20,7 @@ const btnScopeSel    = document.getElementById('btn-scope-selected');
 const btnViewNote    = document.getElementById('btn-view-note');
 const btnViewAll     = document.getElementById('btn-view-all');
 const hiddenHint     = document.getElementById('docs-hidden-hint');
+const docsSection    = document.querySelector('.docs-section');
 
 const ALLOWED_TYPES = ['image/', 'application/pdf', 'text/plain'];
 
@@ -30,6 +32,15 @@ let currentNoteId = null;
 let allMetas      = [];
 let viewMode      = 'note';
 let ready         = false;
+
+// Imagem colada dentro da nota fica fora da lista de Documentos: ela já está
+// visível dentro da nota, e repeti-la aqui faria a seção encher de recorte a
+// cada print colado. Filtrar já na carga mantém o resto do módulo sem precisar
+// saber que existe imagem inline — inclusive a contagem do rodapé, que conta
+// documento escondido e não deve contar o que nem é documento.
+async function carregarMetas() {
+  return (await loadAllFilesMeta()).filter(m => !m.inline);
+}
 
 function isVisible(meta) {
   if (viewMode === 'all') return true;
@@ -274,7 +285,7 @@ async function processFiles(files) {
 export async function initDocuments() {
   // initNotesTabs() já rodou e definiu a nota aberta via setDocumentsNote().
   viewMode = await loadDocsView();
-  allMetas = await loadAllFilesMeta();
+  allMetas = await carregarMetas();
   ready = true;
   await renderGrid();
 
@@ -302,6 +313,11 @@ export async function initDocuments() {
     processFiles([...fileInput.files]);
     fileInput.value = '';
   });
+
+  // Clicar em qualquer canto desta seção passa a vez pros documentos: é o que
+  // manda a próxima imagem colada vir pra cá em vez de entrar na nota. Em
+  // captura, pra valer mesmo quando o alvo interrompe a propagação.
+  docsSection?.addEventListener('mousedown', () => setActiveArea('docs'), true);
 
   // Ctrl+V — cola imagem da área de transferência
   document.addEventListener('paste', async e => {
@@ -352,7 +368,7 @@ export async function setDocumentsNote(noteId) {
 // os documentos dela como gerais).
 export async function refreshDocuments() {
   if (!ready) return;
-  allMetas = await loadAllFilesMeta();
+  allMetas = await carregarMetas();
   await renderGrid();
 }
 

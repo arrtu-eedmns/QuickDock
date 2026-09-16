@@ -1,4 +1,4 @@
-import { initNotesTabs, createTutorialNote } from './modules/notes-tabs.js';
+import { initNotesTabs, createTutorialNote, downloadAllNotes } from './modules/notes-tabs.js';
 import { positionPopover } from './modules/popover.js';
 import { initDocuments } from './modules/documents.js';
 import { loadTheme, saveTheme } from './modules/storage.js';
@@ -55,6 +55,12 @@ function openAppMenu() {
   const dark = html.getAttribute('data-theme') === 'dark';
   addOpt('📘  Ver tutorial', createTutorialNote);
   addOpt(dark ? '☀️  Tema claro' : '🌙  Tema escuro', toggleTheme);
+
+  menu.appendChild(Object.assign(document.createElement('div'), { className: 'math-divider' }));
+
+  // Um arquivo com tudo dentro. Existe pra que atualizar a extensão nunca
+  // dependa de confiança: dá pra guardar as notas antes e conferir depois.
+  addOpt('💾  Baixar todas as notas', downloadAllNotes);
 
   document.body.appendChild(menu);
   appMenuEl = menu;

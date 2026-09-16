@@ -1,6 +1,17 @@
-import { getNoteById, updateNoteBlocksById } from './storage.js';
+import {
+  getNoteById, updateNoteBlocksById, saveFile, loadFileBlob, moveInlineFileToDocuments,
+} from './storage.js';
+import { refreshDocuments } from './documents.js';
+import { setActiveArea, isNoteActive } from './active-area.js';
+import { openModal } from './modal.js';
 import { tryParseMath } from './math-parser.js';
-import { uid, escHtml, safeHref, parseMarkdownToBlocks, blocksToMarkdown, blocksToPlainText } from './blocks.js';
+import {
+  uid, escHtml, safeHref, parseMarkdownToBlocks, blocksToMarkdown, blocksToPlainText,
+  MAX_DEPTH, BULLET_GLYPHS, normalizeBlock, blocksToMarkdownForExport,
+  CALLOUT_TYPES, CALLOUT_LABELS,
+} from './blocks.js';
+import { blockTemplates, openSaveBlockTemplate } from './templates.js';
+import { copyBlocksAsImage, downloadBlocksAsImage } from './snapshot.js';
 
 const noteSection  = document.querySelector('.note-section');
 const noteEditorEl = document.querySelector('.note-editor');
@@ -424,10 +435,43 @@ const HEADING_TAGS = { heading1: 'h1', heading2: 'h2', heading3: 'h3', heading4:
 
 // Blocos que não passam pela detecção de CPF/data/cálculo: código é literal,
 // divisor não tem texto e a tabela não tem um conteúdo único — são N células.
-const NO_DETECTION = new Set(['code', 'divider', 'table']);
+const NO_DETECTION = new Set(['code', 'divider', 'table', 'image']);
+
+// Blocos sem um conteúdo de texto único: getContentEl devolve o próprio bloco
+// neles, então perguntar pelo texto não faz sentido.
+const NO_TEXT_TYPES = new Set(['divider', 'table', 'image']);
+
+// Âncora invisível do cursor. Fica aqui em cima porque sanitizeForSave a usa
+// muito antes do ponto onde ela é criada — ver replaceRangeWithTag, que é onde
+// está explicado por que ela existe.
+const ANCORA = '​';
 
 function createBlockEl(type, innerHTML = '', checked = false, rows = null) {
   let el;
+
+  // "quote" deixou de ser um tipo e virou decoração. Um registro antigo que
+  // escape da normalização ainda chega aqui — vira parágrafo citado, que é a
+  // forma nova do mesmo conteúdo.
+  if (type === 'quote') {
+    const p = createBlockEl('paragraph', innerHTML);
+    setBlockQuoted(p, true);
+    return p;
+  }
+
+  if (type === 'image') {
+    el = document.createElement('div');
+    el.className = 'block block-image';
+    // Não editável, como a tabela e o divisor: o que se edita aqui é o texto
+    // alternativo, por botão, não o conteúdo do bloco.
+    el.contentEditable = 'false';
+    const img = document.createElement('img');
+    img.draggable = false;
+    img.alt = '';
+    el.append(img, buildImageTools());
+    el.dataset.type = type;
+    el.dataset.id = uid();
+    return el;
+  }
 
   if (type === 'table') {
     el = document.createElement('div');
@@ -443,12 +487,6 @@ function createBlockEl(type, innerHTML = '', checked = false, rows = null) {
 
   if (HEADING_TAGS[type]) {
     el = document.createElement(HEADING_TAGS[type]);
-    el.className = 'block';
-    el.contentEditable = 'true';
-    el.innerHTML = innerHTML;
-
-  } else if (type === 'quote') {
-    el = document.createElement('blockquote');
     el.className = 'block';
     el.contentEditable = 'true';
     el.innerHTML = innerHTML;
@@ -512,8 +550,291 @@ function createBlockEl(type, innerHTML = '', checked = false, rows = null) {
   return el;
 }
 
+// Ponto único pra criar um bloco a partir de dado serializado. Existe porque
+// createBlockEl tem parâmetros posicionais e é fácil esquecer o último — foi
+// exatamente assim que uma tabela colada virava uma tabela vazia. Campo novo
+// no modelo entra aqui e todas as chamadas passam a respeitá-lo de uma vez.
+function createBlockElFrom(bruto) {
+  const b  = normalizeBlock(bruto);
+  const el = createBlockEl(b.type, b.html ?? '', b.checked ?? false, b.rows ?? null);
+  if (b.id) el.dataset.id = b.id;
+  setBlockDepth(el, b.depth ?? 0);
+  setBlockQuoted(el, !!b.quoted);
+  setBlockCallout(el, b.callout);
+  if (b.type === 'image') setImageData(el, b);
+  return el;
+}
+
+// ── Citação (decoração) ───────────────────────────────────────────────────────
+// Citação não é um tipo de bloco: é uma marca que qualquer bloco pode ter. É
+// isso que faz título, lista e checklist funcionarem DENTRO de uma citação, em
+// vez de o conteúdo virar texto literal com ">" na frente.
+function isBlockQuoted(el) {
+  return el?.dataset?.quoted === 'true';
+}
+
+function setBlockQuoted(el, on) {
+  if (on) el.dataset.quoted = 'true';
+  else { delete el.dataset.quoted; delete el.dataset.callout; }
+}
+
+// Destaque (callout) é uma segunda camada em cima da citação: a caixa colorida
+// com rótulo dos sites de documentação. No markdown ela é exatamente isso —
+// uma citação com um marcador na primeira linha —, então tirar a citação tira
+// o destaque junto (ver setBlockQuoted).
+function setBlockCallout(el, tipo) {
+  if (tipo && CALLOUT_TYPES.includes(tipo)) {
+    el.dataset.quoted  = 'true';
+    el.dataset.callout = tipo;
+  } else {
+    delete el.dataset.callout;
+  }
+}
+
+// ── Profundidade (indentação) ─────────────────────────────────────────────────
+// O nível vive num atributo de verdade (data-depth), não numa propriedade do
+// elemento: o desfazer restaura por innerHTML, e só atributo volta junto.
+// Nível 0 não escreve atributo nenhum — a nota de quem nunca indentou nada
+// continua exatamente com a mesma forma de antes.
+function blockDepth(el) {
+  const d = Number(el?.dataset?.depth) || 0;
+  return Math.min(Math.max(d, 0), MAX_DEPTH);
+}
+
+function setBlockDepth(el, depth) {
+  const d = Math.min(Math.max(Math.round(depth) || 0, 0), MAX_DEPTH);
+  if (d) el.dataset.depth = String(d);
+  else delete el.dataset.depth;
+}
+
+// Fecha a escada depois de qualquer mudança de ordem — arrastar um bloco de
+// nível 2 pro topo deixaria um nível sem pai.
+function normalizeDepths() {
+  let anterior = -1;
+  for (const block of root.children) {
+    const d = Math.min(blockDepth(block), anterior + 1);
+    setBlockDepth(block, d);
+    anterior = d;
+  }
+}
+
+// Move os blocos um nível, pra dentro ou pra fora.
+//
+// A regra que decide tudo é quem é passageiro e quem tem vida própria:
+//
+// - Um bloco NÃO selecionado que está dentro de um selecionado é passageiro.
+//   Acompanha o dono, senão ficaria órfão num nível que deixou de existir.
+// - Um bloco SELECIONADO responde por si, mesmo sendo filho de outro
+//   selecionado. É isso que faz Shift+Tab num grupo indentado inteiro subir um
+//   nível por vez: antes o primeiro bloco do grupo era tratado como dono de
+//   todos, e como ele já estava na margem e não tinha pra onde subir, ele
+//   travava o grupo inteiro e a tecla não fazia nada.
+function indentBlocks(blocks, delta) {
+  const selecionados = new Set(blocks);
+  const novos = new Map();
+  const depthDe = b => (novos.has(b) ? novos.get(b) : blockDepth(b));
+
+  // Teto olhando a profundidade NOVA do bloco anterior: num grupo que desce
+  // junto, o primeiro já desceu quando chega a vez do segundo.
+  const tetoPara = b => {
+    const prev = b.previousElementSibling;
+    return prev ? Math.min(depthDe(prev) + 1, MAX_DEPTH) : 0;
+  };
+
+  let dono = null;
+  let deslocamento = 0;
+
+  for (const b of orderedBlocks()) {
+    const atual = blockDepth(b);
+    if (dono && atual <= blockDepth(dono)) dono = null;   // saiu de dentro do dono
+
+    if (selecionados.has(b)) {
+      const novo = delta > 0 ? Math.min(atual + 1, tetoPara(b)) : Math.max(atual - 1, 0);
+      novos.set(b, novo);
+      dono = b;
+      deslocamento = novo - atual;
+      continue;
+    }
+
+    if (dono && deslocamento !== 0) {
+      novos.set(b, Math.min(Math.max(atual + deslocamento, 0), MAX_DEPTH));
+    }
+  }
+
+  let mudou = false;
+  for (const [b, novo] of novos) {
+    if (novo === blockDepth(b)) continue;
+    setBlockDepth(b, novo);
+    mudou = true;
+  }
+  return mudou;
+}
+
+// Blocos que o Tab deve mover: a seleção múltipla quando existe, senão o
+// bloco do cursor.
+function blocksForIndent() {
+  if (selectedBlockIds.size > 0) {
+    return orderedBlocks().filter(b => selectedBlockIds.has(b.dataset.id));
+  }
+  const block = currentBlock();
+  return block ? [block] : [];
+}
+
 function getContentEl(blockEl) {
   return blockEl.querySelector(':scope > .block-content') || blockEl;
+}
+
+// ── Imagem na nota ────────────────────────────────────────────────────────────
+// O bloco guarda só o id do arquivo; o Blob mora na tabela `files` com a marca
+// `inline`. O que aparece na tela é um objectURL, criado sob demanda.
+//
+// Revogar ao trocar de nota é obrigatório: sem isso cada troca de aba deixa um
+// Blob inteiro preso na memória, e uma sessão de trabalho acumula todos.
+const imageURLs = new Map();   // fileId → objectURL
+
+function revokeImageURLs() {
+  for (const url of imageURLs.values()) URL.revokeObjectURL(url);
+  imageURLs.clear();
+}
+
+function loadInlineImage(imgEl, fileId) {
+  const cached = imageURLs.get(fileId);
+  if (cached) { imgEl.src = cached; return; }
+
+  loadFileBlob(fileId).then(blob => {
+    if (!blob) {
+      imgEl.closest('.block-image')?.classList.add('block-image-missing');
+      return;
+    }
+    const url = URL.createObjectURL(blob);
+    // A nota pode ter mudado enquanto o banco respondia. Sem esta checagem, a
+    // URL nova ficaria presa num elemento que já saiu da tela.
+    if (!root.contains(imgEl)) { URL.revokeObjectURL(url); return; }
+    imageURLs.set(fileId, url);
+    imgEl.src = url;
+  });
+}
+
+function setImageData(el, { fileId, alt }) {
+  const img = el.querySelector('img');
+  if (alt) el.dataset.alt = alt;
+  else delete el.dataset.alt;
+  if (img) img.alt = alt ?? '';
+  if (fileId != null && Number.isFinite(Number(fileId))) {
+    el.dataset.fileId = String(fileId);
+    if (img) loadInlineImage(img, Number(fileId));
+  }
+}
+
+function buildImageTools() {
+  const bar = document.createElement('div');
+  bar.className = 'image-tools';
+  bar.contentEditable = 'false';
+  const acts = [
+    ['to-docs', 'Mover p/ Documentos', 'Tirar da nota e guardar na seção Documentos', 'image-btn-accent'],
+    ['replace', 'Trocar',  'Trocar por outra imagem'],
+    ['alt',     'Texto',   'Descrever a imagem (texto alternativo)'],
+    ['remove',  'Remover', 'Remover a imagem da nota'],
+  ];
+  for (const [act, label, title, extra] of acts) {
+    const btn = document.createElement('button');
+    btn.className   = `image-btn ${extra ?? ''}`.trim();
+    btn.dataset.act = act;
+    btn.textContent = label;
+    btn.title       = title;
+    bar.appendChild(btn);
+  }
+  return bar;
+}
+
+// Base64 → arquivo. Chega assim de um .md importado, de uma colagem de texto
+// ou de um modelo compartilhado. A decodificação é na mão (atob) em vez de
+// fetch('data:...') pra não depender da política de conexão da extensão.
+function dataUrlToFile(dataUrl, alt) {
+  const m = /^data:([^;,]+)(;base64)?,([\s\S]*)$/.exec(dataUrl ?? '');
+  if (!m) return null;
+  const [, mime, base64, dados] = m;
+  try {
+    let bytes;
+    if (base64) {
+      const bin = atob(dados);
+      bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    } else {
+      bytes = new TextEncoder().encode(decodeURIComponent(dados));
+    }
+    const ext  = ({ jpeg: 'jpg' }[mime.split('/')[1]] ?? mime.split('/')[1] ?? 'png');
+    const nome = `${(alt || 'imagem').replace(/[\\/:*?"<>|]+/g, '-').slice(0, 40)}.${ext}`;
+    return new File([bytes], nome, { type: mime });
+  } catch {
+    return null;   // base64 truncado num .md editado à mão
+  }
+}
+
+// Toda imagem que entra por markdown de fora vira arquivo ANTES de chegar ao
+// DOM. Base64 dentro do bloco significaria a nota inteira regravada a cada
+// pausa na digitação e cada instantâneo de desfazer carregando megabytes.
+export async function absorbDataUrls(blocks, noteId = undefined) {
+  if (!blocks.some(b => b.type === 'image' && b.dataUrl)) return blocks;
+
+  const destino = noteId === undefined ? currentNoteId : noteId;
+  const out = [];
+  for (const b of blocks) {
+    if (b.type !== 'image' || !b.dataUrl) { out.push(b); continue; }
+    const file = dataUrlToFile(b.dataUrl, b.alt);
+    if (!file) { out.push({ ...b, dataUrl: undefined }); continue; }
+    const fileId = await saveFile(file, destino, { inline: true });
+    out.push({ type: 'image', alt: b.alt, fileId, depth: b.depth, quoted: b.quoted });
+  }
+  return out;
+}
+
+// Um arquivo de imagem (colado, arrastado ou escolhido) vira bloco na nota.
+async function insertImageFile(file, atBlock) {
+  const fileId = await saveFile(file, currentNoteId, { inline: true });
+  const bloco  = atBlock ?? currentBlock() ?? root.lastElementChild;
+  if (!bloco) return null;
+
+  captureUndoPoint();
+  const el = createBlockElFrom({ type: 'image', fileId, alt: '', depth: blockDepth(bloco) });
+
+  const vazio = !NO_TEXT_TYPES.has(bloco.dataset.type)
+    && !getContentEl(bloco).textContent.trim();
+  if (vazio) bloco.replaceWith(el);
+  else bloco.after(el);
+
+  // Sempre deixa uma linha logo abaixo: senão não há onde continuar a escrever
+  // quando a imagem é o último bloco da nota.
+  if (!el.nextElementSibling) el.after(createBlockEl('paragraph'));
+  focusBlockEnd(el.nextElementSibling);
+  renumberLists();
+  scheduleSave();
+  return el;
+}
+
+// Leva o cursor pro fim do bloco. Tabela e divisor não têm "fim" onde o cursor
+// caiba: na tabela o destino é a primeira célula, e depois de um divisor a
+// gente garante um parágrafo em que dê pra escrever.
+function focusBlockEnd(block) {
+  if (!block) return;
+  if (block.dataset.type === 'table') {
+    focusCell(block.querySelector('.table-cell'));
+    return;
+  }
+  // Divisor e imagem não recebem cursor: o destino é a linha seguinte, e se
+  // não houver uma, cria.
+  if (block.dataset.type === 'divider' || block.dataset.type === 'image') {
+    let next = block.nextElementSibling;
+    if (!next || next.dataset.type === 'divider' || next.dataset.type === 'image') {
+      next = createBlockEl('paragraph');
+      block.after(next);
+    }
+    focusBlockEnd(next);
+    return;
+  }
+  const content = getContentEl(block);
+  content.focus();
+  setCaretOffset(content, content.textContent.length);
 }
 
 // ── Tabela ────────────────────────────────────────────────────────────────────
@@ -632,8 +953,25 @@ function clearContent(el) {
 }
 
 function convertBlockType(blockEl, newType, checked = false) {
+  // "Citação" não troca o tipo do bloco, liga a decoração: um título citado
+  // continua sendo um título. É o que o menu "/" e o "Transformar em" acabam
+  // pedindo quando se escolhe Citação.
+  if (newType === 'quote') {
+    setBlockQuoted(blockEl, true);
+    return blockEl;
+  }
+
+  // Destaque também não troca o tipo: é decoração sobre a citação.
+  if (newType.startsWith('callout:')) {
+    setBlockCallout(blockEl, newType.slice('callout:'.length));
+    return blockEl;
+  }
+
   const oldContent = getContentEl(blockEl);
   const newBlock = createBlockEl(newType, oldContent.innerHTML, checked);
+  setBlockDepth(newBlock, blockDepth(blockEl));
+  setBlockQuoted(newBlock, isBlockQuoted(blockEl));
+  setBlockCallout(newBlock, blockEl.dataset.callout);
   blockEl.replaceWith(newBlock);
   return newBlock;
 }
@@ -656,15 +994,56 @@ function focusBlockStart(block) {
   setCaretOffset(content, 0);
 }
 
+// Marcadores de lista. Roda depois de qualquer mudança estrutural, então é
+// também onde a escada de indentação é fechada — assim a regra vale nos 25
+// pontos que já chamavam esta função, sem precisar lembrar de cada um.
+// Marca a primeira e a última linha de cada sequência de destaque. São elas que
+// recebem o rótulo e os cantos arredondados, pra que várias linhas seguidas
+// leiam como uma caixa só.
+//
+// Isso não é feito em CSS porque "não vir depois de um destaque DO MESMO TIPO"
+// exigiria uma regra por tipo — e ainda assim erraria com dois destaques de
+// tipos diferentes colados, que é justamente quando o rótulo mais importa.
+function markCalloutEdges() {
+  const blocos = [...root.children];
+  for (let i = 0; i < blocos.length; i++) {
+    const tipo = blocos[i].dataset.callout ?? null;
+    if (!tipo) {
+      delete blocos[i].dataset.calloutFirst;
+      delete blocos[i].dataset.calloutLast;
+      continue;
+    }
+    if (tipo !== (blocos[i - 1]?.dataset.callout ?? null)) blocos[i].dataset.calloutFirst = 'true';
+    else delete blocos[i].dataset.calloutFirst;
+
+    if (tipo !== (blocos[i + 1]?.dataset.callout ?? null)) blocos[i].dataset.calloutLast = 'true';
+    else delete blocos[i].dataset.calloutLast;
+  }
+}
+
 function renumberLists() {
-  let n = 0;
+  normalizeDepths();
+  markCalloutEdges();
+
+  // Um contador por nível: entrar num nível mais fundo não zera o de fora, e
+  // sair dele recomeça o de dentro.
+  const contadores = [];
+
   for (const block of root.children) {
+    const depth  = blockDepth(block);
+    const marker = block.querySelector(':scope > .block-marker');
+
     if (block.dataset.type === 'number') {
-      n++;
-      const marker = block.querySelector('.block-marker');
+      const n = (contadores[depth] ?? 0) + 1;
+      contadores[depth] = n;
+      contadores.length = depth + 1;
       if (marker) marker.textContent = `${n}.`;
-    } else {
-      n = 0;
+      continue;
+    }
+
+    contadores.length = depth;  // bloco não-numerado quebra a contagem dali pra dentro
+    if (block.dataset.type === 'bullet' && marker) {
+      marker.textContent = BULLET_GLYPHS[depth % BULLET_GLYPHS.length];
     }
   }
 }
@@ -691,10 +1070,13 @@ function pushUndoSnapshot(html) {
 
 // Chama antes de qualquer mudança estrutural (conversão de tipo, enter,
 // backspace, colar, divisor…) — captura o estado imediatamente anterior.
-function captureUndoPoint() {
+// `html` permite capturar um estado colhido antes de saber se a mudança ia
+// mesmo acontecer — é o caso do Tab, que às vezes não tem pra onde indentar e
+// não deve sujar o histórico.
+function captureUndoPoint(html = null) {
   clearTimeout(typingSnapshotTimer);
   pendingTypingSnapshot = null;
-  pushUndoSnapshot(snapshotState());
+  pushUndoSnapshot(html ?? snapshotState());
 }
 
 // Para digitação contínua: grava só um ponto no início de cada "rajada" de
@@ -727,6 +1109,7 @@ function restoreSnapshot(html) {
   });
 
   renumberLists();
+  refreshChecklistStates();   // o "meio marcado" também é propriedade viva
 
   const last = root.lastElementChild;
   if (last) {
@@ -801,6 +1184,10 @@ function sanitizeForSave(html, keepBreaks = false) {
     a.setAttribute('href', href);
   });
   if (!keepBreaks) div.querySelectorAll('br').forEach(br => br.remove());
+  // Âncora invisível da formatação ao digitar (ver replaceRangeWithTag): ela é
+  // um detalhe do cursor e nunca pode virar conteúdo salvo. Aqui é o funil por
+  // onde tudo passa, então é o lugar certo pra garantir isso.
+  div.innerHTML = div.innerHTML.split(ANCORA).join('');
   div.normalize();
   return div.innerHTML;
 }
@@ -808,7 +1195,17 @@ function sanitizeForSave(html, keepBreaks = false) {
 function serializeBlockEl(block) {
   const type = block.dataset.type;
   const b = { id: block.dataset.id, type };
+  const depth = blockDepth(block);
+  if (depth) b.depth = depth;   // ausente = nível 0, que é o formato de antes
+  if (isBlockQuoted(block)) b.quoted = true;
+  if (block.dataset.callout) b.callout = block.dataset.callout;
   if (type === 'divider') return b;
+  if (type === 'image') {
+    const fileId = Number(block.dataset.fileId);
+    if (Number.isFinite(fileId)) b.fileId = fileId;
+    if (block.dataset.alt) b.alt = block.dataset.alt;
+    return b;
+  }
   if (type === 'table') {
     b.rows = [...block.querySelectorAll('tr')].map(tr =>
       [...tr.children].map(cell => sanitizeForSave(cell.innerHTML)));
@@ -836,7 +1233,46 @@ function showSaved() {
   indicatorTimer = setTimeout(() => indicator.classList.remove('visible'), 2200);
 }
 
+// ── Modo modelo ───────────────────────────────────────────────────────────────
+// Editar um modelo usa o editor de verdade, não um textarea de markdown: o
+// usuário mexe em checkbox, tabela e menu "/" do mesmo jeito que numa nota.
+// A diferença é que aqui não há autosave — modelo só grava no botão Salvar,
+// senão "Cancelar" não teria como voltar atrás.
+let editingTemplate = null;
+
+export function isEditingTemplate() { return !!editingTemplate; }
+
+export async function openTemplateInEditor(tpl) {
+  await flushSave();                 // grava a nota que estava aberta
+  editingTemplate = { id: tpl.id };
+  renderBlocks(await absorbDataUrls(parseMarkdownToBlocks(tpl.content ?? '')));
+  resetUndoHistory();
+  focusBlockStart(root.firstElementChild);
+}
+
+export function currentTemplateMarkdown() {
+  return blocksToMarkdown(serializeBlocks());
+}
+
+// Markdown pronto pra sair da extensão: a imagem vai embutida em base64, pra
+// que o arquivo abra em qualquer lugar sem depender do banco daqui.
+export async function blocksToExportMarkdown(blocks) {
+  return blocksToMarkdownForExport(blocks, async fileId => {
+    const blob = await loadFileBlob(fileId);
+    if (!blob) return null;
+    return new Promise(resolve => {
+      const leitor = new FileReader();
+      leitor.onload  = () => resolve(leitor.result);
+      leitor.onerror = () => resolve(null);
+      leitor.readAsDataURL(blob);
+    });
+  });
+}
+
+export function clearTemplateEditing() { editingTemplate = null; }
+
 function scheduleSave() {
+  if (editingTemplate) return;
   clearTimeout(saveTimer);
   saveTimer = setTimeout(flushSave, 800);
 }
@@ -844,7 +1280,7 @@ function scheduleSave() {
 export async function flushSave() {
   clearTimeout(saveTimer);
   flushRescan();
-  if (currentNoteId == null) return;
+  if (editingTemplate || currentNoteId == null) return;
   const blocks = serializeBlocks();
   // Markdown completo (não só texto simples) — é o que permite recuperar
   // negrito/itálico/etc. se a nota precisar ser reconstruída a partir desse
@@ -864,14 +1300,12 @@ export async function clearCurrentNote() {
 
 // ── Carregar / trocar de nota ───────────────────────────────────────────────────
 function renderBlocks(blocks) {
+  revokeImageURLs();
   root.innerHTML = '';
-  for (const b of blocks) {
-    const el = createBlockEl(b.type, b.html ?? '', b.checked ?? false, b.rows ?? null);
-    if (b.id) el.dataset.id = b.id;
-    root.appendChild(el);
-  }
+  for (const b of blocks) root.appendChild(createBlockElFrom(b));
   if (root.children.length === 0) root.appendChild(createBlockEl('paragraph'));
   renumberLists();
+  refreshChecklistStates();
 
   for (const block of root.children) {
     if (NO_DETECTION.has(block.dataset.type)) continue;
@@ -883,6 +1317,7 @@ function renderBlocks(blocks) {
 
 export async function switchToNote(id) {
   await flushSave();
+  editingTemplate = null;            // trocar de nota abandona o modo modelo
   currentNoteId = id;
   const note = await getNoteById(id);
   const blocks = (note?.blocks?.length) ? note.blocks : parseMarkdownToBlocks(note?.content ?? '');
@@ -1064,12 +1499,286 @@ root.addEventListener('click', e => {
   scheduleSave();
 });
 
+// ── Imagem: botões de ação e visualizador ─────────────────────────────────────
+// O seletor de arquivo é um só, reaproveitado — quem o pediu fica guardado em
+// `imagePickerTarget`: null quer dizer "inserir nova", um bloco quer dizer
+// "trocar a imagem deste".
+const imagePicker = document.createElement('input');
+imagePicker.type   = 'file';
+imagePicker.accept = 'image/*';
+imagePicker.hidden = true;
+document.body.appendChild(imagePicker);
+let imagePickerIntent = null;   // { trocar: bloco } ou { inserirEm: bloco }
+
+function pedirImagem(intent) {
+  imagePickerIntent = intent;
+  imagePicker.value = '';
+  imagePicker.click();
+}
+
+imagePicker.addEventListener('change', async () => {
+  const file = imagePicker.files?.[0];
+  imagePicker.value = '';
+  const intent = imagePickerIntent;
+  imagePickerIntent = null;
+  if (!file || !file.type.startsWith('image/') || !intent) return;
+
+  if (intent.inserirEm) {
+    await insertImageFile(file, intent.inserirEm);
+    return;
+  }
+
+  // Trocar: o arquivo antigo não é apagado aqui de propósito — Ctrl+Z traz o
+  // bloco anterior de volta e ele precisa achar o arquivo. A faxina de imagem
+  // órfã roda na próxima abertura do painel (gcInlineFiles).
+  captureUndoPoint();
+  const fileId = await saveFile(file, currentNoteId, { inline: true });
+  setImageData(intent.trocar, { fileId, alt: intent.trocar.dataset.alt ?? '' });
+  scheduleSave();
+});
+
+// mousedown em capture: impede que o clique num botão da imagem seja lido como
+// começo de arraste de bloco.
+root.addEventListener('mousedown', e => {
+  if (!e.target.closest('.image-btn')) return;
+  e.preventDefault();
+  e.stopPropagation();
+}, true);
+
+root.addEventListener('click', e => {
+  const btn = e.target.closest('.image-btn');
+  if (btn) {
+    const bloco = btn.closest('.block-image');
+    if (!bloco) return;
+    e.stopPropagation();
+
+    if (btn.dataset.act === 'replace') { pedirImagem({ trocar: bloco }); return; }
+
+    // Nem toda imagem quer ficar no meio do texto. Aqui ela sai da nota e vira
+    // um documento normal, vinculado à mesma nota — some daqui e aparece na
+    // seção de baixo, que é onde a pessoa vai procurar por ela em seguida.
+    if (btn.dataset.act === 'to-docs') { moverImagemParaDocumentos(bloco); return; }
+
+    if (btn.dataset.act === 'alt') {
+      openAltMenu(bloco, btn.getBoundingClientRect());
+      return;
+    }
+
+    if (btn.dataset.act === 'remove') {
+      captureUndoPoint();
+      const seguinte = bloco.nextElementSibling ?? bloco.previousElementSibling;
+      bloco.remove();
+      if (root.children.length === 0) root.appendChild(createBlockEl('paragraph'));
+      focusBlockEnd(seguinte ?? root.lastElementChild);
+      renumberLists();
+      scheduleSave();
+    }
+    return;
+  }
+
+  // Clique na própria imagem abre o visualizador, com as outras imagens da
+  // nota disponíveis nas setas.
+  const img = e.target.closest('.block-image img');
+  if (!img) return;
+  const bloco  = img.closest('.block-image');
+  const fileId = Number(bloco?.dataset.fileId);
+  if (!Number.isFinite(fileId)) return;
+
+  const galeria = [...root.querySelectorAll('.block-image')]
+    .map(el => ({ id: Number(el.dataset.fileId), name: el.dataset.alt || 'Imagem', type: 'image/*' }))
+    .filter(g => Number.isFinite(g.id));
+
+  openModal(fileId, bloco.dataset.alt || 'Imagem', 'image/*', galeria);
+});
+
+async function moverImagemParaDocumentos(bloco) {
+  const fileId = Number(bloco.dataset.fileId);
+  if (!Number.isFinite(fileId)) return;
+
+  const movido = await moveInlineFileToDocuments(fileId);
+  if (!movido) { showFeedback('não achei o arquivo desta imagem'); return; }
+
+  // O arquivo deixa de ser inline ANTES do bloco sair, pra que a faxina de
+  // imagem órfã (gcInlineFiles) nunca o veja sem dono. Um Ctrl+Z aqui traz o
+  // bloco de volta e a imagem continua aparecendo — só que agora ela também
+  // está nos Documentos, que é o preço de poder desfazer.
+  captureUndoPoint();
+  const seguinte = bloco.nextElementSibling ?? bloco.previousElementSibling;
+  bloco.remove();
+  if (root.children.length === 0) root.appendChild(createBlockEl('paragraph'));
+  focusBlockEnd(seguinte ?? root.lastElementChild);
+  renumberLists();
+  await flushSave();
+
+  await refreshDocuments();
+  showFeedback('imagem movida para Documentos');
+}
+
+// Texto alternativo: menu dentro da extensão, não um dialog da página.
+let altMenuEl = null;
+function closeAltMenu() { altMenuEl?.remove(); altMenuEl = null; }
+
+function openAltMenu(bloco, anchorRect) {
+  closeAltMenu();
+  const menu = document.createElement('div');
+  menu.className = 'copy-menu alt-menu';
+
+  const head = document.createElement('div');
+  head.className = 'copy-menu-header';
+  head.textContent = 'Texto alternativo';
+
+  const dica = document.createElement('div');
+  dica.className = 'alt-menu-hint';
+  dica.textContent = 'Descreve a imagem pra quem usa leitor de tela — e é o que aparece se o arquivo se perder.';
+
+  const campo = document.createElement('input');
+  campo.className = 'link-input';
+  campo.type = 'text';
+  campo.value = bloco.dataset.alt ?? '';
+  campo.placeholder = 'Ex.: print do protocolo aberto';
+
+  const aplicar = () => {
+    captureUndoPoint();
+    setImageData(bloco, { alt: campo.value.trim() });
+    closeAltMenu();
+    scheduleSave();
+  };
+
+  campo.addEventListener('keydown', e => {
+    e.stopPropagation();
+    if (e.key === 'Enter')  { e.preventDefault(); aplicar(); }
+    if (e.key === 'Escape') { e.preventDefault(); closeAltMenu(); }
+  });
+
+  const ok = document.createElement('button');
+  ok.className = 'copy-opt';
+  ok.innerHTML = '<span class="copy-opt-value">Salvar</span>';
+  ok.addEventListener('mousedown', e => e.stopPropagation());
+  ok.addEventListener('click', aplicar);
+
+  menu.append(head, dica, campo, ok);
+  menu.addEventListener('mousedown', e => e.stopPropagation());
+  document.body.appendChild(menu);
+  altMenuEl = menu;
+  positionMenu(menu, anchorRect);
+  campo.focus();
+  campo.select();
+}
+
+document.addEventListener('mousedown', () => closeAltMenu());
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeAltMenu(); });
+
+// ── Arrastar imagem pra dentro do editor ──────────────────────────────────────
+root.addEventListener('dragover', e => {
+  if (!e.dataTransfer?.types.includes('Files')) return;
+  e.preventDefault();
+  root.classList.add('editor-drop');
+});
+
+root.addEventListener('dragleave', e => {
+  if (!root.contains(e.relatedTarget)) root.classList.remove('editor-drop');
+});
+
+root.addEventListener('drop', async e => {
+  root.classList.remove('editor-drop');
+  const imagens = [...(e.dataTransfer?.files ?? [])].filter(f => f.type.startsWith('image/'));
+  if (imagens.length === 0) return;   // outro tipo de arquivo é assunto dos Documentos
+
+  e.preventDefault();
+  e.stopPropagation();
+  let alvo = blockNearestToY(e.clientY) ?? root.lastElementChild;
+  for (const file of imagens) alvo = (await insertImageFile(file, alvo)) ?? alvo;
+});
+
+// ── Checklist aninhada ────────────────────────────────────────────────────────
+// Marcar um item marca tudo que está dentro dele, e completar os itens de
+// dentro completa o de fora. Isso é comportamento de edição, não formato: o
+// que fica gravado continua sendo "- [x]" comum, então um .md exportado daqui
+// abre igual em qualquer lugar — markdown não tem (nem teria como ter) essa
+// relação entre linhas.
+//
+// O "meio marcado" do pai (o tracinho) é só visual: não existe em markdown e
+// sai como "- [ ]" na exportação, que é a única forma fiel possível.
+
+function checkboxDe(block) {
+  return block.querySelector(':scope > .block-marker input[type="checkbox"]');
+}
+
+// Filhos diretos: os checklists exatamente um nível abaixo, até onde a escada
+// voltar pro nível do próprio bloco.
+function checklistFilhos(block) {
+  const base = blockDepth(block);
+  const filhos = [];
+  for (let n = block.nextElementSibling; n && blockDepth(n) > base; n = n.nextElementSibling) {
+    if (blockDepth(n) === base + 1 && n.dataset.type === 'checklist') filhos.push(n);
+  }
+  return filhos;
+}
+
+function checklistPai(block) {
+  const base = blockDepth(block);
+  if (base === 0) return null;
+  for (let n = block.previousElementSibling; n; n = n.previousElementSibling) {
+    if (blockDepth(n) < base) return n.dataset.type === 'checklist' ? n : null;
+  }
+  return null;
+}
+
+function marcarChecklist(block, checked) {
+  block.dataset.checked = checked ? 'true' : 'false';
+  const cb = checkboxDe(block);
+  if (cb) { cb.checked = checked; cb.indeterminate = false; }
+}
+
+function propagarParaBaixo(block, checked) {
+  for (const filho of checklistFilhos(block)) {
+    marcarChecklist(filho, checked);
+    propagarParaBaixo(filho, checked);
+  }
+}
+
+// Sobe recalculando: o pai fica marcado só quando todos os filhos estão, e
+// "meio marcado" quando alguns estão (ou quando algum filho está meio marcado).
+function propagarParaCima(block) {
+  for (let pai = checklistPai(block); pai; pai = checklistPai(pai)) {
+    const filhos = checklistFilhos(pai);
+    if (filhos.length === 0) return;
+
+    const marcados = filhos.filter(f => f.dataset.checked === 'true').length;
+    const parciais = filhos.some(f => checkboxDe(f)?.indeterminate);
+    const todos    = marcados === filhos.length && !parciais;
+
+    marcarChecklist(pai, todos);
+    const cb = checkboxDe(pai);
+    if (cb && !todos && (marcados > 0 || parciais)) cb.indeterminate = true;
+  }
+}
+
+// Ao abrir a nota, o "meio marcado" é recalculado a partir dos filhos — ele é
+// estado de tela e não existe no que foi gravado. O que NÃO se faz aqui é
+// mexer no marcado/desmarcado de ninguém: abrir uma nota não pode alterar o
+// que está escrito nela.
+function refreshChecklistStates() {
+  for (const block of root.children) {
+    if (block.dataset.type !== 'checklist') continue;
+    const cb = checkboxDe(block);
+    if (!cb || block.dataset.checked === 'true') continue;
+    const filhos = checklistFilhos(block);
+    cb.indeterminate = filhos.length > 0 && filhos.some(f => f.dataset.checked === 'true');
+  }
+}
+
 // ── Checklist: clique direto na caixa (sem precisar de Ctrl) ──────────────────
 root.addEventListener('change', e => {
   if (!e.target.matches('input[type="checkbox"]')) return;
   const block = getBlockFromNode(e.target);
   if (!block) return;
-  block.dataset.checked = e.target.checked ? 'true' : 'false';
+
+  // Um clique pode mexer em vários blocos, então vira um passo só de desfazer.
+  captureUndoPoint();
+  marcarChecklist(block, e.target.checked);
+  propagarParaBaixo(block, e.target.checked);
+  propagarParaCima(block);
   scheduleSave();
 });
 
@@ -1081,6 +1790,13 @@ root.addEventListener('change', e => {
 // linha simples por bloco, pra colar em outro lugar sair igual ao que
 // aparece na tela.
 function textForBlockInSelection(block, isFirst, isLast, range) {
+  // Tabela, imagem e divisor têm botões de ferramenta dentro do bloco. Ler o
+  // "texto do bloco" traria "+ linha" e "Remover" junto com o conteúdo — o
+  // texto certo desses é o que o serializador produz.
+  if (NO_TEXT_TYPES.has(block.dataset.type)) {
+    return blocksToPlainText([serializeBlockEl(block)]);
+  }
+
   const content = getContentEl(block);
   const sub = document.createRange();
 
@@ -1125,14 +1841,63 @@ const SLASH_ITEMS = [
   { key: 'numerada',   label: 'Lista numerada',         hint: '1.',         type: 'number'    },
   { key: 'checklist',  label: 'Checklist',              hint: '[ ]',        type: 'checklist' },
   { key: 'citacao',    label: 'Citação',                hint: '>',          type: 'quote'     },
+  ...CALLOUT_TYPES.map(t => ({
+    key:   CALLOUT_LABELS[t].toLowerCase(),
+    label: `Destaque · ${CALLOUT_LABELS[t]}`,
+    hint:  `[!${t}]`,
+    type:  `callout:${t}`,
+  })),
   { key: 'codigo',     label: 'Código',                 hint: '```',        type: 'code'      },
   { key: 'tabela',     label: 'Tabela',                 hint: '| |',        type: 'table'     },
+  { key: 'imagem',     label: 'Imagem',                 hint: 'arquivo',    type: 'image'     },
   { key: 'divisor',    label: 'Divisor',                hint: '---',        type: 'divider'   },
 ];
 
 // Tipos que não são conversão de um parágrafo, e sim inserção de uma estrutura
 // própria: substituem o bloco e abrem um parágrafo livre logo abaixo.
-const INSERTED_TYPES = new Set(['divider', 'table']);
+const INSERTED_TYPES = new Set(['divider', 'table', 'image']);
+
+// ── Modelos de bloco ──────────────────────────────────────────────────────────
+// O markdown do modelo passa pelo mesmo parser da importação, então checklist,
+// título e tabela chegam como blocos de verdade, não como texto.
+async function insertTemplateBlocks(markdown, atBlock) {
+  const els = (await absorbDataUrls(parseMarkdownToBlocks(markdown))).map(createBlockElFrom);
+  if (els.length === 0 || !atBlock) return;
+
+  // Numa linha vazia o modelo ocupa o lugar dela, em vez de deixar um
+  // parágrafo em branco pendurado acima.
+  const vazio = atBlock.dataset.type !== 'table' && !getContentEl(atBlock).textContent.trim();
+  let ref = atBlock;
+  if (vazio) {
+    atBlock.replaceWith(els[0]);
+    ref = els[0];
+    for (const el of els.slice(1)) { ref.after(el); ref = el; }
+  } else {
+    for (const el of els) { ref.after(el); ref = el; }
+  }
+
+  for (const el of els) {
+    if (!NO_DETECTION.has(el.dataset.type)) applyDetectionMarks(getContentEl(el));
+  }
+
+  focusBlockEnd(els[els.length - 1]);
+
+  renumberLists();
+  scheduleSave();
+}
+
+// Modelos entram no menu "/" como itens normais, filtráveis pelo nome.
+function slashItemsWithTemplates() {
+  return [
+    ...SLASH_ITEMS,
+    ...blockTemplates().map(t => ({
+      key: t.name.toLowerCase(),
+      label: t.name,
+      hint: 'modelo',
+      template: t.content,
+    })),
+  ];
+}
 
 let slashMenuEl = null;
 let slashItems  = [];
@@ -1164,14 +1929,24 @@ function renderSlashMenu(block) {
   document.body.appendChild(menu);
   slashMenuEl = menu;
   positionMenu(menu, block.getBoundingClientRect());
-  // O menu é reconstruído a cada seta; sem isto o item ativo pode nascer fora
-  // da área visível quando a lista está rolando.
-  menu.querySelector('.slash-opt.active')?.scrollIntoView({ block: 'nearest' });
+  highlightSlashItem();
+}
+
+// Andar com as setas só troca o destaque — não reconstrói o menu. Reconstruir
+// significa tirar o elemento do DOM e recolocar, e era isso que fazia o menu
+// piscar a cada tecla. Reconstruir só faz sentido quando a LISTA muda, que é
+// quando a pessoa digita mais uma letra depois da barra.
+function highlightSlashItem() {
+  if (!slashMenuEl) return;
+  const opcoes = slashMenuEl.querySelectorAll('.slash-opt');
+  opcoes.forEach((btn, i) => btn.classList.toggle('active', i === slashIndex));
+  // Sem isto o item ativo some da vista quando a lista é mais alta que o menu.
+  opcoes[slashIndex]?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
 }
 
 function moveSlashSelection(delta) {
   slashIndex = (slashIndex + delta + slashItems.length) % slashItems.length;
-  renderSlashMenu(slashBlock);
+  highlightSlashItem();
 }
 
 function confirmSlashSelection() {
@@ -1181,6 +1956,23 @@ function confirmSlashSelection() {
   if (!item || !block) return;
 
   captureUndoPoint();
+
+  if (item.template) {
+    // Tira o "/nome-do-modelo" que ficou digitado ANTES de inserir: com o
+    // texto ainda ali, insertTemplateBlocks não reconhecia a linha como vazia
+    // e pendurava o modelo abaixo dela, deixando a barra na nota.
+    clearContent(getContentEl(block));
+    insertTemplateBlocks(item.template, block);
+    return;
+  }
+
+  // Imagem não insere bloco vazio: o bloco nasce junto com o arquivo, quando
+  // ele for escolhido. Aqui só se limpa o "/imagem" que ficou digitado.
+  if (item.type === 'image') {
+    clearContent(getContentEl(block));
+    pedirImagem({ inserirEm: block });
+    return;
+  }
 
   if (INSERTED_TYPES.has(item.type)) {
     const inserted = createBlockEl(item.type);
@@ -1203,7 +1995,8 @@ function checkSlashMenu(block) {
   if (!m) { closeSlashMenu(); return; }
 
   const filter = m[1].toLowerCase();
-  slashItems = SLASH_ITEMS.filter(it => it.label.toLowerCase().includes(filter) || it.key.includes(filter));
+  slashItems = slashItemsWithTemplates()
+    .filter(it => it.label.toLowerCase().includes(filter) || it.key.includes(filter));
   if (slashItems.length === 0) { closeSlashMenu(); return; }
 
   slashBlock = block;
@@ -1218,6 +2011,8 @@ const BLOCK_SHORTCUTS = [
   { re: /^[-*] $/, type: () => 'bullet' },
   { re: /^\d+\. $/, type: () => 'number' },
   { re: /^> $/, type: () => 'quote' },
+  // A palavra-chave é a do markdown (inglês), igual à que vai pro arquivo.
+  { re: /^\[!(note|tip|important|warning|caution)\] $/i, type: m => `callout:${m[1].toLowerCase()}` },
   { re: /^```$/, type: () => 'code' },
 ];
 
@@ -1254,24 +2049,86 @@ function checkBlockShortcut(block) {
 // ── Formatação inline automática (**negrito**, *itálico*, `código`, ~~riscado~~) ──
 const INLINE_SHORTCUTS = [
   { re: /`([^`\n]+?)`$/, tag: 'code' },
+  // Link ao digitar: "[texto](endereço)" vira link assim que o parêntese
+  // fecha. É o único atalho que precisa de um segundo grupo (o endereço) e de
+  // um atributo no elemento — daí o `attrs`.
+  //
+  // O "!" da frente é consumido de propósito: sem isso, digitar "![alt](url)"
+  // deixaria um "!" solto antes do link. Imagem por endereço remoto não vira
+  // <img> por decisão de privacidade (ver blocks.js) — vira link, que é
+  // exatamente o mesmo resultado de colar a mesma linha.
+  {
+    re: /!?\[([^\]\n]+)\]\(([^)\s]+)\)$/,
+    tag: 'a',
+    attrs: m => {
+      const href = safeHref(m[2]);
+      return href ? { href } : null;   // endereço recusado: deixa o texto como está
+    },
+  },
   { re: /\*\*([^\n]+?)\*\*$/, tag: 'strong' },
   { re: /~~([^\n]+?)~~$/, tag: 's' },
   { re: /(?<!\*)\*(?![\s*])([^*\n]+?)(?<![\s*])\*$/, tag: 'em' },
 ];
 
-function replaceRangeWithTag(contentEl, start, end, tag, innerText) {
+// Âncora invisível. O cursor precisa cair num nó de texto DE VERDADE fora do
+// elemento recém-criado. Numa posição de fronteira — logo depois do <em>, sem
+// nada adiante — o Chrome estende o elemento anterior ao digitar, e a ênfase
+// que devia ter terminado no "*" de fechamento engole o resto da frase. Não é
+// só aparência: o que fica gravado vira "*teste e o resto*" em vez de
+// "*teste* e o resto", que é outro texto.
+//
+// Ela é temporária: some assim que a primeira letra de verdade entra ao lado
+// (limparAncoras, no início do 'input'), e sanitizeForSave a remove como rede
+// de segurança pra que nunca chegue ao banco em nenhum caminho.
+function replaceRangeWithTag(contentEl, start, end, tag, innerText, attrs = {}) {
   const range = rangeFromOffsets(contentEl, start, end);
   range.deleteContents();
   const el = document.createElement(tag);
   el.textContent = innerText;
+  for (const [nome, valor] of Object.entries(attrs)) el.setAttribute(nome, valor);
   range.insertNode(el);
 
+  const ancora = document.createTextNode(ANCORA);
+  el.after(ancora);
+
   const after = document.createRange();
-  after.setStartAfter(el);
+  after.setStart(ancora, 1);
   after.collapse(true);
   const sel = document.getSelection();
   sel.removeAllRanges();
   sel.addRange(after);
+}
+
+// Uma âncora sozinha no nó ainda está segurando o cursor. Uma âncora com texto
+// ao lado já cumpriu o papel e precisa sair — senão sobra invisível no meio da
+// frase e desalinha a contagem de posição, a detecção de CPF e a exportação.
+function limparAncoras(contentEl) {
+  if (!contentEl.textContent.includes(ANCORA)) return;
+
+  const sel = document.getSelection();
+  const cursorAqui = sel?.rangeCount > 0 && contentEl.contains(sel.anchorNode);
+  const caret = cursorAqui ? getCaretOffset(contentEl) : null;
+
+  const walker = document.createTreeWalker(contentEl, NodeFilter.SHOW_TEXT);
+  const nos = [];
+  for (let n; (n = walker.nextNode()); ) nos.push(n);
+
+  let pos = 0, removidasAntes = 0, mexeu = false;
+  for (const no of nos) {
+    const dados = no.data;
+    if (dados.length > 1 && dados.includes(ANCORA)) {
+      if (caret !== null) {
+        for (let i = 0; i < dados.length; i++) {
+          if (dados[i] === ANCORA && pos + i < caret) removidasAntes++;
+        }
+      }
+      no.data = dados.split(ANCORA).join('');
+      mexeu = true;
+    }
+    pos += dados.length;
+  }
+
+  if (mexeu && caret !== null) setCaretOffset(contentEl, Math.max(0, caret - removidasAntes));
 }
 
 function tryAutoFormatInline(contentEl) {
@@ -1282,10 +2139,14 @@ function tryAutoFormatInline(contentEl) {
   const offset = getCaretOffset(contentEl);
   const before = contentEl.textContent.slice(0, offset);
 
-  for (const { re, tag } of INLINE_SHORTCUTS) {
+  for (const { re, tag, attrs } of INLINE_SHORTCUTS) {
     const m = re.exec(before);
     if (!m) continue;
-    replaceRangeWithTag(contentEl, offset - m[0].length, offset, tag, m[1]);
+    // `attrs` devolvendo null quer dizer "este atalho não se aplica" — é assim
+    // que um endereço inválido deixa o texto digitado intacto em vez de sumir.
+    const atributos = attrs ? attrs(m) : {};
+    if (atributos === null) continue;
+    replaceRangeWithTag(contentEl, offset - m[0].length, offset, tag, m[1], atributos);
     return;
   }
 }
@@ -1306,9 +2167,27 @@ function handleEnter(block) {
   const isEmpty   = content.textContent.trim() === '';
 
   if (isListish && isEmpty) {
+    // Indentado, o Enter num item vazio sai um nível — só no nível 0 é que
+    // ele desiste da lista e vira parágrafo. É o caminho de saída natural de
+    // uma lista aninhada, sem precisar de Shift+Tab.
+    if (blockDepth(block) > 0) {
+      indentBlocks([block], -1);
+      renumberLists();
+      focusBlockStart(block);
+      return;
+    }
     const para = convertBlockType(block, 'paragraph');
     focusBlockStart(para);
     renumberLists();
+    return;
+  }
+
+  // Enter numa linha citada vazia sai da citação, do mesmo jeito que sai de
+  // uma lista — é o caminho de saída sem precisar procurar menu.
+  if (isBlockQuoted(block) && isEmpty) {
+    setBlockQuoted(block, false);
+    renumberLists();
+    focusBlockStart(block);
     return;
   }
 
@@ -1320,6 +2199,9 @@ function handleEnter(block) {
 
   const nextType = isListish ? type : 'paragraph';
   const newBlock = createBlockEl(nextType, afterHTML, false);
+  setBlockDepth(newBlock, blockDepth(block));
+  setBlockQuoted(newBlock, isBlockQuoted(block));
+  setBlockCallout(newBlock, block.dataset.callout);   // Enter continua dentro do destaque
   block.after(newBlock);
   focusBlockStart(newBlock);
   renumberLists();
@@ -1330,6 +2212,24 @@ function handleBackspaceAtStart(block) {
   const type    = block.dataset.type;
   const content = getContentEl(block);
   const isEmpty = content.textContent.trim() === '';
+
+  // Citado: o primeiro Backspace tira a citação, sem mexer no conteúdo — o
+  // mesmo gesto que já tirava qualquer outra formatação de bloco.
+  if (isBlockQuoted(block)) {
+    setBlockQuoted(block, false);
+    renumberLists();
+    focusBlockStart(block);
+    return;
+  }
+
+  // Indentado: o Backspace seguinte sai um nível. É o inverso do Tab e evita
+  // que apagar no início engula o bloco de cima.
+  if (blockDepth(block) > 0) {
+    indentBlocks([block], -1);
+    renumberLists();
+    focusBlockStart(block);
+    return;
+  }
 
   // Bloco especial COM texto: primeiro Backspace só tira a formatação
   // (volta a parágrafo), preserva o conteúdo — evita apagar sem querer.
@@ -1358,6 +2258,12 @@ function handleBackspaceAtStart(block) {
     return;
   }
 
+  // Tabela e imagem não têm um texto único onde este bloco possa ser fundido —
+  // seguir daqui despejaria o conteúdo dentro da tabela. Backspace no começo da
+  // linha simplesmente não faz nada aqui; pra apagar a tabela ou a imagem
+  // existem o menu do bloco e o botão Remover.
+  if (NO_TEXT_TYPES.has(prev.dataset.type)) return;
+
   const prevContent = getContentEl(prev);
   const joinOffset  = prevContent.textContent.length;
 
@@ -1380,9 +2286,19 @@ root.addEventListener('beforeinput', () => {
   captureTypingUndoPoint();
 });
 
+// Mexeu no editor — por clique ou por teclado —, a nota volta a ser a área da
+// vez. É o que decide pra onde vai a próxima imagem colada.
+root.addEventListener('mousedown', () => setActiveArea('note'), true);
+root.addEventListener('focusin',   () => setActiveArea('note'));
+
 root.addEventListener('input', () => {
   const block = currentBlock();
   if (!block) return;
+
+  // Primeiro de tudo: a âncora invisível da formatação anterior já cumpriu o
+  // papel assim que esta tecla entrou ao lado dela. Sai daqui antes que
+  // qualquer atalho ou detecção leia o texto do bloco e a conte como caractere.
+  if (block.dataset.type !== 'table') limparAncoras(getContentEl(block));
 
   // Célula de tabela só salva: atalho de bloco e menu "/" não fazem sentido
   // dentro dela, e a detecção varreria o bloco inteiro em vez da célula.
@@ -1423,7 +2339,13 @@ root.addEventListener('keydown', e => {
     return;
   }
 
-  if ((e.key === 'Backspace' || e.key === 'Delete') && selectedBlockIds.size > 0) {
+  // Apagar blocos inteiros é o gesto de uma seleção de BLOCOS (alça ou
+  // Ctrl+arrastar), onde não existe texto selecionado. Numa seleção espelhada
+  // de texto, Backspace tem que apagar o texto marcado e mais nada — selecionar
+  // do meio de uma linha até o meio da seguinte e apagar as duas por inteiro
+  // seria perder o que ninguém mandou apagar.
+  if ((e.key === 'Backspace' || e.key === 'Delete')
+      && selectedBlockIds.size > 0 && !selecaoEspelhada) {
     e.preventDefault();
     const first = findBlockById([...selectedBlockIds][0]);
     if (first) deleteBlocksOrOne(first);
@@ -1484,12 +2406,28 @@ root.addEventListener('keydown', e => {
     return;
   }
 
+  // Tab tem três donos, nesta ordem: célula de tabela (acima), item do menu
+  // "/" (acima) e, aqui, indentar. Chegar até este ponto já quer dizer que os
+  // dois primeiros não quiseram a tecla.
   if (e.key === 'Tab') {
     e.preventDefault();
+    const alvos = blocksForIndent();
+    if (alvos.length === 0) return;
+    const antes = snapshotState();
+    if (!indentBlocks(alvos, e.shiftKey ? -1 : 1)) return;
+    captureUndoPoint(antes);
+    renumberLists();
+    scheduleSave();
   }
 });
 
+// Precedência de colagem. Existem dois ouvintes de `paste`: este, em `root`, e
+// o de documents.js, em `document`. Como este não interrompia a propagação, os
+// dois rodavam na mesma colagem — hoje isso é inofensivo só porque a nota não
+// trata imagem. `claim()` marca explicitamente o que a nota assumiu, e o que
+// ela não assume continua subindo pra seção Documentos.
 root.addEventListener('paste', e => {
+  const claim = () => e.stopPropagation();
   e.preventDefault();
   const text = e.clipboardData?.getData('text/plain') ?? '';
 
@@ -1499,10 +2437,29 @@ root.addEventListener('paste', e => {
   if (!focusedCell()) {
     const grid = parseClipboardTable(e.clipboardData?.getData('text/html') ?? '')
               ?? parseTsvTable(text);
-    if (grid) { insertTableBlock(grid); return; }
+    if (grid) { claim(); insertTableBlock(grid); return; }
   }
 
-  if (!text) return;
+  // Imagem entra na nota quando foi na nota que a pessoa clicou por último.
+  // Conferir o foco não serviria: a seleção por arrasto dos documentos cancela
+  // o mousedown, e um mousedown cancelado deixa o foco onde estava — o editor
+  // continuava "focado" mesmo com a pessoa mexendo nos documentos (ver
+  // active-area.js). Dentro de uma célula de tabela a imagem não cabe, então
+  // ali ela também segue pros Documentos.
+  const imagem = [...(e.clipboardData?.items ?? [])].find(it => it.type.startsWith('image/'));
+  if (imagem && isNoteActive() && !focusedCell()) {
+    const blob = imagem.getAsFile();
+    if (blob) {
+      claim();
+      const carimbo = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 15);
+      const ext = ({ jpeg: 'jpg' }[blob.type.split('/')[1]] ?? blob.type.split('/')[1] ?? 'png');
+      insertImageFile(new File([blob], `colado_${carimbo}.${ext}`, { type: blob.type }), currentBlock());
+      return;
+    }
+  }
+
+  if (!text) return;   // nada que a nota saiba tratar — segue pros Documentos
+  claim();
 
   // URL colada vira link direto: com texto selecionado o endereço envolve a
   // seleção; sem seleção o link entra rotulado com o que foi colado, então
@@ -1634,32 +2591,30 @@ function pasteInlineText(text) {
 // de notas antigas pra reconhecer "# título", "- [ ] tarefa", listas etc. e
 // já colar como blocos de verdade, não como texto solto. Se não há bloco com
 // foco (currentBlock() falha), cola no fim da nota em vez de não fazer nada.
-function pasteMultilineText(text) {
+async function pasteMultilineText(text) {
   const block = currentBlock() ?? root.lastElementChild;
   if (!block) return;
 
-  captureUndoPoint();
-  const parsed = parseMarkdownToBlocks(text);
-  const newEls = parsed.map(b => createBlockEl(b.type, b.html ?? '', b.checked ?? false));
+  // Imagem em base64 vira arquivo antes de entrar no DOM (ver absorbDataUrls).
+  const parsed = await absorbDataUrls(parseMarkdownToBlocks(text));
 
-  const content = getContentEl(block);
-  const isEmpty = content.textContent.trim() === '';
+  captureUndoPoint();
+  const base = blockDepth(block);
+  const newEls = parsed
+    .map(b => createBlockElFrom(base ? { ...b, depth: (b.depth ?? 0) + base } : b));
+
+  const content = block.dataset.type === 'table' ? null : getContentEl(block);
+  const isEmpty = content ? content.textContent.trim() === '' : false;
 
   let anchor = block;
   for (const el of newEls) { anchor.after(el); anchor = el; }
   if (isEmpty && block.dataset.type === 'paragraph') block.remove();
 
-  const last = newEls[newEls.length - 1];
-  const lastContent = getContentEl(last);
-  lastContent.focus();
-  setCaretOffset(lastContent, lastContent.textContent.length);
-
   renumberLists();
   for (const el of newEls) {
-    if (el.dataset.type !== 'code' && el.dataset.type !== 'divider') {
-      applyDetectionMarks(getContentEl(el));
-    }
+    if (!NO_DETECTION.has(el.dataset.type)) applyDetectionMarks(getContentEl(el));
   }
+  focusBlockEnd(newEls[newEls.length - 1]);
   scheduleSave();
 }
 
@@ -1915,6 +2870,21 @@ function getSelectedBlocks() {
   return blocks;
 }
 
+// Na barra de formatação o botão de citação liga e desliga — é o que se
+// espera de um botão de barra, e é o caminho visível pra tirar a citação (o
+// outro é Backspace no começo da linha). Com vários blocos só desliga quando
+// todos já estão citados: numa seleção meio-a-meio, alternar cada um
+// embaralharia em vez de resolver.
+function toggleQuotedOnSelection() {
+  const blocks = getSelectedBlocks();
+  if (blocks.length === 0) return;
+  captureUndoPoint();
+  const todosCitados = blocks.every(isBlockQuoted);
+  for (const b of blocks) setBlockQuoted(b, !todosCitados);
+  renumberLists();
+  scheduleSave();
+}
+
 function convertSelectedBlocks(type) {
   const blocks = getSelectedBlocks();
   if (blocks.length === 0) return;
@@ -1970,7 +2940,7 @@ const MD_BUTTONS = [
   { label: '1.',  title: 'Lista numerada',                 action: () => convertSelectedBlocks('number') },
   { label: '☐',   title: 'Checklist',                      action: () => convertSelectedBlocks('checklist') },
   null,
-  { label: '"',   title: 'Citação',                        action: () => convertSelectedBlocks('quote') },
+  { label: '"',   title: 'Citação (clique de novo pra tirar)', action: toggleQuotedOnSelection },
   { label: '—',   title: 'Linha horizontal',                action: () => insertDividerAtCursor() },
 ];
 
@@ -2087,10 +3057,39 @@ let hoveredBlock = null;
 
 function positionBlockControls(block) {
   hoveredBlock = block;
+
   const blockRect     = block.getBoundingClientRect();
   const containerRect = noteEditorEl.getBoundingClientRect();
-  blockControls.style.top = `${blockRect.top - containerRect.top}px`;
-  blockControls.hidden = false;
+  const viewRect      = root.getBoundingClientRect();   // área visível do editor (ele rola)
+
+  // Bloco rolou pra fora da vista: esconde, em vez de deixar os ícones
+  // encostados na borda apontando pra nada.
+  if (blockRect.bottom < viewRect.top || blockRect.top > viewRect.bottom) {
+    blockControls.hidden = true;
+    return;
+  }
+
+  blockControls.hidden = false;   // precisa estar visível pra poder ser medido
+
+  // Horizontal: os ícones acompanham a indentação do bloco. Com um `left`
+  // fixo, um item aninhado ganhava ícones lá na margem esquerda, longe do
+  // bloco a que se referem — e dois blocos de níveis diferentes ficavam
+  // indistinguíveis, já que a escolha do bloco é só pela altura do cursor.
+  const largura = blockControls.offsetWidth || 31;
+  const left = Math.max(0, blockRect.left - containerRect.left - largura + 1);
+
+  // Vertical: alinhado com a primeira linha do bloco, mas preso dentro da
+  // área visível. Um bloco alto (imagem) costuma ter o topo fora da tela, e
+  // sem o limite os ícones subiam por cima da barra de abas.
+  const topoVisivel = viewRect.top - containerRect.top;
+  const baseVisivel = viewRect.bottom - containerRect.top - blockControls.offsetHeight;
+  const top = Math.min(
+    Math.max(blockRect.top - containerRect.top, topoVisivel),
+    Math.max(topoVisivel, baseVisivel),
+  );
+
+  blockControls.style.left = `${left}px`;
+  blockControls.style.top  = `${top}px`;
 }
 
 function hideBlockControls() {
@@ -2104,7 +3103,11 @@ root.addEventListener('mousemove', e => {
   // por baixo — a margem esquerda (onde os ícones aparecem) não pertence a
   // nenhum .block específico, então hover lá nunca batia em nada antes.
   const target = blockNearestToY(e.clientY);
-  if (!target || target === hoveredBlock) return;
+  if (!target) return;
+  // O "&& !hidden" importa: os controles podem ter sido escondidos por outro
+  // caminho (rolagem levou o bloco pra fora da vista) sem que o bloco sob o
+  // cursor tenha mudado. Sem isso, eles não voltavam mais.
+  if (target === hoveredBlock && !blockControls.hidden) return;
   positionBlockControls(target);
 });
 
@@ -2115,9 +3118,14 @@ noteEditorEl.addEventListener('mouseleave', () => {
   if (!blockMenuEl) hideBlockControls();
 });
 
+// Rolar sem mover o mouse: reposiciona em vez de esconder. Escondendo, os
+// ícones só voltavam quando o cursor passasse por OUTRO bloco (o mousemove
+// sai cedo quando o alvo é o mesmo de antes) — então rolar por cima de um
+// bloco alto fazia os controles sumirem e não voltarem mais.
 root.addEventListener('scroll', () => {
-  blockControls.hidden = true;
-});
+  if (hoveredBlock && root.contains(hoveredBlock)) positionBlockControls(hoveredBlock);
+  else blockControls.hidden = true;
+}, { passive: true });
 
 blockAddBtn.addEventListener('mousedown', e => e.preventDefault());
 blockAddBtn.addEventListener('click', e => {
@@ -2134,6 +3142,7 @@ blockAddBtn.addEventListener('click', e => {
 // ── Seleção múltipla de blocos (Shift+clique na alça) ─────────────────────────
 let selectedBlockIds     = new Set();
 let lastHandleClickedId  = null;
+let selecaoEspelhada     = false;   // a seleção de blocos nasceu de uma seleção de texto
 
 function findBlockById(id) {
   return [...root.children].find(el => el.classList?.contains('block') && el.dataset.id === id) || null;
@@ -2149,11 +3158,16 @@ function setBlockSelection(ids) {
   for (const b of orderedBlocks()) {
     if (selectedBlockIds.has(b.dataset.id)) b.classList.add('block-selected');
   }
+  // Com o bloco inteiro realçado, o realce nativo do texto por baixo vira um
+  // borrão duplo. A classe apaga só o desenho dele — a seleção de texto
+  // continua existindo, que é o que a barra de formatação usa.
+  root.classList.toggle('blocks-selected', selectedBlockIds.size > 1);
 }
 
 function clearBlockSelection() {
   setBlockSelection([]);
   lastHandleClickedId = null;
+  selecaoEspelhada = false;
 }
 
 function selectBlockRange(fromBlock, toBlock) {
@@ -2196,9 +3210,34 @@ function openBlockMenu(block, anchorEl) {
   const scopeCount = (selectedBlockIds.size > 1 && selectedBlockIds.has(block.dataset.id))
     ? selectedBlockIds.size : 1;
 
-  // Divisor não tem conteúdo — não faz sentido "transformar" ele em título,
-  // lista etc. (e nem o inverso: não existe like target aqui, ver getTransformTypes).
-  const canTransform = block.dataset.type !== 'divider';
+  // ── Barra de ações rápidas, presa no topo ────────────────────────────────
+  // O que se faz o tempo todo vira ícone e fica sempre à vista, mesmo quando a
+  // lista de "Transformar em" está rolando por baixo. O resto continua escrito
+  // por extenso na lista — ícone sozinho só funciona pro que é óbvio.
+  const barra = document.createElement('div');
+  barra.className = 'block-menu-quickbar';
+
+  const acaoRapida = (icone, titulo, run, extra = '') => {
+    const btn = document.createElement('button');
+    btn.className = `block-menu-quick ${extra}`.trim();
+    btn.title = scopeCount > 1 ? `${titulo} (${scopeCount} blocos)` : titulo;
+    btn.innerHTML = `<span class="material-symbols-rounded">${icone}</span>`;
+    btn.addEventListener('mousedown', e => e.stopPropagation());
+    btn.addEventListener('click', e => { e.stopPropagation(); closeBlockMenu(); run(); });
+    barra.appendChild(btn);
+  };
+
+  acaoRapida('content_copy', 'Copiar como texto', () => copyBlocksAs(block, 'text'));
+  acaoRapida('image',        'Copiar imagem',     () => printBlocks(block, 'clipboard'));
+  acaoRapida('library_add',  'Duplicar',          () => duplicateBlocks(block));
+  acaoRapida('delete',       'Excluir',           () => deleteBlocksOrOne(block), 'is-danger');
+
+  menu.appendChild(barra);
+
+  // Divisor não tem conteúdo e tabela não tem um conteúdo único — converter
+  // qualquer um dos dois em título/lista não teria o que preservar (e, no caso
+  // da tabela, despejaria o HTML dela inteiro dentro de um parágrafo).
+  const canTransform = !INSERTED_TYPES.has(block.dataset.type);
 
   if (canTransform) {
     const header = document.createElement('div');
@@ -2218,6 +3257,45 @@ function openBlockMenu(block, anchorEl) {
     menu.appendChild(Object.assign(document.createElement('div'), { className: 'math-divider' }));
   }
 
+  // Modelos de bloco: mesma lista do menu "/", aqui pra quem prefere a alça.
+  const tpls = blockTemplates();
+  if (tpls.length > 0) {
+    const tplHead = document.createElement('div');
+    tplHead.className = 'copy-menu-header';
+    tplHead.textContent = 'Inserir modelo';
+    menu.appendChild(tplHead);
+
+    for (const tpl of tpls) {
+      const btn = document.createElement('button');
+      btn.className = 'copy-opt';
+      const span = document.createElement('span');
+      span.className = 'copy-opt-value';
+      span.textContent = tpl.name;
+      btn.appendChild(span);
+      btn.addEventListener('mousedown', e => e.stopPropagation());
+      btn.addEventListener('click', () => {
+        closeBlockMenu();
+        captureUndoPoint();
+        insertTemplateBlocks(tpl.content, block);
+      });
+      menu.appendChild(btn);
+    }
+
+    menu.appendChild(Object.assign(document.createElement('div'), { className: 'math-divider' }));
+  }
+
+  const saveTplBtn = document.createElement('button');
+  saveTplBtn.className = 'copy-opt';
+  saveTplBtn.innerHTML = `<span class="copy-opt-value">Salvar como modelo de bloco${scopeCount > 1 ? ` (${scopeCount})` : ''}</span>`;
+  saveTplBtn.addEventListener('mousedown', e => e.stopPropagation());
+  saveTplBtn.addEventListener('click', () => {
+    closeBlockMenu();
+    const markdown = blocksToMarkdown(targetBlocksFor(block).map(serializeBlockEl));
+    if (!markdown.trim()) { showFeedback('Nada para salvar'); return; }
+    openSaveBlockTemplate(anchorEl, markdown, nome => showFeedback(`modelo "${nome}" salvo`));
+  });
+  menu.appendChild(saveTplBtn);
+
   const copyMdBtn = document.createElement('button');
   copyMdBtn.className = 'copy-opt';
   copyMdBtn.innerHTML = `<span class="copy-opt-value">Copiar como Markdown${scopeCount > 1 ? ` (${scopeCount})` : ''}</span>`;
@@ -2225,28 +3303,17 @@ function openBlockMenu(block, anchorEl) {
   copyMdBtn.addEventListener('click', () => { closeBlockMenu(); copyBlocksAs(block, 'markdown'); });
   menu.appendChild(copyMdBtn);
 
-  const copyTxtBtn = document.createElement('button');
-  copyTxtBtn.className = 'copy-opt';
-  copyTxtBtn.innerHTML = `<span class="copy-opt-value">Copiar como texto${scopeCount > 1 ? ` (${scopeCount})` : ''}</span>`;
-  copyTxtBtn.addEventListener('mousedown', e => e.stopPropagation());
-  copyTxtBtn.addEventListener('click', () => { closeBlockMenu(); copyBlocksAs(block, 'text'); });
-  menu.appendChild(copyTxtBtn);
+  // "Copiar como texto" e "Copiar imagem" moraram aqui e subiram pra barra de
+  // ícones do topo — são as duas mais usadas. O que fica na lista é o que
+  // precisa do nome por extenso pra não virar adivinhação.
+  const saveImgBtn = document.createElement('button');
+  saveImgBtn.className = 'copy-opt';
+  saveImgBtn.innerHTML = `<span class="copy-opt-value">Baixar imagem (.png)${scopeCount > 1 ? ` (${scopeCount})` : ''}</span>`;
+  saveImgBtn.addEventListener('mousedown', e => e.stopPropagation());
+  saveImgBtn.addEventListener('click', () => { closeBlockMenu(); printBlocks(block, 'download'); });
+  menu.appendChild(saveImgBtn);
 
-  menu.appendChild(Object.assign(document.createElement('div'), { className: 'math-divider' }));
-
-  const dupBtn = document.createElement('button');
-  dupBtn.className = 'copy-opt';
-  dupBtn.innerHTML = `<span class="copy-opt-value">Duplicar${scopeCount > 1 ? ` (${scopeCount})` : ''}</span>`;
-  dupBtn.addEventListener('mousedown', e => e.stopPropagation());
-  dupBtn.addEventListener('click', () => { closeBlockMenu(); duplicateBlocks(block); });
-  menu.appendChild(dupBtn);
-
-  const delBtn = document.createElement('button');
-  delBtn.className = 'copy-opt';
-  delBtn.innerHTML = `<span class="copy-opt-value">Excluir${scopeCount > 1 ? ` (${scopeCount})` : ''}</span>`;
-  delBtn.addEventListener('mousedown', e => e.stopPropagation());
-  delBtn.addEventListener('click', () => { closeBlockMenu(); deleteBlocksOrOne(block); });
-  menu.appendChild(delBtn);
+  // Duplicar e Excluir também subiram pra barra de ícones.
 
   document.body.appendChild(menu);
   blockMenuEl = menu;
@@ -2256,17 +3323,58 @@ function openBlockMenu(block, anchorEl) {
 // Copia o(s) bloco(s)-alvo (o clicado, ou toda a seleção múltipla se ele
 // fizer parte de uma) como Markdown de verdade ou como texto simples —
 // mesma dupla de formatos que já existe pra nota inteira no menu "⋯" da aba.
-function copyBlocksAs(block, format) {
+// Print dos blocos. A seleção é desfeita antes de desenhar: o realce azul é
+// estado da edição, não conteúdo da nota, e ninguém quer mandar um print com
+// ele. (O snapshot.js também tira, por garantia — aqui é pra que a tela
+// acompanhe o que saiu na imagem.)
+async function printBlocks(block, destino) {
+  const alvos = targetBlocksFor(block);
+  if (alvos.length === 0) return;
+
+  clearBlockSelection();
+  hideBlockControls();
+  closeCopyMenu();
+
+  // Nome do arquivo: o primeiro texto que aparecer no print. É o que a pessoa
+  // reconhece na pasta de downloads — "nota.png" não diz nada.
+  const nome = alvos
+    .filter(b => !NO_TEXT_TYPES.has(b.dataset.type))
+    .map(b => getContentEl(b).textContent.trim())
+    .find(Boolean) ?? 'nota';
+
+  showFeedback('gerando imagem…');
+  try {
+    const ok = destino === 'clipboard'
+      ? await copyBlocksAsImage(alvos)
+      : await downloadBlocksAsImage(alvos, nome);
+    showFeedback(ok
+      ? (destino === 'clipboard' ? 'imagem copiada!' : 'imagem baixada!')
+      : 'não deu pra gerar a imagem');
+  } catch {
+    // Copiar imagem depende de permissão da área de transferência, que o
+    // navegador só concede com o painel em foco. Baixar sempre funciona.
+    showFeedback(destino === 'clipboard'
+      ? 'não deu pra copiar — tente "Baixar imagem"'
+      : 'não deu pra gerar a imagem');
+  }
+}
+
+async function copyBlocksAs(block, format) {
   const targets = targetBlocksFor(block).map(serializeBlockEl);
-  const text = format === 'markdown' ? blocksToMarkdown(targets) : blocksToPlainText(targets);
-  navigator.clipboard.writeText(text).then(() => showFeedback('copiado!'));
+  // Markdown sai pra fora da extensão, então a imagem vai embutida — colar num
+  // editor de markdown qualquer tem que mostrar a imagem, não uma referência
+  // interna que só o QuickDock entende.
+  const text = format === 'markdown'
+    ? await blocksToExportMarkdown(targets)
+    : blocksToPlainText(targets);
+  await navigator.clipboard.writeText(text);
+  showFeedback('copiado!');
 }
 
 function transformBlocks(block, type) {
-  // Divisor nunca entra como origem de conversão, mesmo se fizer parte de
-  // uma seleção múltipla junto com outros blocos — não tem conteúdo pra
-  // preservar (converter geraria um <hr> preso dentro de um título/lista).
-  const targets = targetBlocksFor(block).filter(b => b.dataset.type !== 'divider');
+  // Divisor e tabela nunca entram como origem de conversão, mesmo dentro de
+  // uma seleção múltipla — não têm conteúdo de linha pra preservar.
+  const targets = targetBlocksFor(block).filter(b => !INSERTED_TYPES.has(b.dataset.type));
   if (targets.length === 0) return;
 
   captureUndoPoint();
@@ -2285,7 +3393,9 @@ function duplicateBlocks(block) {
   captureUndoPoint();
   let anchor = targets[targets.length - 1];
   for (const b of targets) {
-    const clone = createBlockEl(b.dataset.type, getContentEl(b).innerHTML, b.dataset.checked === 'true');
+    // Passa pela serialização em vez de copiar innerHTML na mão: é o que faz
+    // duplicar uma tabela duplicar as células, e não devolver uma tabela vazia.
+    const clone = createBlockElFrom({ ...serializeBlockEl(b), id: null });
     anchor.after(clone);
     anchor = clone;
   }
@@ -2329,8 +3439,18 @@ function blockNearestToY(y, exclude = []) {
   for (const b of orderedBlocks()) {
     if (exclude.includes(b)) continue;
     const rect = b.getBoundingClientRect();
-    const mid  = rect.top + rect.height / 2;
-    const dist = Math.abs(y - mid);
+
+    // O bloco que contém o cursor ganha na hora. A conta antiga era pela
+    // distância até o MEIO do bloco, e o meio de uma imagem de 200px fica a
+    // 100px do topo dela — resultado: passar o mouse na metade de cima de uma
+    // imagem trazia os controles do parágrafo de cima, que está mais perto do
+    // próprio meio. Com blocos de uma linha só isso nunca aparecia.
+    if (y >= rect.top && y <= rect.bottom) return b;
+
+    // Fora de qualquer bloco (a margem esquerda, ou acima/abaixo de tudo):
+    // vale a distância até a BORDA mais próxima, não até o meio — de novo,
+    // pelo mesmo motivo.
+    const dist = y < rect.top ? rect.top - y : y - rect.bottom;
     if (dist < closestDist) { closestDist = dist; closest = b; }
   }
   return closest;
@@ -2413,6 +3533,7 @@ function finishBlockReorderDrag() {
 // como o "arrastar pra selecionar" do Windows Explorer, só que em blocos.
 function startRangeSelectDrag(block) {
   rangeSelectState = { anchorBlock: block };
+  selecaoEspelhada = false;          // esta veio do Ctrl, não de seleção de texto
   setBlockSelection([block.dataset.id]);
 }
 
@@ -2512,4 +3633,42 @@ document.addEventListener('mouseup', () => {
 
 document.addEventListener('mousedown', e => {
   if (blockMenuEl && !blockMenuEl.contains(e.target) && e.target !== blockHandleBtn) closeBlockMenu();
+});
+
+// ── Selecionar um grupo de blocos sem tecla nenhuma ───────────────────────────
+// Arrastar o texto por cima de mais de um bloco já quer dizer "é este grupo".
+// Aqui essa seleção de texto passa a valer também como seleção de blocos — e é
+// ela que a alça de arrastar consulta pra mover o grupo inteiro. Então mover
+// vários blocos vira: selecionar por cima e arrastar pela alça de qualquer um
+// deles, sem Ctrl, Shift nem Alt.
+//
+// Mover o grupo já funcionava; o que faltava era poder formar o grupo sem
+// tecla. O Ctrl+arrastar continua existindo — ele é o único jeito de agarrar
+// um bloco que não tem texto pra arrastar por cima, como uma imagem sozinha.
+//
+// A seleção de texto não é desfeita de propósito: é dela que a barra de
+// formatação e o "Transformar em" tiram o alcance da ação.
+document.addEventListener('selectionchange', () => {
+  // Gesto de arrastar em andamento tem dono — não mexe na seleção no meio dele.
+  if (pointerDown || ctrlPointerDown || reorderState) return;
+
+  const sel = document.getSelection();
+  if (!sel || sel.rangeCount === 0) return;
+  if (!root.contains(sel.getRangeAt(0).commonAncestorContainer)) return;
+
+  const blocos = sel.isCollapsed ? [] : getSelectedBlocks();
+
+  if (blocos.length > 1) {
+    const ids = blocos.map(b => b.dataset.id);
+    // selectionchange dispara a cada pixel do arraste; só repinta se mudou.
+    const mudou = ids.length !== selectedBlockIds.size || ids.some(id => !selectedBlockIds.has(id));
+    if (mudou) setBlockSelection(ids);
+    selecaoEspelhada = true;
+    return;
+  }
+
+  // Voltou a ser um bloco só (ou um cursor): o grupo deixa de existir. Uma
+  // seleção feita com Ctrl+arrastar não é espelhada e não se desfaz aqui —
+  // ela tem os próprios caminhos de saída (Esc, clique fora).
+  if (selecaoEspelhada) clearBlockSelection();
 });

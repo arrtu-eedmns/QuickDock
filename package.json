@@ -1,0 +1,9 @@
+{
+  "name": "quickdock",
+  "private": true,
+  "type": "module",
+  "description": "Só para rodar os testes com `node test/run.mjs`. A extensão não usa npm — este arquivo fica fora do .zip.",
+  "scripts": {
+    "test": "node test/run.mjs"
+  }
+}

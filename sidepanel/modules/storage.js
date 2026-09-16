@@ -20,6 +20,19 @@ db.version(4).stores({
   notes: '++id, order, updatedAt',
   templates: '++id, order, name'
 });
+// Imagem colada dentro da nota mora na mesma tabela de arquivos: é arquivo de
+// verdade (um Blob), não base64 no meio do texto. A marca `inline` é o que a
+// mantém fora da seção Documentos — ela já está visível dentro da nota.
+//
+// O valor é 1, não `true`: o IndexedDB não aceita booleano como chave e um
+// índice de booleano ficaria silenciosamente vazio. Arquivo salvo antes desta
+// versão não tem o campo e fica fora do índice — ou seja, documento normal,
+// que é exatamente o que ele era.
+db.version(5).stores({
+  files: '++id, name, type, noteId, inline, createdAt',
+  notes: '++id, order, updatedAt',
+  templates: '++id, order, name'
+});
 
 // --- NOTAS ---
 export async function loadAllNotesMeta() {
@@ -76,14 +89,19 @@ export async function migrateLegacyNoteIfNeeded() {
 }
 
 // --- MODELOS DE NOTA ---
+// kind: 'note' cria uma nota inteira, 'block' entra no cursor. Registros
+// gravados antes do modelo de bloco existir não têm o campo — o `?? 'note'`
+// mantém todos eles como modelo de nota, que é o que eram.
 export async function loadAllTemplates() {
   const rows = await db.templates.orderBy('order').toArray();
-  return rows.map(({ id, name, content, createdAt }) => ({ id, name, content, createdAt }));
+  return rows.map(({ id, name, content, kind, createdAt }) => ({
+    id, name, content, kind: kind ?? 'note', createdAt,
+  }));
 }
 
-export async function createTemplateRecord({ name, content }) {
+export async function createTemplateRecord({ name, content, kind = 'note' }) {
   const count = await db.templates.count();
-  return db.templates.add({ name, content, order: count, createdAt: Date.now() });
+  return db.templates.add({ name, content, kind, order: count, createdAt: Date.now() });
 }
 
 export async function updateTemplateById(id, patch) {
@@ -94,16 +112,17 @@ export async function deleteTemplateById(id) {
   return db.templates.delete(id);
 }
 
-// O modelo de exemplo é semeado uma vez só. A marca fica no chrome.storage pra
-// que apagar o exemplo não o traga de volta na próxima abertura.
-export async function templatesWereSeeded() {
+// Cada exemplo é semeado uma vez só, com a marca fora da tabela — assim apagar
+// o exemplo não o traz de volta na próxima abertura. A chave é por exemplo:
+// quem já tem o modelo de nota instalado ainda recebe o de bloco.
+export async function wasSeeded(key) {
   return new Promise(resolve => {
-    chrome.storage.local.get('templates_seeded', ({ templates_seeded }) => resolve(!!templates_seeded));
+    chrome.storage.local.get(key, obj => resolve(!!obj[key]));
   });
 }
 
-export async function markTemplatesSeeded() {
-  return new Promise(resolve => chrome.storage.local.set({ templates_seeded: true }, resolve));
+export async function markSeeded(key) {
+  return new Promise(resolve => chrome.storage.local.set({ [key]: true }, resolve));
 }
 
 // --- NOTA ATIVA ---
@@ -165,20 +184,22 @@ export async function saveTheme(theme) {
 // noteId <id>  → aparece só naquela nota.
 // Quem foi salvo antes deste recurso não tem o campo; o `?? null` na leitura
 // os trata como gerais, que é exatamente o comportamento que já tinham.
-export async function saveFile(file, noteId = null) {
-  return db.files.add({
+export async function saveFile(file, noteId = null, { inline = false } = {}) {
+  const registro = {
     name: file.name,
     type: file.type,
     blob: file,
     noteId,
     createdAt: Date.now()
-  });
+  };
+  if (inline) registro.inline = 1;
+  return db.files.add(registro);
 }
 
 export async function loadAllFilesMeta() {
   const files = await db.files.orderBy('createdAt').toArray();
-  return files.map(({ id, name, type, noteId, createdAt }) => ({
-    id, name, type, noteId: noteId ?? null, createdAt
+  return files.map(({ id, name, type, noteId, inline, createdAt }) => ({
+    id, name, type, noteId: noteId ?? null, inline: inline === 1, createdAt
   }));
 }
 
@@ -187,8 +208,46 @@ export async function setFileNoteId(id, noteId) {
 }
 
 // Nota excluída: os documentos dela viram gerais em vez de sumirem junto.
+// A imagem colada dentro da nota é o caso oposto — ela só existe dentro
+// daquela nota, então não pode virar um documento solto na lista de ninguém.
 export async function detachFilesFromNote(noteId) {
-  return db.files.where('noteId').equals(noteId).modify({ noteId: null });
+  return db.files.where('noteId').equals(noteId)
+    .and(f => f.inline !== 1)
+    .modify({ noteId: null });
+}
+
+// Tira a marca de inline: o arquivo deixa de ser "imagem dentro da nota" e
+// passa a ser um documento normal, visível na seção de baixo. Continua
+// vinculado à mesma nota, então aparece em "Nesta nota" — que é onde a pessoa
+// vai procurar por ele logo depois de tirá-lo do texto.
+// O campo é APAGADO, não zerado: o índice `inline` só enxerga quem tem o
+// valor 1, e é assim que os arquivos antigos (que nunca tiveram o campo)
+// ficam de fora dele. Um `inline: 0` seria um terceiro estado sem sentido.
+export async function moveInlineFileToDocuments(id) {
+  const mexidos = await db.files.where(':id').equals(id).modify(f => { delete f.inline; });
+  return mexidos > 0;
+}
+
+// Imagem inline vira lixo quando o bloco dela some da nota (apagaram o bloco,
+// limparam a nota, excluíram a nota). Apagar na hora atrapalharia o Ctrl+Z,
+// que traria o bloco de volta sem o arquivo — então a faxina roda uma vez na
+// abertura do painel, quando não existe histórico de desfazer pra atrapalhar.
+//
+// Devolve quantos arquivos foram removidos.
+export async function gcInlineFiles() {
+  const inlines = await db.files.where('inline').equals(1).primaryKeys();
+  if (inlines.length === 0) return 0;
+
+  const usados = new Set();
+  await db.notes.each(note => {
+    for (const b of note.blocks ?? []) {
+      if (b.type === 'image' && b.fileId != null) usados.add(b.fileId);
+    }
+  });
+
+  const lixo = inlines.filter(id => !usados.has(id));
+  if (lixo.length) await db.files.bulkDelete(lixo);
+  return lixo.length;
 }
 
 export async function loadFileBlob(id) {
