@@ -9,7 +9,7 @@ import { evaluateSheet } from './calc.js';
 import {
   uid, escHtml, safeHref, parseMarkdownToBlocks, blocksToMarkdown, blocksToPlainText,
   MAX_DEPTH, BULLET_GLYPHS, normalizeBlock, blocksToMarkdownForExport,
-  CALLOUT_TYPES, CALLOUT_LABELS,
+  CALLOUT_TYPES, CALLOUT_LABELS, headingSlug, headingSlugs,
 } from './blocks.js';
 import { blockTemplates, openSaveBlockTemplate } from './templates.js';
 import { copyBlocksAsImage, downloadBlocksAsImage } from './snapshot.js';
@@ -1533,7 +1533,10 @@ root.addEventListener('click', e => {
   const link = e.target.closest('a');
   if (link && root.contains(link)) {
     const href = safeHref(link.getAttribute('href'));
-    if (href) window.open(href, '_blank', 'noopener');
+    if (!href) return;
+    // Âncora não abre aba nenhuma: rola até o título da própria nota.
+    if (href.startsWith('#')) irParaTitulo(href.slice(1));
+    else window.open(href, '_blank', 'noopener');
     return;
   }
 
@@ -1582,6 +1585,32 @@ root.addEventListener('click', e => {
   }
   scheduleSave();
 });
+
+// ── Âncora: pular pro título da própria nota ──────────────────────────────────
+// Os títulos da nota aberta e o apelido de cada um. É calculado na hora do
+// clique, e não guardado: renomear um título muda o apelido, e um mapa gravado
+// ficaria desatualizado sem ninguém perceber.
+function titulosDaNota() {
+  const titulos = [...root.children].filter(b => HEADING_TAGS[b.dataset.type]);
+  const apelidos = headingSlugs(titulos.map(b => getContentEl(b).textContent));
+  return titulos.map((el, i) => ({ el, slug: apelidos[i] }));
+}
+
+function irParaTitulo(alvoBruto) {
+  const alvo = headingSlug(decodeURIComponent(alvoBruto));
+  const achado = titulosDaNota().find(t => t.slug === alvo)
+    // Sem correspondência exata: tenta sem o sufixo de repetição, pra que um
+    // "#secao-1" ainda caia na seção certa quando o título deixou de repetir.
+    ?? titulosDaNota().find(t => t.slug === alvo.replace(/-\d+$/, ''));
+
+  if (!achado) { showFeedback('não achei esse título na nota'); return; }
+
+  achado.el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  // Um pisca-pisca curto: sem ele, num título parecido com os vizinhos, não dá
+  // pra saber se a rolagem parou no lugar certo.
+  achado.el.classList.add('heading-alvo');
+  setTimeout(() => achado.el.classList.remove('heading-alvo'), 1200);
+}
 
 // ── Cálculo: clique no resultado copia ────────────────────────────────────────
 // O mousedown é cancelado em captura pra que o cursor não saia de onde estava:

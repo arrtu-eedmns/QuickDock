@@ -156,4 +156,8 @@ export const HOSTIS = [
   '<img src=x onerror="alert(1)">',
   '<script>alert(1)</script>',
   '[ok](https://exemplo.com) e [ruim](vbscript:msgbox(1))',
+  // Âncora passou a ser aceita — o que vem depois do "#" é um apelido de
+  // título, nunca um esquema de endereço.
+  '[clique](#javascript:alert(1))',
+  '[clique](# javascript:alert(1))',
 ];

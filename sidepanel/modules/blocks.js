@@ -22,8 +22,45 @@ export function safeHref(raw) {
   const url = (raw ?? '').trim();
   if (!url) return null;
   if (/^(https?:|mailto:)/i.test(url)) return url;
+  // Âncora pra um título da própria nota. Não sai da nota e não executa nada,
+  // então entra na lista — quem resolve pra onde ela leva é o editor.
+  if (/^#\S/.test(url)) return url;
   if (/^[\w.-]+\.\w{2,}([/?#]|$)/.test(url)) return `https://${url}`;  // digitou só o domínio
   return null;
+}
+
+// ── Âncoras de título ─────────────────────────────────────────────────────────
+// O apelido de um título, pra que "[ir](#minha-seção)" saiba aonde ir. Mesma
+// ideia do markdown de sites de documentação: minúsculas, pontuação fora,
+// espaço vira hífen.
+//
+// A comparação na hora de resolver é sem acento e sem caixa, porque cada
+// gerador de markdown trata acento e alfabeto grego de um jeito — e errar o
+// destino por causa de um "ç" seria pior que não linkar.
+export function headingSlug(texto) {
+  return (texto ?? '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD').replace(/\p{Mn}/gu, '')       // tira acento
+    .replace(/[^\p{L}\p{N}\s-]/gu, '')              // tira pontuação
+    .replace(/\s+/g, '-')                           // espaço (inclusive duplo) vira hífen
+    .replace(/-{2,}/g, '-')
+    .replace(/^-|-$/g, '');
+}
+
+/**
+ * Apelido de cada título, na ordem em que aparecem. Títulos repetidos ganham
+ * sufixo — é o que faz o segundo "Observações" da nota ser alcançável.
+ * @param textos string[] — o texto de cada título
+ */
+export function headingSlugs(textos) {
+  const vistos = new Map();
+  return (textos ?? []).map(t => {
+    const base = headingSlug(t);
+    const n = vistos.get(base) ?? 0;
+    vistos.set(base, n + 1);
+    return n === 0 ? base : `${base}-${n}`;
+  });
 }
 
 // ── Markdown inline → HTML real (usado só na migração de notas antigas) ──────

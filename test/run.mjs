@@ -288,6 +288,67 @@ for (const { nome, blocks } of BLOCOS_V18) {
   }
 }
 
+// ── 3c4. Âncoras para títulos da própria nota ────────────────────────────────
+// Um "[texto](#secao)" era recusado pelo safeHref, que só conhecia http e
+// mailto — o link virava texto literal. O documento abaixo é o exemplo do
+// GitHub sobre linkar para títulos, colado tal e qual.
+{
+  const { headingSlug, headingSlugs, safeHref } =
+    await import('../sidepanel/modules/blocks.js');
+
+  igual('âncora · safeHref aceita fragmento', safeHref('#sample-section'), '#sample-section');
+  ok('âncora · mas continua recusando o que executa',
+     safeHref('javascript:alert(1)') === null && safeHref('#') === null);
+
+  igual('âncora · apelido de um título comum', headingSlug('Sample Section'), 'sample-section');
+  igual('âncora · pontuação sai e espaço duplo vira um hífen só',
+    headingSlug("This'll be a  Helpful Section!"), 'thisll-be-a-helpful-section');
+  igual('âncora · acento não atrapalha', headingSlug('Validações do Protocolo'), 'validacoes-do-protocolo');
+
+  // Títulos repetidos: o segundo ganha sufixo, senão não teria como alcançá-lo.
+  igual('âncora · título repetido ganha sufixo',
+    headingSlugs(['Observações', 'Outra coisa', 'Observações']),
+    ['observacoes', 'outra-coisa', 'observacoes-1']);
+
+  const doc = [
+    '# Example headings',
+    '',
+    '## Sample Section',
+    '',
+    '## This heading is not unique in the file',
+    '',
+    'TEXT 1',
+    '',
+    '## This heading is not unique in the file',
+    '',
+    'TEXT 2',
+    '',
+    '# Links to the example headings above',
+    '',
+    'Link to the sample section: [Link Text](#sample-section).',
+    '',
+    'Link to the second non-unique section: [Link Text](#this-heading-is-not-unique-in-the-file-1).',
+  ].join('\n');
+
+  const blocos = parseMarkdownToBlocks(doc);
+  const comLink = blocos.filter(b => (b.html ?? '').includes('<a '));
+  igual('âncora · os dois links do documento viraram link mesmo', comLink.length, 2);
+  ok('âncora · e nenhum colchete sobrou como texto',
+     !blocos.some(b => /\[Link Text\]\(/.test(b.html ?? '')),
+     JSON.stringify(blocos.map(b => b.html).filter(h => h?.includes('Link Text'))));
+
+  // O destino precisa existir de verdade entre os títulos do documento.
+  const titulos = blocos.filter(b => b.type?.startsWith('heading'))
+    .map(b => b.html.replace(/<[^>]+>/g, ''));
+  const apelidos = headingSlugs(titulos);
+  for (const alvo of ['sample-section', 'this-heading-is-not-unique-in-the-file-1']) {
+    ok(`âncora · "${alvo}" aponta pra um título que existe`,
+       apelidos.includes(alvo), apelidos.join(', '));
+  }
+
+  igual('âncora · dá a volta no markdown', blocksToMarkdown(blocos), doc);
+}
+
 // ── 3d. Imagens ──────────────────────────────────────────────────────────────
 {
   const { blocksToMarkdownForExport, imageSrcOf } =

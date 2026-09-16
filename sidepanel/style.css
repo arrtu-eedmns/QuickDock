@@ -417,6 +417,14 @@ body:not(.booting) .note-editor-blocks {
   white-space: nowrap;
 }
 
+/* Título alcançado por uma âncora. Some sozinho — é só pra dizer "parou
+   aqui", que num título parecido com os vizinhos não seria óbvio. */
+.note-editor-blocks .block.heading-alvo {
+  background: color-mix(in srgb, var(--note-accent, var(--accent)) 22%, transparent);
+  border-radius: 4px;
+  transition: background 0.9s ease 0.3s;
+}
+
 /* Título sublinhado — o "===" do markdown virando desenho. */
 .note-editor-blocks .block[data-underlined="true"] {
   border-bottom: 2px solid color-mix(in srgb, var(--note-accent, var(--accent)) 40%, transparent);

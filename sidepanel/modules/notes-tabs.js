@@ -87,6 +87,14 @@ Na prática, serve pra deixar o caminho de volta salvo junto do caso: o portal d
 
 Digitar também funciona: escreva o texto entre colchetes seguido do endereço entre parênteses e, ao fechar o parêntese, vira link sozinho.
 
+### Pular para um título da própria nota
+
+No lugar do endereço, use cerquilha e o nome do título em minúsculas com hífen no lugar dos espaços. Ctrl+clique rola até lá e o título pisca por um instante, pra você ver onde parou.
+
+Numa nota longa de atendimento, isso vira um índice no topo: um link por seção, e você desce direto pra que interessa.
+
+Acento e pontuação do título não atrapalham — "Validações do Protocolo" é alcançado por "validacoes-do-protocolo". Se houver dois títulos com o mesmo nome, o segundo ganha um "-1" no fim.
+
 ## Indentação
 
 Tab indenta o bloco e Shift+Tab desindenta — até cinco níveis, que é o que cabe num painel estreito. Vale pra qualquer bloco, não só lista: parágrafo, título e até tabela.
