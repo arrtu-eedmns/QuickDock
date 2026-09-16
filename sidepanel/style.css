@@ -537,6 +537,29 @@ body:not(.booting) .note-editor-blocks {
   overflow-wrap: anywhere;
 }
 
+/* Clique no resultado copia o valor. O respiro interno é compensado por uma
+   margem negativa do mesmo tamanho: o alvo do clique cresce sem que o número
+   saia do alinhamento com os das outras linhas. */
+.calc-result[title] {
+  cursor: pointer;
+  padding: 1px 5px;
+  margin: -1px -5px -1px 0;
+  border-radius: 4px;
+  transition: background 0.12s, color 0.12s;
+}
+
+.calc-result[title]:hover {
+  background: color-mix(in srgb, var(--note-accent, var(--accent)) 18%, transparent);
+  color: var(--text);
+}
+
+/* Confirmação no próprio lugar em que se clicou — é onde o olho já está. */
+.calc-result.copiado,
+.calc-result.copiado:hover {
+  background: color-mix(in srgb, #16a34a 22%, transparent);
+  color: #16a34a;
+}
+
 .block-calc[data-calc-erro] .calc-result {
   color: #dc2626;
   font-size: 11px;

@@ -1060,7 +1060,16 @@ function recalcCalcSheets() {
     folha.forEach((bloco, k) => {
       const r  = resultado[k];
       const el = bloco.querySelector(':scope > .calc-result');
-      if (el) el.textContent = r.tipo === 'valor' ? r.fmt : (r.tipo === 'erro' ? r.erro : '');
+      if (el) {
+        el.textContent = r.tipo === 'valor' ? r.fmt : (r.tipo === 'erro' ? r.erro : '');
+        el.classList.remove('copiado');
+        // O título só existe quando há um valor: é ele, junto com o cursor de
+        // mão, que promete "clique pra copiar". Erro e linha de texto não têm
+        // o que copiar, e um alvo que promete e não entrega é pior que alvo
+        // nenhum.
+        if (r.tipo === 'valor') el.title = 'Clique para copiar';
+        else el.removeAttribute('title');
+      }
 
       if (r.tipo === 'erro') bloco.dataset.calcErro = 'true';
       else delete bloco.dataset.calcErro;
@@ -1551,6 +1560,36 @@ root.addEventListener('click', e => {
     case 'del-col': delTableCol(table, c); break;
   }
   scheduleSave();
+});
+
+// ── Cálculo: clique no resultado copia ────────────────────────────────────────
+// O mousedown é cancelado em captura pra que o cursor não saia de onde estava:
+// o valor vai pra área de transferência sem tirar a pessoa da linha que ela
+// estava escrevendo.
+root.addEventListener('mousedown', e => {
+  const alvo = e.target.closest('.calc-result');
+  if (!alvo || !alvo.title) return;   // sem título = erro ou linha de texto
+  e.preventDefault();
+}, true);
+
+root.addEventListener('click', async e => {
+  const alvo = e.target.closest('.calc-result');
+  if (!alvo || !alvo.title) return;
+
+  const valor = alvo.textContent.trim();
+  if (!valor) return;
+  e.stopPropagation();
+
+  try {
+    await navigator.clipboard.writeText(valor);
+    // O aviso mais útil é no próprio lugar em que se clicou; o indicador de
+    // baixo é o segundo, pra quem estava olhando pra lá.
+    alvo.classList.add('copiado');
+    setTimeout(() => alvo.classList.remove('copiado'), 900);
+    showFeedback('copiado!');
+  } catch {
+    showFeedback('não deu pra copiar');
+  }
 });
 
 // ── Imagem: botões de ação e visualizador ─────────────────────────────────────

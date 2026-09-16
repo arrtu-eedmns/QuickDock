@@ -223,6 +223,8 @@ imposto = 15%
 calculo = boleto - imposto
 \`\`\`
 
+Passe o mouse no resultado à direita e clique: ele vai pra área de transferência. Serve pra jogar o valor direto num formulário ou numa conversa sem ter que selecionar o número na mão. Linha de texto e linha com erro não ficam clicáveis, porque não têm o que copiar.
+
 Repare no que acontece ali: **porcentagem é sempre relativa ao valor da esquerda**. "boleto menos imposto" tira 15% de mil e dá R$ 850,00 — não subtrai quinze centavos.
 
 O "R$" é pra valer: ele acompanha a conta e volta formatado no fim. Some com número puro, multiplique, divida — o resultado continua em reais. Só dividir dinheiro por dinheiro vira número, porque aí é uma razão.
