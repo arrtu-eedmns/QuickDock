@@ -224,6 +224,28 @@ body:not(.booting) .note-editor-blocks {
   border-radius: 4px;
 }
 
+/* Blocos que formam uma sequência — a folha de cálculo e o destaque — leem
+   como um quadro só. O realce de seleção não pode quebrar isso em vários
+   cartões empilhados: o contorno some e o canto arredondado fica só nas
+   pontas da sequência, que é onde ele já estava.
+
+   O fundo do realce continua, e é ele que mostra o que está selecionado. */
+.note-editor-blocks .block.block-calc.block-selected,
+.note-editor-blocks .block[data-callout].block-selected {
+  outline: none;
+  border-radius: 0;
+}
+.note-editor-blocks .block.block-calc.block-selected[data-calc-first],
+.note-editor-blocks .block[data-callout].block-selected[data-callout-first] {
+  border-top-left-radius: var(--radius-sm);
+  border-top-right-radius: var(--radius-sm);
+}
+.note-editor-blocks .block.block-calc.block-selected[data-calc-last],
+.note-editor-blocks .block[data-callout].block-selected[data-callout-last] {
+  border-bottom-left-radius: var(--radius-sm);
+  border-bottom-right-radius: var(--radius-sm);
+}
+
 /* Com o bloco inteiro realçado, o realce nativo do texto por baixo faria um
    borrão duplo e de bordas irregulares (a última linha só até onde o cursor
    parou). A seleção de texto continua existindo — é dela que a barra de

@@ -1854,11 +1854,18 @@ function textForBlockInSelection(block, isFirst, isLast, range) {
   const content = getContentEl(block);
   const sub = document.createRange();
 
-  if (isFirst) sub.setStart(range.startContainer, range.startOffset);
-  else         sub.setStart(content, 0);
+  // A faixa fica presa dentro do conteúdo do bloco. Vários blocos têm irmãos
+  // fora do editável — o resultado da folha de cálculo, o marcador da lista, a
+  // caixa da checklist — e arrastar a seleção por cima deles trazia esse texto
+  // junto: copiar uma linha de cálculo dava "boleto = R$ 1.000,00R$ 1.000,00",
+  // e copiar um item de lista vinha com o bolinha na frente.
+  const dentro = no => no === content || content.contains(no);
 
-  if (isLast) sub.setEnd(range.endContainer, range.endOffset);
-  else        sub.setEnd(content, content.childNodes.length);
+  if (isFirst && dentro(range.startContainer)) sub.setStart(range.startContainer, range.startOffset);
+  else                                         sub.setStart(content, 0);
+
+  if (isLast && dentro(range.endContainer)) sub.setEnd(range.endContainer, range.endOffset);
+  else                                      sub.setEnd(content, content.childNodes.length);
 
   if (block.dataset.type === 'code') {
     const frag = sub.cloneContents();
