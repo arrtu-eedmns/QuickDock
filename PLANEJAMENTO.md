@@ -371,3 +371,214 @@ Dentro de um bloco cercado com marca `calc`. Quem recebe vê o valor sem ter o Q
 ### Fora desta rodada
 
 Data e prazo (`hoje + 15 dias`), dias úteis e feriados, mais de uma moeda, gráfico, e referência de uma folha em outra. Data é uma segunda linguagem dentro da mesma — vale fazer depois, vendo como a primeira é usada, em vez de adivinhar agora.
+
+## v3.0 — Sincronização na conta do usuário, PWA e compartilhamento
+
+Hoje o QuickDock existe num perfil do Chrome e em mais lugar nenhum. Limpar dados do navegador apaga tudo, e não há como abrir a mesma nota no celular. Esta rodada resolve as duas coisas — sem servidor, sem banco nosso e sem custo que cresça com usuário.
+
+### A escolha central: o dado não é nosso
+
+A pergunta de origem era "qual banco de dados grátis usar". A resposta que ficou é que **não vai ter banco nosso**.
+
+Cada usuário entra com o Google dele, e as notas viram **arquivos numa pasta do Drive dele**, consumindo os 15 GB dele. Isso resolve três problemas de uma vez:
+
+- **Custo.** Não pagamos armazenamento nunca, com 10 ou com 10 mil usuários. A única coisa que escala com gente é cota de API, contada por usuário e folgada para um app de nota.
+- **Confiança.** As notas do QuickDock detectam CPF e CNPJ — é o tipo de conteúdo de que ninguém quer ser depositário. Com a pasta na conta do usuário, não somos.
+- **Saída.** Se o projeto parar amanhã, ninguém perde nada: os arquivos continuam lá, em markdown legível, abrindo no Obsidian, no VS Code ou no bloco de notas do celular.
+
+O que se recusou, e por quê:
+
+| Opção | Por que não |
+|---|---|
+| Supabase / Firebase | Resolvem bem, mas nos tornam donos do dado alheio e têm teto no plano grátis |
+| Cloudflare D1 + R2 | Melhor economia de todas, mas zero OAuth pronto — autenticação inteira por nossa conta |
+| WebRTC / P2P | Não elimina servidor (sinalização e TURN) e exige os dois online ao mesmo tempo. Ver "Compartilhar" |
+
+### Metade disso já está pronta
+
+Vale registrar porque muda a estimativa: o `backup.js` já faz N notas → markdown → N notas de volta, sem DOM e sem banco, com teste. O `FILE_REF_RE` em `blocks.js` já é o ponto de indireção onde `quickdock:file/12` vira caminho. A peça difícil — representar o modelo de blocos como texto honesto — existe e passa nos testes.
+
+A pasta sincronizada é o mesmo formato do backup, com um arquivo por nota em vez de marcadores num arquivo só.
+
+### O formato da pasta
+
+```
+QuickDock/
+├── notas/
+│   ├── atendimento-maria-silva.md
+│   └── ideias.md
+├── modelos/
+│   └── checklist-de-atendimento.md
+└── imagens/
+    └── a1b2c3d4e5f6.png
+```
+
+Cada nota é um `.md` com frontmatter carregando só o que o markdown não sabe dizer — exatamente os campos da tabela `notes` que não são `blocks`:
+
+```markdown
+---
+quickdock: 1
+id: 3f9a7c21-...
+titulo: Atendimento — Maria Silva
+cor: azul
+icone: folder
+iconePreenchido: true
+tituloOculto: false
+ordem: a0V
+criadoEm: 2026-03-12T09:14:00Z
+---
+
+# Atendimento — Maria Silva
+
+**Nome:** Maria Silva
+![print do portal](../imagens/a1b2c3d4e5f6.png)
+```
+
+O `content` não vai para o arquivo: ele é derivado dos blocos e seria uma segunda verdade esperando divergir.
+
+### As três decisões estruturais
+
+**Nada de arquivo de índice.** A tentação é um `index.json` com ordem e cor de todas as notas. É a pior forma possível: todo aparelho escreve nele o tempo todo, e reordenar uma nota vira conflito no arquivo que descreve *todas*. Em vez disso cada nota se descreve sozinha, e a ordem vira **índice fracionário** (`a0`, `a0V`, `a1`) — inserir entre duas não toca em nenhuma outra. A pasta *é* o banco.
+
+**O id mora no frontmatter, nunca no nome do arquivo.** Assim o usuário renomeia `ideias.md` para `ideias-2026.md` dentro do Drive e nada quebra — seguimos o id, não o nome. Nome de arquivo vira enfeite legível, que é o papel certo dele.
+
+**O estado de sincronização é local e nunca sobe.** Cada aparelho guarda no Dexie "a nota X eu sincronizei na revisão N, com este hash". É isso que permite distinguir arquivo apagado de arquivo que nunca chegou, sem lápide compartilhada. Some junto com o aparelho, e tudo bem: sem esse estado, a sincronização seguinte trata tudo como novo e reconcilia.
+
+### O laço de sincronização
+
+```
+Ao abrir · ao voltar o foco · a cada N minutos:
+  1. pergunta o que mudou lá       (Drive: changes.list com pageToken)
+  2. baixa o que mudou, compara com o hash da última sincronização
+  3. sobe o que mudou aqui         (debounce ~20s — nunca a cada tecla)
+  4. colisão → cópia de conflito + aviso na interface
+```
+
+Baixar antes de subir, sempre. O `flushSave` que já existe é o gancho natural do passo 3.
+
+Sem servidor não existe push: a latência realista é de até um minuto. Para nota pessoal, está bom. Prometer tempo real aqui seria mentira.
+
+### Conflito: preservar sempre, mesclar depois
+
+Não há árbitro. A regra é a do próprio Dropbox: se os dois lados mudaram desde a última base, **não mescla e não sobrescreve** — grava `ideias (conflito 2026-09-16, Celular).md` e avisa. Chato, raro, e nunca perde nada.
+
+A versão boa vem depois e só é possível por causa dos UUIDs da Etapa 0: com base, local e remoto, e blocos com id estável, dá para fazer **mesclagem de três vias no nível do bloco**. Bloco acrescentado aqui mais bloco editado lá se resolvem sozinhos; só conflita edição no *mesmo* bloco.
+
+Na prática o caso comum nem é edição simultânea — é "editei no note, fechei, abri no celular antes de subir". Raro e recuperável é o alvo certo para a primeira versão.
+
+### Imagens: nome derivado do conteúdo
+
+Hash do blob vira o nome: `imagens/a1b2c3d4e5f6.png`. Três coisas de graça:
+
+- **Dedup** — o mesmo print colado duas vezes é um arquivo só.
+- **Imutabilidade** — o arquivo nunca muda, então nunca conflita.
+- **Download preguiçoso** — baixa na primeira vez que renderiza, não na sincronização. O celular agradece.
+
+### Compartilhar
+
+Três coisas diferentes costumam receber esse nome, e a resposta muda em cada uma:
+
+**Mandar uma nota para alguém.** Já está pronto: `buildBackup`/`parseBackup` geram e leem `.md`. Falta um botão. Quem recebe abre no que tiver, mesmo sem o QuickDock.
+
+**Nota que dois mexem ao longo do tempo.** O Drive já construiu isso — compartilhamento, permissão, revogação, histórico. A nota é um arquivo. Não escrevemos nada.
+
+Uma quina: o escopo `drive.file` só enxerga arquivo que o nosso app criou. Para a outra pessoa abrir no QuickDock dela, o caminho oficial seria o Google Picker, que carrega script remoto — e **o MV3 proíbe código hospedado fora**. Na extensão isso degrada para "baixa o `.md` e importa". No PWA o Picker funciona.
+
+**Editar junto, ao vivo.** É o único caso em que WebRTC seria a resposta certa, e ele fica fora desta rodada. Registrado porque foi avaliado: P2P não elimina servidor (sinalização precisa existir, e de 10% a 20% das conexões caem em TURN, que é banda paga), e exige os dois online no mesmo instante — formato errado para nota. Se um dia for feito, a sinalização pode passar pela própria pasta compartilhada, e a mesclagem deve ser CRDT (Yjs), não manual.
+
+### O que isso impede para sempre
+
+Sem servidor não existe: busca no que ainda não foi baixado, link público para uma nota, notificação, e colaboração em tempo real. Se algum desses virar requisito, a arquitetura não estica — troca. É escolha, não caminho para tudo.
+
+### Google Cloud Console — o que existe e por quê
+
+Projeto **novo e separado** do Nexus. Projetos são isolados (OAuth client, tela de consentimento, escopos, cotas e **status de verificação** são todos por projeto), então não há conflito — e separar é o certo justamente porque verificação é por projeto: uma revisão do Google no QuickDock não pode ficar amarrada ao Nexus.
+
+Dentro dele:
+
+1. Ativar a **Google Drive API**.
+2. **Tela de consentimento**, tipo de usuário External.
+3. Adicionar o escopo **`drive.file`** — e conferir no próprio Console o rótulo de sensibilidade. `drive.file` é o escopo que o Google recomenda para ficar fora da categoria **restrita**, e essa diferença decide o projeto: escopo restrito exige avaliação de segurança anual paga, na casa dos milhares de dólares por ano. Para um app grátis, isso encerra o assunto.
+4. **Dois OAuth clients no mesmo projeto**: tipo *Chrome Extension* (para `chrome.identity.getAuthToken`) e tipo *Web application* (para o PWA). Clients do mesmo projeto dividem a mesma tela de consentimento e a mesma verificação — o usuário vê o mesmo pedido, venha da extensão ou do site.
+
+No `manifest.json` entram a permissão `identity` e o bloco `oauth2`.
+
+**Usuários ilimitados: sim**, depois de publicar a tela em produção. Enquanto estiver em *Testing*, são 100 usuários no máximo, cada um cadastrado à mão pelo e-mail.
+
+Duas pegadinhas que custam um fim de semana se descobertas tarde:
+
+- **Refresh token morre em 7 dias no modo Testing.** Funciona hoje, deslogado na semana que vem. Não é bug nosso.
+- **O ID da extensão muda a cada carregamento descompactado** — ele vem do caminho da pasta, e o OAuth client tipo Chrome Extension é amarrado a um ID fixo. Sem resolver, o login falha sempre. Solução: fixar o campo `key` no `manifest.json`. **É pré-requisito de tudo e não depende de nenhuma outra decisão, então vem primeiro.**
+
+Nota adjacente: o manifesto pede `<all_urls>` com content script em tudo. É legítimo para o que a extensão faz, mas é a combinação que deixa a revisão da Web Store mais lenta. Vale ter a justificativa escrita antes de submeter.
+
+### Hospedagem do PWA
+
+**GitHub Pages**, repositório público (portanto grátis), servindo a partir de `/docs` — não da raiz, senão o site publica os `.zip`, o `PLANEJAMENTO.md` e a pasta `test/` junto.
+
+Encaixa bem por dois motivos do projeto: **não existe build** (ES modules puros, Dexie versionado em `lib/`), então push é deploy; e a arquitetura não tem backend, que é a única coisa que o Pages não faz. A limitação do host e o desenho do produto concordam.
+
+Quinas conhecidas:
+
+- **Sem cabeçalho HTTP.** CSP vai em `<meta>`; cache quem controla é o service worker. Só doeria com `COOP/COEP`, que não é o caso.
+- **Subpasta.** Em `arrtu-eedmns.github.io/QuickDock/` o escopo do service worker fica preso a `/QuickDock/`, e `start_url`, `scope`, ícones e registro do SW precisam todos carregar o prefixo. É o erro clássico: o app instala e abre em branco.
+- **Sem rewrite.** Link direto dá 404; copiar `index.html` como `404.html` resolve.
+- **Nome colidindo.** O `manifest.json` da raiz é o da extensão. O PWA precisa do dele, com outro formato e outro nome (`manifest.webmanifest`), em outra pasta.
+
+**Domínio próprio (~R$50/ano) é o único gasto recomendado.** Não por vaidade: a tela de consentimento **mostra o domínio para o usuário** no momento em que ele decide dar acesso ao Drive dele — é o pior lugar possível para parecer improvisado. Além disso desamarra do GitHub (trocar de host vira mudar DNS, em vez de mexer em redirect URI de app já verificado) e resolve o problema de subpasta de graça.
+
+Enquanto não houver domínio: `github.io` está na Public Suffix List, então `arrtu-eedmns.github.io` conta como site próprio e é verificável no Search Console por arquivo ou meta tag, que o Pages serve normalmente.
+
+**Ganho de brinde:** o mesmo repositório servindo os dois clientes significa que `blocks.js`, `calc.js`, `math-parser.js` e `snapshot.js` são os *mesmos arquivos* na extensão e no PWA, sem cópia e sem divergir. Só o que toca `chrome.storage` e `chrome.identity` precisa de camada de plataforma — o mesmo padrão de adaptador que a sincronização já exige. O trabalho do adaptador paga duas contas.
+
+### Etapa 0 — Identidade estável e round-trip idêntico
+
+Nenhuma rede, nenhum fornecedor, nenhuma conta. É pré-requisito de todos os caminhos, inclusive do de desistir de todos.
+
+**UUIDs no lugar de `++id`.** Hoje tudo é auto-incremento. Dois aparelhos offline criam a nota 7 cada um, e não existe reconciliação possível — é a mesma chave com conteúdos diferentes. E não para na chave primária: o bloco de imagem carrega `fileId` inteiro e o markdown exporta `quickdock:file/12`, então a migração precisa **reescrever toda referência de imagem dentro de todo bloco de toda nota**.
+
+É a mudança mais invasiva do projeto inteiro e a mais barata de fazer agora, como migração Dexie v6 local, com os testes que já existem. Depois seria fazer o mesmo com dados de outras pessoas no ar.
+
+Entram junto: `updatedAt` confiável e ordem fracionária.
+
+**Round-trip idêntico.** Hoje o bloco é a verdade e o markdown é exportação: se a exportação perde uma vírgula, dá para dar de ombros. **A partir desta rodada o arquivo vira a verdade**, e toda sincronização é um `blocos → md → blocos`. Qualquer perda deixa de ser chateação e vira corrosão — a nota degrada um pouco a cada ciclo, em todos os aparelhos, em silêncio, e o backup já está corroído também.
+
+Então o `test/fixtures.mjs` passa a **afirmar identidade**, não semelhança: `blocos → md → blocos` tem que devolver exatamente a mesma estrutura, para cada fixture. A bancada já existe; o que muda é a severidade da asserção. O que o markdown não souber dizer ganha válvula explícita (comentário HTML), nunca silêncio.
+
+Esse teste é a única coisa entre nós e estragar a nota das pessoas devagar. Ele vem antes de qualquer linha de OAuth.
+
+### Etapa 1 — Adaptador e pasta local
+
+Interface mínima: `autenticar()`, `listarMudancas(desde)`, `ler(caminho)`, `escrever(caminho, bytes, revBase)`, `apagar(caminho)`.
+
+Primeiro adaptador: **pasta local**, via File System Access API. Sem OAuth, sem nuvem, sem ninguém no meio. O usuário aponta uma pasta — que pode já estar dentro do OneDrive ou do Syncthing — e pronto.
+
+É o truque da rodada: valida a sincronização inteira (conflito, ordem, imagem, apagar) **antes de a autenticação existir para atrapalhar o diagnóstico**. E entrega, de quebra, a versão mais radical de "os dados são seus", que custa quase nada porque o formato já é arquivo.
+
+### Etapa 2 — Google Drive
+
+Segundo adaptador, sobre um mecanismo que já funciona. `changes.list` com `pageToken` para detectar mudança; login por `getAuthToken` na extensão.
+
+### Etapa 3 — PWA
+
+Camada de plataforma para o que hoje chama `chrome.*`, service worker, manifesto web, e o mesmo adaptador do Drive com OAuth de cliente público (PKCE). Publicação no GitHub Pages a partir de `/docs`.
+
+### Etapa 4 — Compartilhar
+
+Botão "Compartilhar" gerando `.md`, e importação de arquivo recebido. O compartilhamento contínuo sai de graça pelo próprio Drive.
+
+### Riscos conhecidos
+
+**Corrosão por round-trip.** O maior de todos, tratado na Etapa 0. Enquanto o teste de identidade não estiver verde, nada de sincronização.
+
+**Token curto no PWA.** Cliente público não guarda segredo. O Google não emite refresh token nesse modo, e a renovação silenciosa depende de cookie de terceiro — funciona no Chrome e falha no Safari/iOS. Impacto: relogar de vez em quando no iPhone. Aceito por ora; se incomodar, o Dropbox emite refresh token para cliente PKCE e o adaptador já estará pronto.
+
+**Google Docs convertendo `.md`.** Se o usuário abrir a nota no Docs por engano, o arquivo muda de tipo. Dá para detectar pela mudança de mimeType e avisar em vez de quebrar.
+
+**Safari despeja IndexedDB** de site pouco usado. PWA instalado na tela inicial se safa; aba comum, não. Vale orientar a instalação.
+
+**Cota de API por usuário.** Folgada para nota, mas subir a cada tecla estoura. Daí o debounce do passo 3 não ser opcional.
+
+### Fora desta rodada
+
+Edição simultânea ao vivo, CRDT, busca no que não foi baixado, link público, notificação, criptografia ponta a ponta. Esta última merece registro: resolveria de vez a questão do CPF, mas fecha a porta de busca no servidor e de recuperar senha — e, com o dado já na conta do próprio usuário, resolve um problema que esta arquitetura em boa parte já não tem.
