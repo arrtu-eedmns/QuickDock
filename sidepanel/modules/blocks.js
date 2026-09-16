@@ -2,6 +2,10 @@
 // Modelo de blocos do editor de notas e conversão a partir do
 // markdown de texto puro que as versões anteriores salvavam (migração).
 
+import { evaluateSheet } from './calc.js';
+
+const QUEBRA = String.fromCharCode(10);
+
 let uidCounter = 0;
 export function uid() {
   return `b${Date.now().toString(36)}${(uidCounter++).toString(36)}`;
@@ -148,6 +152,36 @@ function parseImageLine(alt, src) {
   return null;
 }
 
+// ── Blocos cercados (``` ... ```) ────────────────────────────────────────────
+// Código e cálculo saem cercados. A marca depois da cerca diz qual é: sem
+// marca é código, "calc" é folha de cálculo.
+//
+// A diferença entre os dois é de forma, não de ideia: o bloco de código é UM
+// bloco com várias linhas dentro, e a folha de cálculo é uma linha por bloco
+// (cada linha precisa do seu próprio resultado ao lado). Então o código abre e
+// fecha a cerca sozinho, e o cálculo abre na primeira linha da sequência e
+// fecha na última.
+const FENCE_RE = /^(`{3,}|~{3,})\s*([A-Za-z0-9_-]*)\s*$/;
+
+// Resultado de cada linha de cálculo, por índice do bloco. Só é usado na
+// exportação: no salvamento o resultado não acompanha a conta de propósito —
+// guardar o número criaria a chance de ele discordar dela.
+function resultadosDeCalculo(lista) {
+  const porIndice = new Map();
+  for (let i = 0; i < lista.length; i++) {
+    if (lista[i].type !== 'calc') continue;
+    let fim = i;
+    while (fim + 1 < lista.length && lista[fim + 1].type === 'calc') fim++;
+    const linhas = lista.slice(i, fim + 1).map(b => htmlToPlainText(b.html));
+    evaluateSheet(linhas).forEach((r, k) => {
+      if (r.tipo === 'valor')     porIndice.set(i + k, r.fmt);
+      else if (r.tipo === 'erro') porIndice.set(i + k, `! ${r.erro}`);
+    });
+    i = fim;
+  }
+  return porIndice;
+}
+
 // ── Citação ───────────────────────────────────────────────────────────────────
 // Citação é decoração, não tipo: um bloco ganha `quoted: true` de forma
 // independente do seu `type`. É isso que faz "> #### Resultado" virar um
@@ -234,6 +268,27 @@ export function parseMarkdownToBlocks(markdown) {
       ...(quoted  ? { quoted: true } : {}),
       ...(callout ? { callout }      : {}),
     });
+
+    // Bloco cercado: consome até a cerca de fechamento. Sem marca é código
+    // (um bloco só, com as linhas dentro); com a marca "calc" é folha de
+    // cálculo (uma linha por bloco). O comentário de resultado que a
+    // exportação escreve à direita é descartado aqui — o valor é sempre
+    // recalculado, então dentro da extensão nunca existe número desatualizado.
+    if ((m = FENCE_RE.exec(rest))) {
+      const marca = (m[2] || '').toLowerCase();
+      const corpo = [];
+      i++;
+      while (i < lines.length && !FENCE_RE.test(lines[i].trim())) corpo.push(lines[i++]);
+
+      if (marca === 'calc') {
+        for (const linha of corpo) {
+          add({ type: 'calc', html: parseInlineMarkdown(linha.replace(/\s{2,}\/\/.*$/, '').trimEnd()) });
+        }
+      } else {
+        add({ type: 'code', html: corpo.map(escHtml).join('<br>') });
+      }
+      continue;
+    }
 
     // Tabela GFM: linha com pipes seguida da linha separadora (|---|---|).
     // É o único bloco que ocupa várias linhas, por isso o laço é indexado.
@@ -336,8 +391,14 @@ function abreCallout(b, anterior) {
   return !!b.callout && !(anterior?.callout === b.callout && (anterior?.quoted || anterior?.callout));
 }
 
-export function blocksToMarkdown(blocks) {
+/**
+ * @param opts.comentarResultados  escreve o resultado de cada linha de cálculo
+ *        à direita, em comentário. Só na exportação: no `content` interno o
+ *        resultado não vai junto (ver resultadosDeCalculo).
+ */
+export function blocksToMarkdown(blocks, opts = {}) {
   const lista = blocks ?? [];
+  const calculados = opts.comentarResultados ? resultadosDeCalculo(lista) : null;
   return lista.map((b, i) => {
     const pad = indentOf(b);
     // O ">" vem depois da indentação e antes do marcador do tipo: é assim que
@@ -349,6 +410,27 @@ export function blocksToMarkdown(blocks) {
       ? `${pad}> [!${b.callout.toUpperCase()}]\n`
       : '';
     const linha = () => {
+      // Código é um bloco só com as linhas dentro — abre e fecha a cerca sozinho.
+      if (b.type === 'code') {
+        const corpo = htmlToPlainText((b.html ?? '').replace(/<br\s*\/?>/gi, '\n'));
+        return [
+          `${pad}${q}\`\`\``,
+          ...corpo.split('\n').map(l => `${pad}${q}${l}`),
+          `${pad}${q}\`\`\``,
+        ].join('\n');
+      }
+
+      // Cálculo é uma linha por bloco: a cerca abre na primeira da sequência e
+      // fecha na última.
+      if (b.type === 'calc') {
+        const texto = htmlToPlainText(b.html ?? '');
+        const res   = calculados?.get(i);
+        const corpo = `${pad}${q}${res ? `${texto}  // ${res}` : texto}`;
+        const abre  = lista[i - 1]?.type !== 'calc' ? `${pad}${q}\`\`\`calc\n` : '';
+        const fecha = lista[i + 1]?.type !== 'calc' ? `\n${pad}${q}\`\`\`` : '';
+        return `${abre}${corpo}${fecha}`;
+      }
+
       if (b.type === 'divider') return `${pad}${q}---`;
       if (b.type === 'table')   return tableToMarkdown(b.rows, `${pad}${q}`);
       if (b.type === 'image')   return `${pad}${q}![${(b.alt ?? '').replace(/[\[\]]/g, '')}](${imageSrcOf(b)})`;
@@ -395,7 +477,9 @@ export async function blocksToMarkdownForExport(blocks, lerArquivoComoDataUrl) {
     }
     resolvidos.push(b);
   }
-  return blocksToMarkdown(resolvidos);
+  // O resultado do cálculo só entra aqui, na saída — mesma divisão da imagem,
+  // que guarda referência dentro e vira base64 só ao sair.
+  return blocksToMarkdown(resolvidos, { comentarResultados: true });
 }
 
 // Texto realmente simples — sem nenhum caractere de markdown, só marcadores
@@ -410,6 +494,9 @@ export function blocksToPlainText(blocks) {
   // sair dele recomeça o de dentro.
   const contadores = [];
   const lista = blocks ?? [];
+  // Texto simples é sempre um caminho de saída (copiar, baixar .txt), então
+  // aqui o resultado do cálculo vai junto — quem lê não tem como recalcular.
+  const calculados = resultadosDeCalculo(lista);
   return lista.map((b, i) => {
     const depth = Math.min(Math.max(b.depth ?? 0, 0), MAX_DEPTH);
     const pad   = '  '.repeat(depth);
@@ -434,10 +521,21 @@ export function blocksToPlainText(blocks) {
       : '';
 
     const linha = () => {
+      if (b.type === 'calc') {
+        const texto = htmlToPlainText(b.html ?? '');
+        const res   = calculados.get(i);
+        return `${pad}${q}${res ? `${texto}  = ${res}` : texto}`;
+      }
       if (b.type === 'image')   return `${pad}${q}[imagem${b.alt ? `: ${b.alt}` : ''}]`;
       if (b.type === 'divider') return `${pad}${q}──────────`;
       if (b.type === 'table') {
         return (b.rows ?? []).map(row => `${pad}${q}${row.map(htmlToPlainText).join('\t')}`).join('\n');
+      }
+      // Código guarda as quebras de linha como <br>; sem trocar por quebra de
+      // verdade, o texto copiado vinha com todas as linhas grudadas.
+      if (b.type === 'code') {
+        const linhas = (b.html ?? '').split(/<br\s*\/?>/i).map(htmlToPlainText);
+        return linhas.map(l => `${pad}${q}${l}`).join(QUEBRA);
       }
       const text = htmlToPlainText(b.html);
       switch (b.type) {

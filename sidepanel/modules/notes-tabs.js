@@ -213,6 +213,46 @@ Na prática: recorte do relatório só as linhas que interessam ao caso e cole a
 
 ---
 
+## Cálculo
+
+Digite "/" e escolha Cálculo pra abrir uma folha de conta. Cada linha calcula sozinha e mostra o resultado ao lado, enquanto você digita.
+
+\`\`\`calc
+boleto = R$ 1.000,00
+imposto = 15%
+calculo = boleto - imposto
+\`\`\`
+
+Repare no que acontece ali: **porcentagem é sempre relativa ao valor da esquerda**. "boleto menos imposto" tira 15% de mil e dá R$ 850,00 — não subtrai quinze centavos.
+
+O "R$" é pra valer: ele acompanha a conta e volta formatado no fim. Some com número puro, multiplique, divida — o resultado continua em reais. Só dividir dinheiro por dinheiro vira número, porque aí é uma razão.
+
+- Escrever "let" na frente é opcional: "boleto = 1000" funciona igual
+- Uma linha que não é conta fica lá como texto, sem resultado e sem reclamação. Serve pra anotar no meio da folha
+- Começar com duas barras também é comentário
+- Enter numa linha vazia sai da folha, como numa lista
+
+### Somar uma coluna
+
+A palavra "acima" vale por tudo que está logo em cima, até a primeira linha sem valor:
+
+\`\`\`calc
+R$ 480,00
+R$ 120,50
+R$ 89,90
+total = acima
+\`\`\`
+
+Também existem soma, média e arredondar. Os argumentos vão separados por ponto e vírgula, porque a vírgula aqui é decimal: soma(10; 20; 30).
+
+### O resultado não fica guardado
+
+O que a nota grava é só a conta — o valor é recalculado toda vez que a folha aparece. Guardar o número criaria a chance de ele discordar da conta, e não haveria como saber qual dos dois está certo.
+
+Na hora de baixar a nota ou copiar como texto, aí sim o resultado vai junto, ao lado de cada linha. Quem recebe vê os valores sem precisar do QuickDock.
+
+---
+
 ## Imagens
 
 Três jeitos de colocar uma imagem dentro da nota:

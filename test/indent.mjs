@@ -11,10 +11,11 @@
 
 import { readFile } from 'node:fs/promises';
 import { MAX_DEPTH, BULLET_GLYPHS } from '../sidepanel/modules/blocks.js';
+import { evaluateSheet } from '../sidepanel/modules/calc.js';
 
 const FUNCOES = [
   'blockDepth', 'setBlockDepth', 'normalizeDepths', 'markCalloutEdges',
-  'indentBlocks', 'renumberLists',
+  'recalcCalcSheets', 'indentBlocks', 'renumberLists',
 ];
 
 // Normaliza CRLF: o arquivo é editado no Windows e o recorte procura por
@@ -35,9 +36,14 @@ class FakeBlock {
     this.dataset = { type, id: `id${FakeBlock.n++}` };
     if (depth) this.dataset.depth = String(depth);
     this.marker = (type === 'bullet' || type === 'number') ? { textContent: '' } : null;
+    this.resultado = type === 'calc' ? { textContent: '' } : null;
+    this.conteudo  = { textContent: '' };
     this.lista = lista;
   }
-  querySelector(sel) { return sel.includes('block-marker') ? this.marker : null; }
+  querySelector(sel) {
+    if (sel.includes('calc-result')) return this.resultado;
+    return sel.includes('block-marker') ? this.marker : null;
+  }
   get _i() { return this.lista.indexOf(this); }
   get previousElementSibling() { return this.lista[this._i - 1] ?? null; }
   get nextElementSibling()     { return this.lista[this._i + 1] ?? null; }
@@ -59,10 +65,14 @@ const currentBlock = () => null;
 const escopo = FUNCOES.map(recorta).join('\n');
 const carregar = new Function(
   'MAX_DEPTH', 'BULLET_GLYPHS', 'getRoot', 'selectedBlockIds', 'orderedBlocks', 'currentBlock',
+  'evaluateSheet', 'getContentEl',
   `${escopo.replace(/\broot\.children\b/g, 'getRoot().children')}
    return { ${FUNCOES.join(', ')} };`,
 );
-const api = carregar(MAX_DEPTH, BULLET_GLYPHS, () => root, selectedBlockIds, orderedBlocks, currentBlock);
+const api = carregar(
+  MAX_DEPTH, BULLET_GLYPHS, () => root, selectedBlockIds, orderedBlocks, currentBlock,
+  evaluateSheet, bloco => bloco.conteudo,
+);
 
 // ── Casos ────────────────────────────────────────────────────────────────────
 export function rodarTestesDeIndentacao(ok, igual) {

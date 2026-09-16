@@ -387,6 +387,9 @@ for (const { nome, blocks } of BLOCOS_V18) {
 
   const { rodarTestesDeChecklist } = await import('./checklist.mjs');
   rodarTestesDeChecklist(ok, igual);
+
+  const { rodarTestesDeCalculo } = await import('./calc.mjs');
+  rodarTestesDeCalculo(ok, igual);
 }
 
 // ── 7. Atalhos de formatação ao digitar ──────────────────────────────────────
@@ -481,7 +484,11 @@ for (const { nome, blocks } of BLOCOS_V18) {
   const m = /const TUTORIAL_MARKDOWN = `([\s\S]*?)`;/.exec(fonte);
   ok('tutorial · continua sendo possível extrair o texto de notes-tabs.js', !!m);
 
-  const md = m[1];
+  // O que se lê aqui é o FONTE, onde crase e cifrão aparecem escapados porque
+  // o tutorial mora dentro de um literal de template. O JS desfaz isso ao
+  // carregar o módulo; sem desfazer aqui também, o teste estaria conferindo um
+  // texto que nunca chega a existir.
+  const md = m[1].replace(/\\([`$\\])/g, '$1');
   const blocks = parseMarkdownToBlocks(md);
 
   // Todo recurso que o tutorial descreve tem que aparecer nele como bloco.
@@ -497,6 +504,16 @@ for (const { nome, blocks } of BLOCOS_V18) {
   ok('tutorial · e um destaque com checklist dentro',
      blocks.some(b => b.callout && b.type === 'checklist'));
   ok('tutorial · contém lista aninhada', blocks.some(b => (b.depth ?? 0) > 0));
+  ok('tutorial · contém folha de cálculo', blocks.some(b => b.type === 'calc'));
+  // O exemplo do tutorial é avaliado de verdade: se o resultado mudar, é
+  // porque o avaliador mudou, e a nota que toda pessoa vê passa a mentir.
+  {
+    const { evaluateSheet } = await import('../sidepanel/modules/calc.js');
+    const folha = blocks.filter(b => b.type === 'calc').slice(0, 3)
+      .map(b => b.html.replace(/<[^>]+>/g, ''));
+    igual('tutorial · o exemplo do cálculo dá o resultado que o texto promete',
+      evaluateSheet(folha).at(-1)?.fmt, 'R$ 850,00');
+  }
   ok('tutorial · contém título dentro de citação',
      blocks.some(b => b.quoted && b.type.startsWith('heading')));
 

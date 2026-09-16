@@ -5,6 +5,7 @@ import { refreshDocuments } from './documents.js';
 import { setActiveArea, isNoteActive } from './active-area.js';
 import { openModal } from './modal.js';
 import { tryParseMath } from './math-parser.js';
+import { evaluateSheet } from './calc.js';
 import {
   uid, escHtml, safeHref, parseMarkdownToBlocks, blocksToMarkdown, blocksToPlainText,
   MAX_DEPTH, BULLET_GLYPHS, normalizeBlock, blocksToMarkdownForExport,
@@ -435,7 +436,9 @@ const HEADING_TAGS = { heading1: 'h1', heading2: 'h2', heading3: 'h3', heading4:
 
 // Blocos que não passam pela detecção de CPF/data/cálculo: código é literal,
 // divisor não tem texto e a tabela não tem um conteúdo único — são N células.
-const NO_DETECTION = new Set(['code', 'divider', 'table', 'image']);
+// Numa folha de cálculo a linha inteira já é conta: a detecção de conta solta
+// no meio do texto não tem o que fazer ali dentro.
+const NO_DETECTION = new Set(['code', 'divider', 'table', 'image', 'calc']);
 
 // Blocos sem um conteúdo de texto único: getContentEl devolve o próprio bloco
 // neles, então perguntar pelo texto não faz sentido.
@@ -512,6 +515,21 @@ function createBlockEl(type, innerHTML = '', checked = false, rows = null) {
     content.contentEditable = 'true';
     content.innerHTML = innerHTML;
     el.append(marker, content);
+
+  } else if (type === 'calc') {
+    el = document.createElement('div');
+    el.className = 'block block-calc';
+    const content = document.createElement('span');
+    content.className = 'block-content';
+    content.contentEditable = 'true';
+    content.innerHTML = innerHTML;
+    // O resultado fica fora do editável, na mesma estrutura de dois elementos
+    // que lista e checklist usam. É o que impede o cursor de entrar nele ou de
+    // apagá-lo sem querer — e o que faz getContentEl continuar valendo.
+    const res = document.createElement('span');
+    res.className = 'calc-result';
+    res.contentEditable = 'false';
+    el.append(content, res);
 
   } else if (type === 'code') {
     el = document.createElement('div');
@@ -1021,9 +1039,45 @@ function markCalloutEdges() {
   }
 }
 
+// Avalia cada folha de cálculo e escreve o resultado ao lado de cada linha.
+//
+// A folha é a sequência contígua de blocos `calc` — mesma ideia das pontas do
+// destaque. É ela o escopo das variáveis: uma linha de texto ou um parágrafo
+// no meio encerram uma folha e começam outra, então nada de um bloco lá em
+// cima mexer numa conta muito abaixo.
+function recalcCalcSheets() {
+  const blocos = [...root.children];
+
+  for (let i = 0; i < blocos.length; i++) {
+    if (blocos[i].dataset.type !== 'calc') continue;
+
+    let fim = i;
+    while (fim + 1 < blocos.length && blocos[fim + 1].dataset.type === 'calc') fim++;
+    const folha = blocos.slice(i, fim + 1);
+
+    const resultado = evaluateSheet(folha.map(b => getContentEl(b).textContent));
+
+    folha.forEach((bloco, k) => {
+      const r  = resultado[k];
+      const el = bloco.querySelector(':scope > .calc-result');
+      if (el) el.textContent = r.tipo === 'valor' ? r.fmt : (r.tipo === 'erro' ? r.erro : '');
+
+      if (r.tipo === 'erro') bloco.dataset.calcErro = 'true';
+      else delete bloco.dataset.calcErro;
+
+      // Pontas da folha: é o que faz uma sequência ler como um quadro só.
+      if (k === 0) bloco.dataset.calcFirst = 'true'; else delete bloco.dataset.calcFirst;
+      if (k === folha.length - 1) bloco.dataset.calcLast = 'true'; else delete bloco.dataset.calcLast;
+    });
+
+    i = fim;
+  }
+}
+
 function renumberLists() {
   normalizeDepths();
   markCalloutEdges();
+  recalcCalcSheets();
 
   // Um contador por nível: entrar num nível mais fundo não zera o de fora, e
   // sair dele recomeça o de dentro.
@@ -1848,6 +1902,7 @@ const SLASH_ITEMS = [
     type:  `callout:${t}`,
   })),
   { key: 'codigo',     label: 'Código',                 hint: '```',        type: 'code'      },
+  { key: 'calculo',    label: 'Cálculo',                hint: '= ao vivo',  type: 'calc'      },
   { key: 'tabela',     label: 'Tabela',                 hint: '| |',        type: 'table'     },
   { key: 'imagem',     label: 'Imagem',                 hint: 'arquivo',    type: 'image'     },
   { key: 'divisor',    label: 'Divisor',                hint: '---',        type: 'divider'   },
@@ -2164,9 +2219,12 @@ function handleEnter(block) {
   const offset   = getCaretOffset(content);
   const type     = block.dataset.type;
   const isListish = type === 'bullet' || type === 'number' || type === 'checklist';
+  // A folha de cálculo se repete no Enter como uma lista se repete, e sai pelo
+  // mesmo gesto: Enter numa linha vazia.
+  const repete    = isListish || type === 'calc';
   const isEmpty   = content.textContent.trim() === '';
 
-  if (isListish && isEmpty) {
+  if (repete && isEmpty) {
     // Indentado, o Enter num item vazio sai um nível — só no nível 0 é que
     // ele desiste da lista e vira parágrafo. É o caminho de saída natural de
     // uma lista aninhada, sem precisar de Shift+Tab.
@@ -2197,7 +2255,7 @@ function handleEnter(block) {
   afterRange.setEndAfter(content.lastChild ?? content.firstChild ?? content);
   const afterHTML = htmlOfFragment(afterRange.extractContents());
 
-  const nextType = isListish ? type : 'paragraph';
+  const nextType = repete ? type : 'paragraph';
   const newBlock = createBlockEl(nextType, afterHTML, false);
   setBlockDepth(newBlock, blockDepth(block));
   setBlockQuoted(newBlock, isBlockQuoted(block));
@@ -2310,6 +2368,14 @@ root.addEventListener('input', () => {
     checkSlashMenu(block);
   } else {
     closeSlashMenu();
+  }
+
+  // Folha de cálculo: recalcula a cada tecla (é o "tempo real") e não passa
+  // pela formatação inline — asterisco ali é multiplicação, não itálico.
+  if (block.dataset.type === 'calc') {
+    recalcCalcSheets();
+    scheduleSave();
+    return;
   }
 
   if (block.dataset.type !== 'code') {
