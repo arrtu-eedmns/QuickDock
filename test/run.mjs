@@ -2078,6 +2078,16 @@ for (const entrada of ['', null, undefined, '\n\n']) {
   // service worker, que deriva o escopo de location.pathname, discordaria dele.
   igual('pwa · manifest usa escopo relativo', manifestContent.scope, './');
   igual('pwa · manifest usa start_url relativo', manifestContent.start_url, './');
+  // O Chrome só oferece instalação se existirem ícones de 192 e 512. Faltando,
+  // o botão não aparece e NÃO há erro nenhum no console — o sintoma é silêncio.
+  // Foi exatamente o que aconteceu no primeiro deploy: o manifesto reaproveitou
+  // os ícones da extensão (16/48/128) e o app simplesmente não era instalável.
+  for (const lado of ['192x192', '512x512']) {
+    ok(`pwa · manifesto declara ícone ${lado} (exigido para instalar)`,
+       manifestContent.icons.some(i => i.sizes === lado),
+       manifestContent.icons.map(i => i.sizes).join(', '));
+  }
+
   ok('pwa · ícones do manifesto são relativos',
      manifestContent.icons.every(i => !i.src.startsWith('/')),
      manifestContent.icons.map(i => i.src).join(', '));

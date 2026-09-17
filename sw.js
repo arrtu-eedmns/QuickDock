@@ -45,6 +45,8 @@ const ASSET_PATHS = [
   'icons/16.png',
   'icons/48.png',
   'icons/128.png',
+  'icons/192.png',
+  'icons/512.png',
 ];
 
 self.addEventListener('install', event => {
