@@ -1,4 +1,15 @@
-const db = typeof Dexie !== 'undefined' ? new Dexie('quickdock') : null;
+import { blocksToPlainText } from './blocks.js';
+// O esquema mora numa função (`definirEsquema`, mais abaixo) pra poder ser
+// aplicado a mais de um banco. O de verdade é este; o banco de provas cria um
+// descartável com `criarBancoDeProvas()` e exercita a camada de armazenamento
+// real — Dexie de verdade, IndexedDB de verdade — sem chegar perto das notas de
+// ninguém. Sem isso, o DexieSyncStore seria a única peça sem forma de teste.
+const db = typeof Dexie !== 'undefined' ? definirEsquema(new Dexie('quickdock')) : null;
+
+export function criarBancoDeProvas(nome = 'quickdock-provas') {
+  if (typeof Dexie === 'undefined') throw new Error('Dexie não está carregado neste ambiente.');
+  return definirEsquema(new Dexie(nome));
+}
 
 // ── Ordem fracionária e migração v6 ──────────────────────────────────────────
 // O índice fracionário (a0, a0V, a1...) permite inserir e reordenar notas
@@ -136,7 +147,7 @@ export function migrarRegistroV5ParaV6(registro, indice = 0) {
   return r;
 }
 
-if (db) {
+function definirEsquema(db) {
   db.version(1).stores({
     files: '++id, name, type, createdAt'
   });
@@ -186,6 +197,16 @@ if (db) {
       Object.assign(tpl, migrarRegistroV5ParaV6(tpl, tpl.order ?? i));
     });
   });
+  // v7: estado de sincronização — local, por aparelho, nunca sobe. É ele que
+  // distingue "arquivo apagado lá" de "arquivo que nunca chegou aqui".
+  db.version(7).stores({
+    files: "++id, name, type, noteId, inline, createdAt",
+    notes: "++id, uid, ordem, order, updatedAt",
+    templates: "++id, uid, ordem, order, name",
+    syncState: "uid, caminho",
+    syncMeta: "chave"
+  });
+  return db;
 }
 
 // --- NOTAS ---
@@ -494,4 +515,88 @@ export async function saveMathHistory(history) {
   return new Promise(resolve => {
     chrome.storage.local.set({ math_history: history }, resolve);
   });
+}
+
+// --- PONTE ENTRE O MOTOR DE SINCRONIZAÇÃO E O BANCO ---
+// O SyncEngine foi escrito contra um contrato de `store` de 11 métodos, e até
+// aqui só existia a implementação de mentira (test/memory-store.mjs). Esta é a
+// de verdade.
+//
+// Recebe o banco no construtor em vez de usar o global: é o que permite o banco
+// de provas rodar esta mesma classe contra um banco descartável.
+//
+// Duas traduções acontecem aqui, e são a razão de a ponte existir em vez de o
+// motor falar direto com o Dexie:
+//
+//   `uid` x `id` — o motor só conhece `uid`, que é a identidade que viaja no
+//   arquivo. O `id` inteiro é local e nunca sai daqui, então é esta classe que
+//   resolve um pelo outro.
+//
+//   `content` — o motor manda blocos, que são a verdade do editor. O `content`
+//   é a versão em texto simples derivada deles, e quem mantém essa derivação é
+//   o armazenamento. Deixá-la a cargo do motor espalharia a regra.
+export class DexieSyncStore {
+  constructor(banco = db) {
+    this.db = banco;
+  }
+
+  async listarNotasLocais() {
+    return this.db.notes.toArray();
+  }
+
+  async obterNotaPorUid(uid) {
+    return (await this.db.notes.where('uid').equals(uid).first()) ?? null;
+  }
+
+  async salvarNotaLocal(nota) {
+    const content = blocksToPlainText(nota.blocks ?? []);
+    const existente = await this.obterNotaPorUid(nota.uid);
+    if (existente) {
+      await this.db.notes.update(existente.id, { ...nota, content });
+      return existente.id;
+    }
+    // `id` vem do auto-incremento; mandar o do outro aparelho colidiria.
+    const { id, ...semId } = nota;
+    return this.db.notes.add({ ...semId, content });
+  }
+
+  async excluirNotaLocal(uid) {
+    const nota = await this.obterNotaPorUid(uid);
+    if (!nota) return;
+    // Os documentos da nota viram gerais em vez de sumirem junto — mesma regra
+    // de quando a pessoa exclui a nota pela interface.
+    await detachFilesFromNote(nota.id);
+    await this.db.notes.delete(nota.id);
+  }
+
+  async obterEstadoSync(uid) {
+    return (await this.db.syncState.get(uid)) ?? null;
+  }
+
+  async obterEstadoSyncPorCaminho(caminho) {
+    return (await this.db.syncState.where('caminho').equals(caminho).first()) ?? null;
+  }
+
+  async salvarEstadoSync(estado) {
+    await this.db.syncState.put({ ...estado });
+  }
+
+  async excluirEstadoSync(uid) {
+    await this.db.syncState.delete(uid);
+  }
+
+  async listarTodosEstadosSync() {
+    return this.db.syncState.toArray();
+  }
+
+  // O cursor mora em tabela própria, não numa linha reservada do `syncState`:
+  // o motor varre `listarTodosEstadosSync()` pra descobrir o que foi apagado lá,
+  // e uma linha que não corresponde a nota nenhuma seria lida como exclusão.
+  async obterCursorSync() {
+    return (await this.db.syncMeta.get('cursor'))?.valor ?? null;
+  }
+
+  async salvarCursorSync(valor) {
+    await this.db.syncMeta.put({ chave: 'cursor', valor });
+  }
 }

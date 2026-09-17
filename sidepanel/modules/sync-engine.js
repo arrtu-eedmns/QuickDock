@@ -17,6 +17,8 @@
 
 import { buildNoteFile, parseNoteFile } from './notefile.js';
 import { parseMarkdownToBlocks, blocksToMarkdown } from './blocks.js';
+// Só a função pura de ordenação — o motor não fala com o banco.
+import { ordemEntre } from './storage.js';
 
 /**
  * Hash determinístico síncrono de 64 bits para detectar alterações de texto
@@ -223,11 +225,18 @@ export class SyncEngine {
           const tituloConflito = `${notaLocal.title} (conflito ${dataIsoHoje()}, ${this.deviceName})`;
           const caminhoConflito = `notas/${slugTitulo(notaLocal.title)} (conflito ${dataIsoHoje()}, ${this.deviceName}).md`;
 
-          // 1. Salva a cópia de conflito com os dados locais
+          // 1. Salva a cópia de conflito com os dados locais.
+          //
+          // A cópia precisa de ordem PRÓPRIA, logo depois da original. Herdar a
+          // mesma deixaria duas notas com a mesma chave de ordenação — e aí
+          // mover qualquer uma das duas cai no caminho de reparo do
+          // `moveNoteRecord`, que renumera a lista inteira. Um conflito não
+          // pode degradar a ordenação de todas as outras notas.
           const notaConflito = {
             ...notaLocal,
             uid: uidConflito,
             title: tituloConflito,
+            ordem: ordemEntre(notaLocal.ordem ?? 'a0', null),
           };
           delete notaConflito.id;
           await this.store.salvarNotaLocal(notaConflito);

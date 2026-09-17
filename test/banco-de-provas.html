@@ -79,6 +79,8 @@
 <div class="barra">
   <button id="modoMemoria" class="ativo">Memória</button>
   <button id="modoPasta">Pasta real…</button>
+  <span style="width:14px"></span>
+  <button id="modoBanco" title="Troca o armazenamento local entre o de mentira e o Dexie de verdade">Banco: memória</button>
   <span style="flex:1"></span>
   <button id="novaNota">+ Nota</button>
   <button id="sincronizar" class="primario">Sincronizar</button>
@@ -116,12 +118,14 @@
   </form>
 </dialog>
 
+<script src="../lib/dexie.min.js"></script>
 <script type="module">
 import { SyncEngine } from '../sidepanel/modules/sync-engine.js';
 import { MemorySyncAdapter } from '../sidepanel/modules/sync-adapter.js';
 import { LocalFolderAdapter } from '../sidepanel/modules/local-folder-adapter.js';
 import { parseMarkdownToBlocks, blocksToMarkdown } from '../sidepanel/modules/blocks.js';
 import { InMemoryStore } from './memory-store.mjs';
+import { DexieSyncStore, criarBancoDeProvas } from '../sidepanel/modules/storage.js';
 
 const $ = id => document.getElementById(id);
 let store, adapter, engine, modo = 'memoria';
@@ -138,13 +142,39 @@ function novoUid() {
   return crypto.randomUUID ? crypto.randomUUID() : `u_${Date.now().toString(36)}`;
 }
 
-function zerar(novoAdapter, rotuloRemoto) {
-  store = new InMemoryStore();
-  adapter = novoAdapter;
-  engine = new SyncEngine({ adapter, store, deviceName: 'Banco de provas' });
-  $('tituloRemoto').textContent = rotuloRemoto;
-  $('linhas').textContent = '';
-  desenhar();
+let usarDexie = false, bancoProvas = null;
+
+async function montarStore() {
+  if (!usarDexie) return new InMemoryStore();
+  // Banco descartável: apagado a cada troca pra cada rodada começar limpa, e
+  // com nome próprio pra nunca encostar no banco 'quickdock' de verdade.
+  if (bancoProvas) { try { await bancoProvas.delete(); } catch {} }
+  bancoProvas = criarBancoDeProvas();
+  await bancoProvas.open();
+  return new DexieSyncStore(bancoProvas);
+}
+
+// Trocar o armazenamento apaga e reabre um banco — leva tempo. Sem travar a
+// barra, um clique nesse intervalo grava num store que está prestes a ser
+// substituído, e a nota some sem erro nenhum. Foi exatamente o que aconteceu
+// na primeira tentativa de testar o modo Dexie.
+function travarBarra(travada) {
+  for (const b of document.querySelectorAll('.barra button')) b.disabled = travada;
+}
+
+async function zerar(novoAdapter, rotuloRemoto) {
+  travarBarra(true);
+  try {
+    store = await montarStore();
+    adapter = novoAdapter;
+    engine = new SyncEngine({ adapter, store, deviceName: 'Banco de provas' });
+    $('tituloRemoto').textContent = rotuloRemoto;
+    $('linhas').textContent = '';
+    await desenhar();
+  } finally {
+    travarBarra(false);
+    $('modoPasta').disabled = !window.showDirectoryPicker;
+  }
 }
 
 // ── Desenho ────────────────────────────────────────────────────────────────
@@ -230,7 +260,19 @@ function abrirEditor(nota) {
   $('editor').showModal();
 }
 
+// Um banco de provas que falha calado é pior que nenhum: o erro tem que
+// aparecer no registro, não só no console.
+window.addEventListener('unhandledrejection', ev => {
+  registrar(`falha não tratada: ${ev.reason?.message ?? ev.reason}`, 't-erro');
+  console.error(ev.reason);
+});
+
 $('editor').addEventListener('close', async () => {
+  try { await aoFecharEditor(); }
+  catch (err) { registrar(`erro ao salvar: ${err.message}`, 't-erro'); console.error(err); }
+});
+
+async function aoFecharEditor() {
   if ($('editor').returnValue !== 'ok') { emEdicao = null; return; }
   const title = $('campoTitulo').value.trim() || 'Sem título';
   const blocks = parseMarkdownToBlocks($('campoCorpo').value);
@@ -250,7 +292,7 @@ $('editor').addEventListener('close', async () => {
   }
   emEdicao = null;
   desenhar();
-});
+}
 
 // ── Ações ──────────────────────────────────────────────────────────────────
 $('novaNota').onclick = () => abrirEditor(null);
@@ -298,17 +340,17 @@ $('forcarConflito').onclick = async () => {
   $('sincronizar').click();
 };
 
-$('zerar').onclick = () => {
-  if (modo === 'memoria') zerar(new MemorySyncAdapter(), 'Lá — memória');
+$('zerar').onclick = async () => {
+  if (modo === 'memoria') await zerar(new MemorySyncAdapter(), 'Lá — memória');
   else registrar('no modo pasta, apague os arquivos na mão para zerar', 't-alerta');
 };
 
 // ── Modos ──────────────────────────────────────────────────────────────────
-$('modoMemoria').onclick = () => {
+$('modoMemoria').onclick = async () => {
   modo = 'memoria';
   $('modoMemoria').classList.add('ativo');
   $('modoPasta').classList.remove('ativo');
-  zerar(new MemorySyncAdapter(), 'Lá — memória');
+  await zerar(new MemorySyncAdapter(), 'Lá — memória');
   registrar('modo memória — nada é gravado em disco', 't-fraco');
 };
 
@@ -319,8 +361,19 @@ $('modoPasta').onclick = async () => {
   modo = 'pasta';
   $('modoPasta').classList.add('ativo');
   $('modoMemoria').classList.remove('ativo');
-  zerar(folder, 'Lá — pasta escolhida');
+  await zerar(folder, 'Lá — pasta escolhida');
   registrar('modo pasta — os .md são gravados em disco de verdade', 't-ok');
+};
+
+$('modoBanco').onclick = async () => {
+  usarDexie = !usarDexie;
+  $('modoBanco').textContent = usarDexie ? 'Banco: Dexie' : 'Banco: memória';
+  $('modoBanco').classList.toggle('ativo', usarDexie);
+  const adapterAtual = modo === 'memoria' ? new MemorySyncAdapter() : adapter;
+  await zerar(adapterAtual, $('tituloRemoto').textContent);
+  registrar(usarDexie
+    ? 'armazenamento: DexieSyncStore num banco descartável (IndexedDB de verdade)'
+    : 'armazenamento: InMemoryStore', 't-ok');
 };
 
 if (!window.showDirectoryPicker) {
@@ -328,7 +381,7 @@ if (!window.showDirectoryPicker) {
   $('modoPasta').disabled = true;
 }
 
-zerar(new MemorySyncAdapter(), 'Lá — memória');
+await zerar(new MemorySyncAdapter(), 'Lá — memória');
 registrar('pronto — crie uma nota e sincronize', 't-fraco');
 </script>
 </body>

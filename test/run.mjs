@@ -953,6 +953,17 @@ for (const { nome, blocks } of BLOCOS_V18) {
        notaConflito?.title.includes('conflito') && notaConflito?.title.includes('Celular'));
     ok('sync · conflito · cópia preserva integralmente o conteúdo local',
        notaConflito?.blocks?.some(b => b.html.includes('Açúcar (adição local)')));
+
+    // A cópia precisa de ordem própria. Herdar a da original deixaria duas
+    // notas com a mesma chave de ordenação, e aí mover qualquer uma das duas
+    // cai no caminho de reparo do moveNoteRecord, que renumera a lista inteira.
+    // Um conflito não pode degradar a ordenação de todas as outras notas.
+    ok('sync · conflito · cópia não herda a ordem da original',
+       !!notaConflito?.ordem && notaConflito.ordem !== notaPrincipal?.ordem,
+       `principal: ${notaPrincipal?.ordem} · cópia: ${notaConflito?.ordem}`);
+    ok('sync · conflito · cópia fica logo depois da original',
+       notaConflito?.ordem > notaPrincipal?.ordem,
+       `principal: ${notaPrincipal?.ordem} · cópia: ${notaConflito?.ordem}`);
   }
 
   // 4. Exclusão lá propaga para cá
