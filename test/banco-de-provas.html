@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>Banco de provas — sincronização</title>
+<style>
+  :root {
+    --fundo: #f6f7f9; --papel: #fff; --borda: #dfe3e8; --texto: #1c1f23;
+    --fraco: #6b7280; --acento: #2563eb; --ok: #15803d; --alerta: #b45309;
+    --erro: #b91c1c; --mono: ui-monospace, "Cascadia Code", Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --fundo: #14171a; --papel: #1c2024; --borda: #2e343a; --texto: #e6e8ea;
+      --fraco: #9aa3ad; --acento: #60a5fa; --ok: #4ade80; --alerta: #fbbf24;
+      --erro: #f87171;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 20px; background: var(--fundo); color: var(--texto);
+    font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  h1 { font-size: 18px; margin: 0 0 2px; }
+  .sub { color: var(--fraco); font-size: 13px; margin-bottom: 16px; }
+  .barra { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 16px; }
+  button {
+    font: inherit; padding: 7px 13px; border: 1px solid var(--borda);
+    background: var(--papel); color: var(--texto); border-radius: 7px; cursor: pointer;
+  }
+  button:hover:not(:disabled) { border-color: var(--acento); }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  button.primario { background: var(--acento); border-color: var(--acento); color: #fff; }
+  button.ativo { border-color: var(--acento); box-shadow: inset 0 0 0 1px var(--acento); }
+  .colunas { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 860px) { .colunas { grid-template-columns: 1fr; } }
+  .painel { background: var(--papel); border: 1px solid var(--borda); border-radius: 10px; padding: 12px; }
+  .painel h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em;
+    color: var(--fraco); margin: 0 0 10px; font-weight: 600; }
+  .item { border: 1px solid var(--borda); border-radius: 7px; padding: 9px; margin-bottom: 7px; }
+  .item.conflito { border-color: var(--alerta); }
+  .titulo { font-weight: 600; margin-bottom: 3px; word-break: break-word; }
+  .meta { font-family: var(--mono); font-size: 11px; color: var(--fraco); word-break: break-all; }
+  .corpo { font-family: var(--mono); font-size: 11px; white-space: pre-wrap;
+    background: var(--fundo); border-radius: 5px; padding: 7px; margin-top: 7px;
+    max-height: 190px; overflow: auto; }
+  .acoes { display: flex; gap: 5px; margin-top: 7px; }
+  .acoes button { padding: 3px 8px; font-size: 12px; }
+  .vazio { color: var(--fraco); font-style: italic; padding: 10px 2px; }
+  #registro { margin-top: 14px; }
+  #linhas { font-family: var(--mono); font-size: 12px; max-height: 240px; overflow: auto; }
+  #linhas div { padding: 3px 0; border-bottom: 1px solid var(--borda); }
+  #linhas div:last-child { border-bottom: 0; }
+  .t-ok { color: var(--ok); } .t-alerta { color: var(--alerta); }
+  .t-erro { color: var(--erro); } .t-fraco { color: var(--fraco); }
+  dialog { border: 1px solid var(--borda); border-radius: 10px; background: var(--papel);
+    color: var(--texto); padding: 16px; width: min(560px, 92vw); }
+  dialog::backdrop { background: rgba(0,0,0,.45); }
+  dialog label { display: block; font-size: 12px; color: var(--fraco); margin: 10px 0 4px; }
+  dialog input, dialog textarea {
+    width: 100%; font: inherit; padding: 7px; border-radius: 6px;
+    border: 1px solid var(--borda); background: var(--fundo); color: var(--texto);
+  }
+  dialog textarea { font-family: var(--mono); font-size: 12px; min-height: 170px; resize: vertical; }
+  .aviso { background: var(--fundo); border: 1px solid var(--alerta); border-radius: 7px;
+    padding: 9px; margin-bottom: 14px; font-size: 13px; }
+</style>
+</head>
+<body>
+
+<h1>Banco de provas — sincronização</h1>
+<div class="sub">Exercita <code>sync-engine</code>, <code>notefile</code> e os adaptadores fora da extensão. Nada aqui toca no seu banco do QuickDock.</div>
+
+<div id="semPicker" class="aviso" hidden>
+  Este navegador não expõe <code>showDirectoryPicker</code> — o modo <strong>Pasta real</strong> fica indisponível.
+  O modo <strong>Memória</strong> funciona normalmente e exercita o mesmo motor.
+</div>
+
+<div class="barra">
+  <button id="modoMemoria" class="ativo">Memória</button>
+  <button id="modoPasta">Pasta real…</button>
+  <span style="flex:1"></span>
+  <button id="novaNota">+ Nota</button>
+  <button id="sincronizar" class="primario">Sincronizar</button>
+  <button id="forcarConflito">Forçar conflito</button>
+  <button id="zerar">Zerar</button>
+</div>
+
+<div class="colunas">
+  <div class="painel">
+    <h2>Aqui — notas locais</h2>
+    <div id="locais"></div>
+  </div>
+  <div class="painel">
+    <h2 id="tituloRemoto">Lá — arquivos</h2>
+    <div id="remotos"></div>
+  </div>
+</div>
+
+<div class="painel" id="registro">
+  <h2>Registro</h2>
+  <div id="linhas"></div>
+</div>
+
+<dialog id="editor">
+  <form method="dialog">
+    <strong id="editorTitulo">Nota</strong>
+    <label for="campoTitulo">Título</label>
+    <input id="campoTitulo" autocomplete="off">
+    <label for="campoCorpo">Conteúdo (markdown)</label>
+    <textarea id="campoCorpo"></textarea>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px">
+      <button value="cancel">Cancelar</button>
+      <button value="ok" class="primario" id="salvarNota">Salvar</button>
+    </div>
+  </form>
+</dialog>
+
+<script type="module">
+import { SyncEngine } from '../sidepanel/modules/sync-engine.js';
+import { MemorySyncAdapter } from '../sidepanel/modules/sync-adapter.js';
+import { LocalFolderAdapter } from '../sidepanel/modules/local-folder-adapter.js';
+import { parseMarkdownToBlocks, blocksToMarkdown } from '../sidepanel/modules/blocks.js';
+import { InMemoryStore } from './memory-store.mjs';
+
+const $ = id => document.getElementById(id);
+let store, adapter, engine, modo = 'memoria';
+
+function registrar(texto, tom = '') {
+  const linha = document.createElement('div');
+  const hora = new Date().toLocaleTimeString('pt-BR', { hour12: false });
+  linha.className = tom;
+  linha.textContent = `${hora}  ${texto}`;
+  $('linhas').prepend(linha);
+}
+
+function novoUid() {
+  return crypto.randomUUID ? crypto.randomUUID() : `u_${Date.now().toString(36)}`;
+}
+
+function zerar(novoAdapter, rotuloRemoto) {
+  store = new InMemoryStore();
+  adapter = novoAdapter;
+  engine = new SyncEngine({ adapter, store, deviceName: 'Banco de provas' });
+  $('tituloRemoto').textContent = rotuloRemoto;
+  $('linhas').textContent = '';
+  desenhar();
+}
+
+// ── Desenho ────────────────────────────────────────────────────────────────
+async function desenhar() {
+  const notas = await store.listarNotasLocais();
+  const alvo = $('locais');
+  alvo.textContent = '';
+  if (!notas.length) alvo.innerHTML = '<div class="vazio">Nenhuma nota local.</div>';
+
+  for (const nota of notas) {
+    const estado = await store.obterEstadoSync(nota.uid);
+    const div = document.createElement('div');
+    div.className = 'item' + (/conflito/i.test(nota.title ?? '') ? ' conflito' : '');
+
+    const t = document.createElement('div');
+    t.className = 'titulo';
+    t.textContent = nota.title || '(sem título)';
+    div.append(t);
+
+    const m = document.createElement('div');
+    m.className = 'meta';
+    m.textContent = `${nota.uid.slice(0, 8)} · ordem ${nota.ordem ?? '—'} · ${estado ? 'rev ' + estado.rev : 'nunca sincronizada'}`;
+    div.append(m);
+
+    const c = document.createElement('div');
+    c.className = 'corpo';
+    c.textContent = blocksToMarkdown(nota.blocks ?? []) || '(vazia)';
+    div.append(c);
+
+    const acoes = document.createElement('div');
+    acoes.className = 'acoes';
+    const bEditar = document.createElement('button');
+    bEditar.textContent = 'Editar';
+    bEditar.onclick = () => abrirEditor(nota);
+    const bApagar = document.createElement('button');
+    bApagar.textContent = 'Apagar';
+    bApagar.onclick = async () => {
+      await store.excluirNotaLocal(nota.uid);
+      registrar(`nota "${nota.title}" apagada aqui`, 't-fraco');
+      desenhar();
+    };
+    acoes.append(bEditar, bApagar);
+    div.append(acoes);
+    alvo.append(div);
+  }
+
+  await desenharRemoto();
+}
+
+async function desenharRemoto() {
+  const alvo = $('remotos');
+  alvo.textContent = '';
+  let caminhos = [];
+  try {
+    caminhos = (await adapter.listarMudancas(null)).filter(m => !m.apagado).map(m => m.caminho);
+  } catch (e) {
+    alvo.innerHTML = `<div class="vazio">Sem acesso: ${e.message}</div>`;
+    return;
+  }
+  if (!caminhos.length) { alvo.innerHTML = '<div class="vazio">Nenhum arquivo.</div>'; return; }
+
+  for (const caminho of caminhos.sort()) {
+    const arq = await adapter.ler(caminho);
+    if (!arq) continue;
+    const div = document.createElement('div');
+    div.className = 'item' + (/conflito/i.test(caminho) ? ' conflito' : '');
+    div.innerHTML = `<div class="titulo">${caminho}</div><div class="meta">rev ${arq.rev}</div>`;
+    const c = document.createElement('div');
+    c.className = 'corpo';
+    c.textContent = arq.texto;
+    div.append(c);
+    alvo.append(div);
+  }
+}
+
+// ── Editor ─────────────────────────────────────────────────────────────────
+let emEdicao = null;
+function abrirEditor(nota) {
+  emEdicao = nota;
+  $('editorTitulo').textContent = nota ? 'Editar nota' : 'Nova nota';
+  $('campoTitulo').value = nota?.title ?? '';
+  $('campoCorpo').value = nota ? blocksToMarkdown(nota.blocks ?? []) : '';
+  $('editor').showModal();
+}
+
+$('editor').addEventListener('close', async () => {
+  if ($('editor').returnValue !== 'ok') { emEdicao = null; return; }
+  const title = $('campoTitulo').value.trim() || 'Sem título';
+  const blocks = parseMarkdownToBlocks($('campoCorpo').value);
+  const agora = Date.now();
+
+  if (emEdicao) {
+    await store.salvarNotaLocal({ ...emEdicao, title, blocks, updatedAt: agora });
+    registrar(`nota "${title}" editada aqui`, 't-fraco');
+  } else {
+    const notas = await store.listarNotasLocais();
+    await store.salvarNotaLocal({
+      uid: novoUid(), title, blocks, color: null, icon: null,
+      iconFilled: false, titleHidden: false,
+      ordem: 'a' + String(notas.length), createdAt: agora, updatedAt: agora,
+    });
+    registrar(`nota "${title}" criada aqui`, 't-fraco');
+  }
+  emEdicao = null;
+  desenhar();
+});
+
+// ── Ações ──────────────────────────────────────────────────────────────────
+$('novaNota').onclick = () => abrirEditor(null);
+
+$('sincronizar').onclick = async () => {
+  try {
+    const r = await engine.sincronizar();
+    const partes = [];
+    if (r.enviadas)  partes.push(`↑ ${r.enviadas} enviada(s)`);
+    if (r.baixadas)  partes.push(`↓ ${r.baixadas} baixada(s)`);
+    if (r.apagadas)  partes.push(`✕ ${r.apagadas} apagada(s)`);
+    if (r.conflitos) partes.push(`⚠ ${r.conflitos} conflito(s)`);
+    registrar(partes.length ? partes.join('  ·  ') : 'nada a fazer — os dois lados já batem',
+              r.conflitos ? 't-alerta' : 't-ok');
+  } catch (e) {
+    registrar(`erro na sincronização: ${e.message}`, 't-erro');
+    console.error(e);
+  }
+  desenhar();
+};
+
+// Conflito de verdade: alguém edita o arquivo LÁ sem passar pelo motor, e a
+// mesma nota é editada AQUI. Nenhum dos dois lados sabe do outro — é a situação
+// que a cópia de conflito existe pra resolver sem perder nada.
+$('forcarConflito').onclick = async () => {
+  const notas = await store.listarNotasLocais();
+  let alvo = null;
+  for (const n of notas) if (await store.obterEstadoSync(n.uid)) { alvo = n; break; }
+  if (!alvo) { registrar('crie uma nota e sincronize antes de forçar um conflito', 't-alerta'); return; }
+
+  const estado = await store.obterEstadoSync(alvo.uid);
+  const arq = await adapter.ler(estado.caminho);
+  if (!arq) { registrar('o arquivo sumiu lá — sincronize de novo', 't-alerta'); return; }
+
+  await adapter.escrever(estado.caminho, arq.texto.replace(/\n*$/, '\n\nEditado no OUTRO aparelho.\n'), arq.rev);
+  registrar(`lá: "${alvo.title}" editada por fora`, 't-fraco');
+
+  await store.salvarNotaLocal({
+    ...alvo,
+    blocks: parseMarkdownToBlocks(blocksToMarkdown(alvo.blocks ?? []) + '\n\nEditado AQUI, offline.'),
+    updatedAt: Date.now(),
+  });
+  registrar(`aqui: "${alvo.title}" editada em paralelo`, 't-fraco');
+
+  $('sincronizar').click();
+};
+
+$('zerar').onclick = () => {
+  if (modo === 'memoria') zerar(new MemorySyncAdapter(), 'Lá — memória');
+  else registrar('no modo pasta, apague os arquivos na mão para zerar', 't-alerta');
+};
+
+// ── Modos ──────────────────────────────────────────────────────────────────
+$('modoMemoria').onclick = () => {
+  modo = 'memoria';
+  $('modoMemoria').classList.add('ativo');
+  $('modoPasta').classList.remove('ativo');
+  zerar(new MemorySyncAdapter(), 'Lá — memória');
+  registrar('modo memória — nada é gravado em disco', 't-fraco');
+};
+
+$('modoPasta').onclick = async () => {
+  const folder = new LocalFolderAdapter();
+  const r = await folder.autenticar();
+  if (r && r.ok === false) { registrar(`pasta não liberada: ${r.erro ?? 'recusada'}`, 't-erro'); return; }
+  modo = 'pasta';
+  $('modoPasta').classList.add('ativo');
+  $('modoMemoria').classList.remove('ativo');
+  zerar(folder, 'Lá — pasta escolhida');
+  registrar('modo pasta — os .md são gravados em disco de verdade', 't-ok');
+};
+
+if (!window.showDirectoryPicker) {
+  $('semPicker').hidden = false;
+  $('modoPasta').disabled = true;
+}
+
+zerar(new MemorySyncAdapter(), 'Lá — memória');
+registrar('pronto — crie uma nota e sincronize', 't-fraco');
+</script>
+</body>
+</html>
