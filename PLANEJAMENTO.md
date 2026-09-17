@@ -535,11 +535,15 @@ Enquanto não houver domínio: `github.io` está na Public Suffix List, então `
 
 Nenhuma rede, nenhum fornecedor, nenhuma conta. É pré-requisito de todos os caminhos, inclusive do de desistir de todos.
 
-**UUIDs no lugar de `++id`.** Hoje tudo é auto-incremento. Dois aparelhos offline criam a nota 7 cada um, e não existe reconciliação possível — é a mesma chave com conteúdos diferentes. E não para na chave primária: o bloco de imagem carrega `fileId` inteiro e o markdown exporta `quickdock:file/12`, então a migração precisa **reescrever toda referência de imagem dentro de todo bloco de toda nota**.
+**Identidade que viaja: `uid` ao lado do `id`, sem tocar na chave primária.**
 
-É a mudança mais invasiva do projeto inteiro e a mais barata de fazer agora, como migração Dexie v6 local, com os testes que já existem. Depois seria fazer o mesmo com dados de outras pessoas no ar.
+O problema é real: hoje tudo é `++id` auto-incremento, e dois aparelhos offline criam a nota 7 cada um. Mas a primeira solução escrita aqui — trocar a chave primária por UUID e reescrever toda referência `fileId` dentro de todo bloco — era mais invasiva do que o problema exige. Fica registrada a correção:
 
-Entram junto: `updatedAt` confiável e ordem fracionária.
+O `id` inteiro continua existindo e passa a ser **explicitamente local**: nunca sai do aparelho. Ao lado dele entra `uid`, que é o que casa nota com arquivo. Os dois aparelhos podem ter `id` diferente para a mesma nota, e não há colisão, porque ninguém compara `id` entre aparelhos.
+
+A referência de imagem também não precisa migrar. No arquivo a imagem é `../imagens/<hash>.png`, com o nome derivado do conteúdo; a tradução entre `fileId` local e hash acontece na camada de sincronização, em tempo de execução. É código, não migração de dado.
+
+Sobra uma migração Dexie v6 pequena e segura: acrescentar `uid` indexado em `notes` e `templates`, preencher os existentes, e trocar `order` inteiro por `ordem` fracionária. Entra junto `updatedAt` confiável.
 
 **Round-trip idêntico.** Hoje o bloco é a verdade e o markdown é exportação: se a exportação perde uma vírgula, dá para dar de ombros. **A partir desta rodada o arquivo vira a verdade**, e toda sincronização é um `blocos → md → blocos`. Qualquer perda deixa de ser chateação e vira corrosão — a nota degrada um pouco a cada ciclo, em todos os aparelhos, em silêncio, e o backup já está corroído também.
 
