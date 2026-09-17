@@ -2733,6 +2733,23 @@ for (const entrada of ['', null, undefined, '\n\n']) {
     ok('drive · nenhum client secret no repositório', vazando.length === 0, vazando.join(', '));
     ok('drive · a varredura olhou uma quantidade plausível de arquivos',
        alvos.length > 20, `${alvos.length} arquivos`);
+
+    // Chave privada dentro da pasta da extensão. O .gitignore protege o
+    // repositório, mas NÃO protege o .zip da Web Store: um `.pem` ali dentro
+    // seria empacotado junto e distribuído. Quem tem essa chave publica
+    // atualizações no lugar do dono da extensão.
+    //
+    // O Chrome também reclama ao carregar sem compactação, o que foi como isto
+    // apareceu. O ID da extensão não depende do arquivo -- vem do campo `key`
+    // do manifesto -- então guardar a chave fora do projeto não custa nada.
+    const pems = [];
+    for (const dir of ['', 'sidepanel/', 'sidepanel/modules/', 'test/', 'content/', 'icons/', 'lib/', 'brand/']) {
+      let nomes = [];
+      try { nomes = await readdir(new URL(dir, raiz)); } catch { continue; }
+      for (const n of nomes) if (/\.pem$/i.test(n)) pems.push(dir + n);
+    }
+    ok('projeto · nenhuma chave privada dentro da pasta da extensão',
+       pems.length === 0, pems.join(', '));
   }
 }
 
