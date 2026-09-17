@@ -11,7 +11,43 @@ export class InMemoryStore {
   constructor() {
     this.notas = new Map();
     this.estados = new Map();
+    this.arquivos = new Map();
+    this.modelos = new Map();
+    this.arquivoSeq = 0;
     this.cursor = null;
+  }
+
+  async salvarArquivo({ name, type, blob, inline = false, noteId = null }) {
+    this.arquivoSeq++;
+    const id = this.arquivoSeq;
+    this.arquivos.set(id, { id, name, type, blob, inline: inline ? 1 : undefined, noteId, createdAt: Date.now() });
+    return id;
+  }
+
+  async obterArquivo(id) {
+    return this.arquivos.get(Number(id)) ?? null;
+  }
+
+  async obterBlobArquivo(id) {
+    const arq = this.arquivos.get(Number(id));
+    return arq ? arq.blob : null;
+  }
+
+  async listarModelosLocais() {
+    return [...this.modelos.values()];
+  }
+
+  async obterModeloPorUid(uid) {
+    return this.modelos.get(uid) ?? null;
+  }
+
+  async salvarModeloLocal(tpl) {
+    this.modelos.set(tpl.uid, { ...tpl });
+    return tpl.uid;
+  }
+
+  async excluirModeloLocal(uid) {
+    this.modelos.delete(uid);
   }
   async listarNotasLocais() {
     return [...this.notas.values()];
@@ -49,5 +85,15 @@ export class InMemoryStore {
   }
   async salvarCursorSync(c) {
     this.cursor = c;
+  }
+  async obterMeta(chave) {
+    return this.meta?.get(chave) ?? null;
+  }
+  async salvarMeta(chave, valor) {
+    if (!this.meta) this.meta = new Map();
+    this.meta.set(chave, valor);
+  }
+  async excluirMeta(chave) {
+    this.meta?.delete(chave);
   }
 }

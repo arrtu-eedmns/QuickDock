@@ -4,7 +4,7 @@ import { blocksToPlainText } from './blocks.js';
 // descartável com `criarBancoDeProvas()` e exercita a camada de armazenamento
 // real — Dexie de verdade, IndexedDB de verdade — sem chegar perto das notas de
 // ninguém. Sem isso, o DexieSyncStore seria a única peça sem forma de teste.
-const db = typeof Dexie !== 'undefined' ? definirEsquema(new Dexie('quickdock')) : null;
+export const db = typeof Dexie !== 'undefined' ? definirEsquema(new Dexie('quickdock')) : null;
 
 export function criarBancoDeProvas(nome = 'quickdock-provas') {
   if (typeof Dexie === 'undefined') throw new Error('Dexie não está carregado neste ambiente.');
@@ -599,4 +599,77 @@ export class DexieSyncStore {
   async salvarCursorSync(valor) {
     await this.db.syncMeta.put({ chave: 'cursor', valor });
   }
+
+  async obterMeta(chave) {
+    return (await this.db.syncMeta.get(chave))?.valor ?? null;
+  }
+
+  async salvarMeta(chave, valor) {
+    await this.db.syncMeta.put({ chave, valor });
+  }
+
+  async excluirMeta(chave) {
+    await this.db.syncMeta.delete(chave);
+  }
+
+  async obterArquivo(id) {
+    return (await this.db.files.get(Number(id))) ?? null;
+  }
+
+  async obterBlobArquivo(id) {
+    const file = await this.db.files.get(Number(id));
+    return file ? file.blob : null;
+  }
+
+  async salvarArquivo({ name, type, blob, inline = false, noteId = null }) {
+    const registro = {
+      name,
+      type,
+      blob,
+      noteId,
+      createdAt: Date.now(),
+    };
+    if (inline) registro.inline = 1;
+    return this.db.files.add(registro);
+  }
+
+  async listarModelosLocais() {
+    return this.db.templates.toArray();
+  }
+
+  async obterModeloPorUid(uid) {
+    return (await this.db.templates.where('uid').equals(uid).first()) ?? null;
+  }
+
+  async salvarModeloLocal(tpl) {
+    const existente = await this.obterModeloPorUid(tpl.uid);
+    if (existente) {
+      await this.db.templates.update(existente.id, { ...tpl });
+      return existente.id;
+    }
+    const { id, ...semId } = tpl;
+    return this.db.templates.add({ ...semId });
+  }
+
+  async excluirModeloLocal(uid) {
+    const tpl = await this.obterModeloPorUid(uid);
+    if (!tpl) return;
+    await this.db.templates.delete(tpl.id);
+  }
+}
+
+// Helpers diretos para acessar metadados de sincronização do banco padrão (db)
+export async function getSyncMeta(chave) {
+  if (!db) return null;
+  return (await db.syncMeta.get(chave))?.valor ?? null;
+}
+
+export async function setSyncMeta(chave, valor) {
+  if (!db) return;
+  await db.syncMeta.put({ chave, valor });
+}
+
+export async function deleteSyncMeta(chave) {
+  if (!db) return;
+  await db.syncMeta.delete(chave);
 }

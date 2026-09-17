@@ -87,25 +87,28 @@ export class LocalFolderAdapter {
     const mudancas = [];
     const encontrados = new Set();
 
-    try {
-      const dirNotas = await this.root.getDirectoryHandle('notas', { create: false });
-      for await (const [nome, handle] of dirNotas.entries()) {
-        if (handle.kind !== 'file' || !nome.endsWith('.md')) continue;
+    const pastas = ['notas', 'modelos'];
+    for (const pasta of pastas) {
+      try {
+        const dir = await this.root.getDirectoryHandle(pasta, { create: false });
+        for await (const [nome, handle] of dir.entries()) {
+          if (handle.kind !== 'file' || !nome.endsWith('.md')) continue;
 
-        const caminho = `notas/${nome}`;
-        encontrados.add(caminho);
+          const caminho = `${pasta}/${nome}`;
+          encontrados.add(caminho);
 
-        const file = await handle.getFile();
-        const rev = this.gerarRev(file);
-        const anterior = this.conhecidos.get(caminho);
+          const file = await handle.getFile();
+          const rev = this.gerarRev(file);
+          const anterior = this.conhecidos.get(caminho);
 
-        if (!anterior || anterior.rev !== rev) {
-          mudancas.push({ caminho, rev, apagado: false });
-          this.conhecidos.set(caminho, { rev });
+          if (!anterior || anterior.rev !== rev) {
+            mudancas.push({ caminho, rev, apagado: false });
+            this.conhecidos.set(caminho, { rev });
+          }
         }
+      } catch {
+        // Pasta ainda não existe
       }
-    } catch {
-      // Pasta notas ainda não existe
     }
 
     // Detecta arquivos que estavam no cache mas sumiram da pasta (excluídos no disco)
@@ -124,9 +127,10 @@ export class LocalFolderAdapter {
     try {
       const handle = await this.resolverHandleArquivo(caminho, false);
       const file = await handle.getFile();
-      const texto = await file.text();
+      const isTexto = caminho.endsWith('.md') || caminho.endsWith('.txt');
+      const texto = isTexto ? await file.text() : '';
       const rev = this.gerarRev(file);
-      return { texto, rev };
+      return { texto, blob: file, file, rev };
     } catch {
       return null;
     }

@@ -40,6 +40,7 @@ function forma(blocks) {
     if (b.fileId !== undefined)  f.fileId = b.fileId;
     if (b.alt !== undefined)     f.alt = b.alt;
     if (b.dataUrl !== undefined) f.dataUrl = b.dataUrl;
+    if (b.imagePath !== undefined) f.imagePath = b.imagePath;
     return f;
   });
 }
@@ -1072,6 +1073,499 @@ for (const { nome, blocks } of BLOCOS_V18) {
 
     const estadoB = await storeB.obterEstadoSync('u_sem_estado_6');
     ok('sync · sem estado local · estado de sincronização criado com sucesso', estadoB !== null);
+  }
+
+  // 7. Tarefa 1 (Portão): Isolamento de referências de imagens locais
+  // A chave primária local (fileId) nunca viaja na sincronização para impedir
+  // que outro aparelho aponte para um arquivo local diferente por coincidência de ID.
+  {
+    const { blocksToMarkdown, parseMarkdownToBlocks } = await import('../sidepanel/modules/blocks.js');
+
+    // 7.1: Serialização para sync omite fileId e preserva alt
+    const blocosComImg = [{ id: 'img1', type: 'image', fileId: 12, alt: 'Foto do Produto Original' }];
+    const mdSync = blocksToMarkdown(blocosComImg, { sync: true });
+    ok('sync · imagem · serialização para sync não contém fileId numérico', !/quickdock:file\/12/.test(mdSync));
+    ok('sync · imagem · serialização para sync usa marcador neutro', /quickdock:nao-sincronizado/.test(mdSync));
+
+    const volta = parseMarkdownToBlocks(mdSync);
+    igual('sync · imagem · volta não possui fileId', volta[0].fileId, undefined);
+    igual('sync · imagem · texto alternativo sobreviveu', volta[0].alt, 'Foto do Produto Original');
+    ok('sync · imagem · marcado como não-sincronizado', volta[0].unsynced === true);
+
+    // 7.2: Dois aparelhos com fileIds locais coincidentes não se confundem
+    const adapter = new MemorySyncAdapter();
+    const storeA = new InMemoryStore();
+    const storeB = new InMemoryStore();
+    const engineA = new SyncEngine({ adapter, store: storeA, deviceName: 'AparelhoA' });
+    const engineB = new SyncEngine({ adapter, store: storeB, deviceName: 'AparelhoB' });
+
+    // Aparelho A possui Nota A com fileId 12 (ex: print do cliente A)
+    await storeA.salvarNotaLocal({
+      uid: 'u_nota_a',
+      title: 'Nota do Aparelho A',
+      blocks: [{ id: 'ia', type: 'image', fileId: 12, alt: 'Print Cliente A' }],
+      ordem: 'a0',
+    });
+
+    // Aparelho B possui Nota B com fileId 12 (ex: foto do recibo B)
+    await storeB.salvarNotaLocal({
+      uid: 'u_nota_b',
+      title: 'Nota do Aparelho B',
+      blocks: [{ id: 'ib', type: 'image', fileId: 12, alt: 'Recibo Cliente B' }],
+      ordem: 'a1',
+    });
+
+    // Aparelho A sincroniza para o repositório
+    await engineA.sincronizar();
+
+    // Aparelho B sincroniza (baixa Nota A)
+    await engineB.sincronizar();
+
+    // Na máquina B, a nota A baixada NÃO pode apontar para o fileId 12 de B
+    const notaABaixadaEmB = await storeB.obterNotaPorUid('u_nota_a');
+    ok('sync · imagem · nota A baixada em B existe', notaABaixadaEmB !== null);
+    const imgBaixadaEmB = notaABaixadaEmB.blocks.find(b => b.type === 'image');
+    igual('sync · imagem · imagem de A baixada em B não tem fileId (não corrompe para recibo B)', imgBaixadaEmB.fileId, undefined);
+    igual('sync · imagem · alt de A sobreviveu em B', imgBaixadaEmB.alt, 'Print Cliente A');
+
+    // A nota nativa de B continua intacta com seu próprio fileId 12
+    const notaBNativaEmB = await storeB.obterNotaPorUid('u_nota_b');
+    const imgNativaEmB = notaBNativaEmB.blocks.find(b => b.type === 'image');
+    igual('sync · imagem · imagem nativa de B preserva fileId 12 local', imgNativaEmB.fileId, 12);
+
+    // 7.3: Preservação no aparelho de origem após round-trip de edição remota
+    // Aparelho B edita o título/texto da Nota A e sobe
+    await storeB.salvarNotaLocal({
+      ...notaABaixadaEmB,
+      blocks: [
+        ...notaABaixadaEmB.blocks,
+        { id: 'p2', type: 'paragraph', html: 'Adicionado por B' },
+      ],
+      updatedAt: Date.now() + 1000,
+    });
+    await engineB.sincronizar();
+
+    // Aparelho A sincroniza (baixa a atualização de B da Nota A)
+    await engineA.sincronizar();
+
+    const notaAAtualizadaEmA = await storeA.obterNotaPorUid('u_nota_a');
+    const imgAtualizadaEmA = notaAAtualizadaEmA.blocks.find(b => b.type === 'image');
+    igual('sync · imagem · aparelho de origem preserva fileId local 12 após sincronização', imgAtualizadaEmA.fileId, 12);
+    igual('sync · imagem · aparelho de origem preserva alt local', imgAtualizadaEmA.alt, 'Print Cliente A');
+    ok('sync · imagem · aparelho de origem incorporou texto novo de B',
+       notaAAtualizadaEmA.blocks.some(b => b.html === 'Adicionado por B'));
+  }
+
+  // 8. Tarefa 2: A nota aberta
+  // Sincronização nunca pode sobrescrever a digitação no DOM nem causar perda de foco/cursor.
+  {
+    const adapter = new MemorySyncAdapter();
+    const storeA = new InMemoryStore();
+    const storeB = new InMemoryStore();
+
+    let editorAFocado = false;
+    let editorATemEdicaoPendente = false;
+    let recarregouNotaId = null;
+    let flushSaveChamado = 0;
+    let modoModeloAtivo = false;
+
+    let domNotaA = 'Conteúdo inicial da Nota 1';
+
+    const engineA = new SyncEngine({
+      adapter,
+      store: storeA,
+      deviceName: 'AparelhoA',
+      obterNotaAbertaUid: () => 'u_aberta_1',
+      podeRecarregarNotaAberta: () => !editorAFocado && !editorATemEdicaoPendente,
+      recarregarNotaAberta: async (id, uid) => { recarregouNotaId = id ?? uid; },
+      antesDeSincronizar: async () => {
+        flushSaveChamado++;
+        // Simula o flushSave(): o DOM é gravado no banco antes de qualquer comparação
+        await storeA.salvarNotaLocal({
+          uid: 'u_aberta_1',
+          title: 'Nota 1',
+          blocks: [{ id: 'b1', type: 'paragraph', html: domNotaA }],
+          ordem: 'a0',
+        });
+      },
+      emModoModelo: () => modoModeloAtivo,
+    });
+
+    const engineB = new SyncEngine({ adapter, store: storeB, deviceName: 'AparelhoB' });
+
+    // 8.1: Estado inicial: nota criada e sincronizada
+    await storeA.salvarNotaLocal({
+      uid: 'u_aberta_1',
+      title: 'Nota 1',
+      blocks: [{ id: 'b1', type: 'paragraph', html: domNotaA }],
+      ordem: 'a0',
+    });
+    await engineA.sincronizar();
+
+    // Aparelho B baixa a nota
+    await engineB.sincronizar();
+    const notaB = await storeB.obterNotaPorUid('u_aberta_1');
+
+    // Aparelho B faz uma edição e sincroniza para o repositório
+    await storeB.salvarNotaLocal({
+      ...notaB,
+      blocks: [{ id: 'b1', type: 'paragraph', html: 'Edição vinda de B' }],
+      updatedAt: Date.now() + 500,
+    });
+    await engineB.sincronizar();
+
+    // No Aparelho A: o usuário está no meio da digitação da mesma nota no DOM
+    domNotaA = 'Edição local fresquinha que ainda está sendo digitada';
+    editorAFocado = true;
+    editorATemEdicaoPendente = true;
+
+    // 8.2: Sincronização dispara enquanto a nota está aberta e suja
+    const resRodada1 = await engineA.sincronizar();
+
+    // A descida da nota aberta DEVE ser pulada nesta rodada!
+    igual('sync · nota aberta · rodada 1 pula nota aberta ocupada', resRodada1.puladas, 1);
+    igual('sync · nota aberta · rodada 1 não baixou por cima da digitação', resRodada1.baixadas, 0);
+    igual('sync · nota aberta · recarregarNotaAberta não foi chamado no meio da digitação', recarregouNotaId, null);
+
+    // O conteúdo local no banco (após o flushSave da rodada 1) não foi destruído
+    const notaLocalDurante = await storeA.obterNotaPorUid('u_aberta_1');
+    ok('sync · nota aberta · conteúdo local digitado está intacto',
+       notaLocalDurante.blocks.some(b => b.html.includes('Edição local fresquinha')));
+
+    // 8.3: Rodada seguinte: usuário terminou de digitar, editor perdeu foco / salvou
+    editorAFocado = false;
+    editorATemEdicaoPendente = false;
+
+    const resRodada2 = await engineA.sincronizar();
+    ok('sync · nota aberta · rodada 2 processa a mudança remota pendente', resRodada2.baixadas > 0);
+    ok('sync · nota aberta · recarregarNotaAberta foi invocado com segurança', recarregouNotaId !== null);
+
+    // Ambas as alterações foram preservadas: houve conflito seguro (cópia de conflito para a edição local)
+    const todasNotasA = await storeA.listarNotasLocais();
+    ok('sync · nota aberta · cópia de conflito gerada preservando a digitação local',
+       todasNotasA.some(n => /conflito/i.test(n.title)));
+    const principalA = await storeA.obterNotaPorUid('u_aberta_1');
+    ok('sync · nota aberta · nota principal recebeu o conteúdo remoto de B',
+       principalA.blocks.some(b => b.html.includes('Edição vinda de B')));
+
+    // 8.4: Modo modelo aborta a sincronização imediatamente
+    modoModeloAtivo = true;
+    const resModelo = await engineA.sincronizar();
+    ok('sync · modo modelo aborta sincronização imediatamente', resModelo.abortadoModelo === true);
+    igual('sync · modo modelo não executa envios nem downloads', resModelo.baixadas + resModelo.enviadas, 0);
+  }
+
+  // 9. Tarefas 3, 4, 5 e 6: Persistência de pasta, controlador SyncController, mutex e conflitos
+  {
+    const { SyncController, SYNC_STATE } = await import('../sidepanel/modules/sync-controller.js');
+    const store = new InMemoryStore();
+    const adapter = new MemorySyncAdapter();
+
+    // 9.1: Persistência de metadados em store (syncMeta)
+    await store.salvarMeta('folderName', 'MinhasNotas');
+    igual('sync · meta · salvar e recuperar valor', await store.obterMeta('folderName'), 'MinhasNotas');
+    await store.excluirMeta('folderName');
+    igual('sync · meta · excluir chave limpa valor', await store.obterMeta('folderName'), null);
+
+    // 9.2: Inicialização do SyncController com adapter customizado
+    let notificouNotas = 0;
+    const controller = new SyncController({
+      store,
+      adapter,
+      onNotesChanged: () => { notificouNotas++; },
+    });
+
+    igual('sync · controller · estado inicial desconectado', controller.state, SYNC_STATE.DISCONNECTED);
+
+    // Conecta adapter
+    await controller._montarEngineComAdapter(adapter);
+    controller.state = SYNC_STATE.IDLE;
+    controller.folderName = 'NotasTrabalho';
+
+    // Cria uma nota local no store para exercitar sincronização pelo controller
+    await store.salvarNotaLocal({
+      uid: 'u_ctrl_1',
+      title: 'Nota via Controller',
+      blocks: [{ id: 'b1', type: 'paragraph', html: 'Texto do controller' }],
+      ordem: 'a0',
+    });
+
+    await controller.sincronizarAgora();
+    igual('sync · controller · sincronização conclui em estado IDLE', controller.state, SYNC_STATE.IDLE);
+    ok('sync · controller · lastSyncAt registrado', typeof controller.lastSyncAt === 'number');
+    igual('sync · controller · sem erros na rodada bem-sucedida', controller.lastSyncError, null);
+    ok('sync · controller · arquivo enviado para adapter', (await adapter.ler('notas/nota-via-controller.md')) !== null);
+
+    // 9.3: Mutex contra concorrência: duas chamadas quase simultâneas não se sobrepõem
+    let rodadasExecutadas = 0;
+    const motorOriginal = controller.engine.sincronizar.bind(controller.engine);
+    controller.engine.sincronizar = async () => {
+      rodadasExecutadas++;
+      await new Promise(r => setTimeout(r, 10));
+      return motorOriginal();
+    };
+
+    const p1 = controller.sincronizarAgora();
+    const p2 = controller.sincronizarAgora();
+    await Promise.all([p1, p2]);
+
+    ok('sync · mutex · duas chamadas não executam simultaneamente (serializadas com segurança)', rodadasExecutadas >= 1);
+    igual('sync · mutex · estado volta a IDLE após término', controller.state, SYNC_STATE.IDLE);
+
+    // 9.4: Tratamento e visibilidade de erro: falha do adapter gera estado ERROR sem laço infinito
+    controller.engine.sincronizar = async () => {
+      throw new Error('Disco desconectado ou sem permissão');
+    };
+
+    await controller.sincronizarAgora();
+    igual('sync · erro · estado muda para ERROR', controller.state, SYNC_STATE.ERROR);
+    ok('sync · erro · mensagem de erro registrada para exibição', controller.lastSyncError?.includes('Disco desconectado'));
+    ok('sync · erro · isSyncing foi liberado mesmo após falha', controller.isSyncing === false);
+
+    // 9.5: Desconexão: limpa metadados e volta para DISCONNECTED sem apagar notas
+    await controller.desconectar();
+    igual('sync · desconectar · estado volta para DISCONNECTED', controller.state, SYNC_STATE.DISCONNECTED);
+    igual('sync · desconectar · folderName limpo', controller.folderName, null);
+    ok('sync · desconectar · notas locais permanecem intactas', (await store.listarNotasLocais()).length === 1);
+    ok('sync · desconectar · arquivo no adapter permanece intacto', (await adapter.ler('notas/nota-via-controller.md')) !== null);
+
+    // 9.6: Tarefa 6 — Reconhecimento do padrão de nota de conflito
+    const titulosTeste = [
+      'Minha Nota (conflito 2026-09-16, Notebook)',
+      'Planejamento (CONFLITO 2026-01-01, Celular)',
+      'Nota Normal de Reunião',
+    ];
+    ok('sync · conflito · detecta formato padrão de cópia de conflito',
+       /conflito/i.test(titulosTeste[0]) && /conflito/i.test(titulosTeste[1]));
+    ok('sync · conflito · não confunde nota comum com conflito',
+       !/conflito/i.test(titulosTeste[2]));
+  }
+
+  // 10. Tarefa 1 (HANDOFF-3): Sincronização de imagens (hash, dedup, lazy loading e resolução)
+  {
+    const { SyncEngine, calcularHashImagem } = await import('../sidepanel/modules/sync-engine.js');
+    const storeA = new InMemoryStore();
+    const storeB = new InMemoryStore();
+    const adapter = new MemorySyncAdapter();
+    const engineA = new SyncEngine({ adapter, store: storeA, deviceName: 'AparelhoA' });
+    const engineB = new SyncEngine({ adapter, store: storeB, deviceName: 'AparelhoB' });
+
+    // 10.1: Hash determinístico estável
+    const bytes1 = new TextEncoder().encode('png-fake-bytes-12345');
+    const bytes2 = new TextEncoder().encode('png-fake-bytes-12345');
+    const bytesOutro = new TextEncoder().encode('png-fake-bytes-diferente');
+
+    const hash1 = await calcularHashImagem(bytes1);
+    const hash2 = await calcularHashImagem(bytes2);
+    const hashOutro = await calcularHashImagem(bytesOutro);
+
+    igual('imagem · hash é determinístico e estável entre execuções', hash1, hash2);
+    igual('imagem · hash tem 12 caracteres hexadecimais', hash1.length, 12);
+    ok('imagem · conteúdos diferentes produzem hashes distintos', hash1 !== hashOutro);
+
+    // 10.2: Duas notas com a mesma imagem produzem um só arquivo na pasta imagens/
+    const idArq1 = await storeA.salvarArquivo({
+      name: 'print1.png',
+      type: 'image/png',
+      blob: new Blob([bytes1], { type: 'image/png' }),
+      inline: true,
+    });
+    const idArq2 = await storeA.salvarArquivo({
+      name: 'print2.png',
+      type: 'image/png',
+      blob: new Blob([bytes1], { type: 'image/png' }),
+      inline: true,
+    });
+
+    await storeA.salvarNotaLocal({
+      uid: 'u_img_nota1',
+      title: 'Nota com Imagem 1',
+      blocks: [{ id: 'b1', type: 'image', fileId: idArq1, alt: 'diagrama portal' }],
+      ordem: 'a0',
+    });
+    await storeA.salvarNotaLocal({
+      uid: 'u_img_nota2',
+      title: 'Nota com Imagem 2',
+      blocks: [{ id: 'b2', type: 'image', fileId: idArq2, alt: 'copia do diagrama' }],
+      ordem: 'a1',
+    });
+
+    await engineA.sincronizar();
+
+    // Na pasta imagens/ do adapter deve existir exatamente UM arquivo
+    const arquivosRemotos = [...adapter.arquivos.keys()];
+    const arquivosImagens = arquivosRemotos.filter(c => c.startsWith('imagens/'));
+    igual('imagem · dedup: mesma imagem em duas notas gera apenas um arquivo em imagens/', arquivosImagens.length, 1);
+    igual('imagem · caminho do arquivo remoto corresponde ao hash', arquivosImagens[0], `imagens/${hash1}.png`);
+
+    // No markdown de cada nota, a imagem vira o caminho relativo ../imagens/<hash>.png
+    const mdNota1 = (await adapter.ler('notas/nota-com-imagem-1.md')).texto;
+    const mdNota2 = (await adapter.ler('notas/nota-com-imagem-2.md')).texto;
+    ok('imagem · markdown da nota 1 aponta para ../imagens/<hash>.png', mdNota1.includes(`../imagens/${hash1}.png`));
+    ok('imagem · markdown da nota 2 aponta para ../imagens/<hash>.png', mdNota2.includes(`../imagens/${hash1}.png`));
+    ok('imagem · texto alternativo foi preservado', mdNota1.includes('![diagrama portal]'));
+
+    // 10.3: Download preguiçoso: nota desce para o aparelho B sem baixar o binário da imagem
+    await engineB.sincronizar();
+    const notaDescidaB = await storeB.obterNotaPorUid('u_img_nota1');
+    ok('imagem · lazy: nota foi baixada para o aparelho B', notaDescidaB !== null);
+    const blocoImgB = notaDescidaB.blocks.find(b => b.type === 'image');
+    ok('imagem · lazy: bloco baixado tem imagePath relativo', blocoImgB.imagePath === `../imagens/${hash1}.png`);
+    igual('imagem · lazy: fileId local permanece indefinido antes da abertura', blocoImgB.fileId, undefined);
+    igual('imagem · lazy: nenhum arquivo de imagem foi gravado no store B durante o sync', storeB.arquivos.size, 0);
+
+    // 10.4: Resolução sob demanda: abrir a nota resolve a imagem contra o arquivo certo
+    await engineB.resolverImagensDaNota('u_img_nota1');
+    const notaAbertaB = await storeB.obterNotaPorUid('u_img_nota1');
+    const blocoResolvidoB = notaAbertaB.blocks.find(b => b.type === 'image');
+    ok('imagem · resolução: bloco ganhou fileId local após ser resolvido', typeof blocoResolvidoB.fileId === 'number');
+    igual('imagem · resolução: imagem foi salva no armazenamento do aparelho B', storeB.arquivos.size, 1);
+    const blobSalvoB = await storeB.obterBlobArquivo(blocoResolvidoB.fileId);
+    ok('imagem · resolução: blob recuperado é válido', blobSalvoB !== null);
+    const hashBaixadoB = await calcularHashImagem(blobSalvoB);
+    igual('imagem · resolução: hash do arquivo baixado bate perfeitamente com o original', hashBaixadoB, hash1);
+
+    // 10.5: Preservação no aparelho de origem após alteração de texto em outro aparelho
+    await storeB.salvarNotaLocal({
+      ...notaAbertaB,
+      blocks: [
+        blocoResolvidoB,
+        { id: 'b_novo', type: 'paragraph', html: 'Texto adicionado pelo Aparelho B' },
+      ],
+      updatedAt: Date.now() + 1000,
+    });
+    await engineB.sincronizar();
+
+    await engineA.sincronizar();
+    const notaAtualizadaA = await storeA.obterNotaPorUid('u_img_nota1');
+    const blocoImgA = notaAtualizadaA.blocks.find(b => b.type === 'image');
+    igual('imagem · preservação: aparelho A mantém seu fileId local original intacto', blocoImgA.fileId, idArq1);
+  }
+
+  // 11. Tarefa 2 (HANDOFF-3): Conflito visível no SyncController e popover
+  {
+    const { SyncEngine } = await import('../sidepanel/modules/sync-engine.js');
+    const { SyncController } = await import('../sidepanel/modules/sync-controller.js');
+    const storeA = new InMemoryStore();
+    const storeB = new InMemoryStore();
+    const adapter = new MemorySyncAdapter();
+    const engineA = new SyncEngine({ adapter, store: storeA, deviceName: 'AparelhoA' });
+    const engineB = new SyncEngine({ adapter, store: storeB, deviceName: 'AparelhoB' });
+
+    // Cria nota base compartilhada
+    await storeA.salvarNotaLocal({
+      uid: 'u_conflito_visivel',
+      title: 'Nota Importante',
+      blocks: [{ id: 'b1', type: 'paragraph', html: 'Versão original' }],
+      ordem: 'a0',
+    });
+    await engineA.sincronizar();
+    await engineB.sincronizar();
+
+    // Ambos os aparelhos editam offline
+    await storeA.salvarNotaLocal({
+      uid: 'u_conflito_visivel',
+      title: 'Nota Importante',
+      blocks: [{ id: 'b1', type: 'paragraph', html: 'Edição do Aparelho A' }],
+      ordem: 'a0',
+      updatedAt: Date.now() + 100,
+    });
+    await storeB.salvarNotaLocal({
+      uid: 'u_conflito_visivel',
+      title: 'Nota Importante',
+      blocks: [{ id: 'b1', type: 'paragraph', html: 'Edição do Aparelho B' }],
+      ordem: 'a0',
+      updatedAt: Date.now() + 200,
+    });
+
+    // Aparelho B sobe primeiro
+    await engineB.sincronizar();
+
+    // Aparelho A sincroniza e detecta o conflito
+    const resSyncA = await engineA.sincronizar();
+    igual('conflito visível · engine contabiliza conflito', resSyncA.conflitos, 1);
+    ok('conflito visível · engine fornece array de notas em conflito', Array.isArray(resSyncA.notasConflito));
+    igual('conflito visível · detalhes do conflito carregam título original', resSyncA.notasConflito[0].tituloOriginal, 'Nota Importante');
+    ok('conflito visível · título da cópia gerada contém conflito', resSyncA.notasConflito[0].tituloConflito.includes('conflito'));
+
+    // Testa gestão de conflitos no SyncController
+    const controllerA = new SyncController({ store: storeA, adapter });
+    await controllerA._montarEngineComAdapter(adapter);
+    controllerA.state = 'IDLE';
+
+    // Simula rodada que gerou conflito pelo controller
+    controllerA.conflitosPendentes.push(...resSyncA.notasConflito);
+    await storeA.salvarMeta('syncPendingConflicts', controllerA.conflitosPendentes);
+
+    const resumo = controllerA.obterResumoEstado();
+    igual('conflito visível · controller resume total de conflitos pendentes', resumo.totalConflitos, 1);
+    igual('conflito visível · conflitosPendentes contém a nota afetada', resumo.conflitosPendentes[0].tituloOriginal, 'Nota Importante');
+
+    // Ao dispensar o aviso, limpa do estado e da persistência
+    await controllerA.dispensarConflitos();
+    igual('conflito visível · dispensar limpa conflitos da memória', controllerA.conflitosPendentes.length, 0);
+    igual('conflito visível · dispensar remove metadados salvos', await storeA.obterMeta('syncPendingConflicts'), null);
+  }
+
+  // 12. Tarefa 3 (HANDOFF-3): Sincronização de modelos (pasta modelos/)
+  {
+    const { SyncEngine } = await import('../sidepanel/modules/sync-engine.js');
+    const storeA = new InMemoryStore();
+    const storeB = new InMemoryStore();
+    const adapter = new MemorySyncAdapter();
+    const engineA = new SyncEngine({ adapter, store: storeA, deviceName: 'AparelhoA' });
+    const engineB = new SyncEngine({ adapter, store: storeB, deviceName: 'AparelhoB' });
+
+    // 12.1: Modelo criado localmente sobe para modelos/<slug>.md
+    await storeA.salvarModeloLocal({
+      uid: 'u_mod_1',
+      name: 'Checklist Atendimento',
+      kind: 'note',
+      content: '# Checklist\n\n- [ ] Protocolo aberto\n- [ ] Dados conferidos',
+      ordem: 'a0',
+    });
+
+    const resEnvioMod = await engineA.sincronizar();
+    igual('modelos · envio de modelo novo concluído', resEnvioMod.enviadas, 1);
+    const arqMod = await adapter.ler('modelos/checklist-atendimento.md');
+    ok('modelos · arquivo modelos/checklist-atendimento.md criado no destino', arqMod !== null);
+    ok('modelos · frontmatter do modelo contém id', arqMod.texto.includes('id: u_mod_1'));
+    ok('modelos · frontmatter do modelo contém nome', arqMod.texto.includes('nome: Checklist Atendimento'));
+    ok('modelos · corpo markdown do modelo foi preservado', arqMod.texto.includes('- [ ] Protocolo aberto'));
+
+    // 12.2: Aparelho B baixa o modelo
+    const resDescidaMod = await engineB.sincronizar();
+    igual('modelos · aparelho B baixa o modelo novo', resDescidaMod.baixadas, 1);
+    const modB = await storeB.obterModeloPorUid('u_mod_1');
+    ok('modelos · modelo existe no store do aparelho B', modB !== null);
+    igual('modelos · nome do modelo baixado confere', modB.name, 'Checklist Atendimento');
+    igual('modelos · tipo do modelo baixado confere', modB.kind, 'note');
+
+    // 12.3: Alteração em modelo sincroniza
+    await storeB.salvarModeloLocal({
+      ...modB,
+      content: '# Checklist Atualizado\n\n- [ ] Protocolo\n- [ ] Retorno enviado',
+    });
+    await engineB.sincronizar();
+
+    await engineA.sincronizar();
+    const modAAtualizado = await storeA.obterModeloPorUid('u_mod_1');
+    ok('modelos · alteração remota propaga para o aparelho A', modAAtualizado.content.includes('Retorno enviado'));
+
+    // 12.4: Exclusão de modelo propaga
+    await adapter.apagar('modelos/checklist-atendimento.md');
+    // Adiciona lápide de exclusão simulando remoção no destino
+    adapter.seqCounter++;
+    adapter.arquivos.set('modelos/checklist-atendimento.md', {
+      conteudo: '',
+      rev: String(adapter.seqCounter),
+      apagado: true,
+      seq: adapter.seqCounter,
+    });
+
+    await engineA.sincronizar();
+    const modAApagado = await storeA.obterModeloPorUid('u_mod_1');
+    igual('modelos · exclusão remota apaga modelo do store local', modAApagado, null);
   }
 }
 

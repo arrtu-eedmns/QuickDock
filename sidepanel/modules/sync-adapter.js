@@ -69,7 +69,13 @@ export class MemorySyncAdapter {
   async ler(caminho) {
     const arq = this.arquivos.get(caminho);
     if (!arq || arq.apagado) return null;
-    return { texto: arq.conteudo, rev: arq.rev };
+    const isBlob = arq.conteudo && typeof arq.conteudo !== 'string';
+    return {
+      texto: isBlob ? '' : arq.conteudo,
+      blob: isBlob ? arq.conteudo : null,
+      conteudo: arq.conteudo,
+      rev: arq.rev,
+    };
   }
 
   /**

@@ -244,7 +244,22 @@ async function desenharRemoto() {
     div.innerHTML = `<div class="titulo">${caminho}</div><div class="meta">rev ${arq.rev}</div>`;
     const c = document.createElement('div');
     c.className = 'corpo';
-    c.textContent = arq.texto;
+    if (caminho.startsWith('imagens/')) {
+      const blob = arq.blob || (adapter.lerBlob ? await adapter.lerBlob(caminho) : null);
+      if (blob) {
+        const img = document.createElement('img');
+        img.src = URL.createObjectURL(blob);
+        img.style.maxWidth = '100%';
+        img.style.maxHeight = '140px';
+        img.style.display = 'block';
+        img.style.marginTop = '4px';
+        c.append(img);
+      } else {
+        c.textContent = '[Arquivo de imagem binária]';
+      }
+    } else {
+      c.textContent = arq.texto;
+    }
     div.append(c);
     alvo.append(div);
   }

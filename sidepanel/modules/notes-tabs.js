@@ -419,6 +419,14 @@ Excluir uma nota **não apaga** os arquivos dela: eles viram gerais.
 
 Na prática: abra a nota do caso e arraste pra dentro o PDF da carteirinha e o print do protocolo — eles ficam vinculados àquela nota e somem da vista quando você troca de aba. Já o modelo de e-mail que você usa em todo atendimento vale deixar geral, pra ter à mão em qualquer nota.
 
+## Sincronização
+
+Suas notas não precisam ficar presas neste computador. O botão 🔄 na barra de abas (ou no menu ⋯) permite salvar suas notas como arquivos normais de texto numa pasta à sua escolha.
+
+- **A pasta é sua:** você escolhe onde ela fica no computador. Pode ser uma pasta do OneDrive, Dropbox, Google Drive ou Syncthing — você continua sendo o dono dos seus dados, sem servidor nem banco nosso no caminho.
+- **Formato aberto:** cada nota vira um arquivo de texto (.md) na pasta \`notas/\`, seus modelos vão para \`modelos/\` e as imagens para \`imagens/\`. Dá pra abrir suas notas no Obsidian, VS Code ou no bloco de notas do celular.
+- **Edição em dois aparelhos:** se você editar a mesma nota em dois computadores diferentes ao mesmo tempo, nada é apagado nem sobrescrito. O QuickDock mantém as duas edições e cria uma cópia com a data e o nome do aparelho — é a chamada "cópia de conflito". Um aviso discreto no botão te avisa para você comparar as duas versões com calma e apagar a cópia quando quiser.
+
 ---
 
 Pronto — isso cobre praticamente tudo. Bom uso 🚀`;
@@ -518,8 +526,9 @@ function buildTabIndicator(meta) {
 }
 
 function buildTab(meta) {
+  const isConflict = /conflito/i.test(meta.title ?? '');
   const tab = document.createElement('div');
-  tab.className = 'note-tab' + (meta.id === activeId ? ' active' : '');
+  tab.className = 'note-tab' + (meta.id === activeId ? ' active' : '') + (isConflict ? ' is-conflict' : '');
   tab.draggable = true;
   tab.dataset.id = String(meta.id);
   tab.title = meta.title || 'Sem título';
@@ -987,8 +996,9 @@ function renderNotesListRows(pop) {
   pop.querySelectorAll('.notes-list-item').forEach(el => el.remove());
 
   for (const meta of notesMeta) {
+    const isConflict = /conflito/i.test(meta.title ?? '');
     const row = document.createElement('div');
-    row.className = 'copy-opt notes-list-item' + (meta.id === activeId ? ' current' : '');
+    row.className = 'copy-opt notes-list-item' + (meta.id === activeId ? ' current' : '') + (isConflict ? ' is-conflict' : '');
     row.draggable = true;
     row.dataset.id = String(meta.id);
 
@@ -1279,4 +1289,19 @@ export async function initNotesTabs() {
   await activateNote(initial.id);
   renderTabs();
   scrollTabIntoView(initial.id);
+}
+
+export async function refreshNotesList() {
+  notesMeta = await loadAllNotesMeta();
+  renderTabs();
+  const current = notesMeta.find(n => n.id === activeId);
+  if (!current && notesMeta.length > 0) {
+    await activateNote(notesMeta[0].id);
+    renderTabs();
+    scrollTabIntoView(notesMeta[0].id);
+  }
+}
+
+export function getActiveNoteUid() {
+  return notesMeta.find(n => n.id === activeId)?.uid ?? null;
 }

@@ -167,13 +167,36 @@ function makeDepthTracker() {
 //
 // O endereço `quickdock:file/12` é a referência interna. Ela aparece no campo
 // `content` (a rede de recuperação da nota) e é lida de volta aqui. Na
-// exportação ela é trocada por base64 de verdade, pra que o .md abra em
-// qualquer lugar — ver blocksToMarkdownForExport.
+// O endereço `quickdock:file/12` é a referência interna local do IndexedDB.
+// Ela aparece no campo `content` rápido, mas NUNCA pode viajar para outros
+// aparelhos na sincronização: o arquivo 12 em outra máquina é outra imagem qualquer.
+// Para sincronizar, grava-se o marcador neutro `quickdock:nao-sincronizado`.
 const FILE_REF_RE = /^quickdock:file\/(\d+)$/;
+const UNSYNCED_IMAGE_RE = /^quickdock:(?:nao-sincronizado|unsynced|imagem-local)$/;
+export const SYNC_IMAGE_RE = /^(?:\.\.\/)?imagens\/([a-zA-Z0-9_-]+(?:\.[a-zA-Z0-9]+)?)$/;
 const IMAGE_MD_RE = /^!\[([^\]]*)\]\(([^)\s]+)\)$/;
 
-export function imageSrcOf(b) {
+export function imageSrcOf(b, opts = {}) {
   if (b.dataUrl) return b.dataUrl;
+  // Se houver mapa de tradução fornecido pelo motor de sync (fileId -> ../imagens/<hash>.ext)
+  if (opts.mapaImagens && b.fileId != null && opts.mapaImagens.has(b.fileId)) {
+    return opts.mapaImagens.get(b.fileId);
+  }
+  // Se o bloco já traz o caminho relativo de uma imagem sincronizada baixada
+  if (b.imagePath && SYNC_IMAGE_RE.test(b.imagePath)) {
+    return b.imagePath;
+  }
+  if (b.src && SYNC_IMAGE_RE.test(b.src)) {
+    return b.src;
+  }
+  // Ao serializar para sincronização, a chave primária local não viaja.
+  // Se ainda não tem arquivo de hash associado, grava o marcador neutro de espera.
+  if (opts.sync || opts.paraSync) {
+    if (b.fileId != null || b.unsynced || b.missing) return 'quickdock:nao-sincronizado';
+  }
+  if (b.unsynced || b.missing || b.src === 'quickdock:nao-sincronizado') {
+    return 'quickdock:nao-sincronizado';
+  }
   if (b.fileId != null) return `quickdock:file/${b.fileId}`;
   return b.src ?? '';
 }
@@ -182,10 +205,14 @@ export function imageSrcOf(b) {
 // arquivo no servidor de terceiro, entregando o IP e o momento exato da
 // leitura a quem hospedou. Vira link — o endereço continua ali, clicável, e
 // quem quiser a imagem decide baixá-la.
+// Imagens não-sincronizadas preservam o texto alternativo mas nunca recebem fileId.
+// Imagens com caminho relativo na pasta imagens/ guardam o imagePath para download preguiçoso.
 function parseImageLine(alt, src) {
   const ref = FILE_REF_RE.exec(src);
   if (ref) return { type: 'image', fileId: Number(ref[1]), alt };
   if (/^data:image\//i.test(src)) return { type: 'image', dataUrl: src, alt };
+  if (UNSYNCED_IMAGE_RE.test(src)) return { type: 'image', alt, unsynced: true };
+  if (SYNC_IMAGE_RE.test(src)) return { type: 'image', alt, imagePath: src };
   return null;
 }
 
@@ -537,7 +564,7 @@ export function blocksToMarkdown(blocks, opts = {}) {
         return `${pad}${q}${ambiguo ? '***' : '---'}`;
       }
       if (b.type === 'table')   return tableToMarkdown(b.rows, `${pad}${q}`);
-      if (b.type === 'image')   return `${pad}${q}![${(b.alt ?? '').replace(/[\[\]]/g, '')}](${imageSrcOf(b)})`;
+      if (b.type === 'image')   return `${pad}${q}![${(b.alt ?? '').replace(/[\[\]]/g, '')}](${imageSrcOf(b, opts)})`;
       const text = htmlToMarkdownInline(b.html);
       switch (b.type) {
         // Sublinhado sai como setext — a forma do markdown que desenha o

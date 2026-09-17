@@ -750,14 +750,46 @@ function loadInlineImage(imgEl, fileId) {
   });
 }
 
-function setImageData(el, { fileId, alt }) {
+let imageResolver = null;
+export function setImageResolver(fn) {
+  imageResolver = fn;
+}
+
+function setImageData(el, { fileId, alt, dataUrl, imagePath, src }) {
   const img = el.querySelector('img');
   if (alt) el.dataset.alt = alt;
   else delete el.dataset.alt;
   if (img) img.alt = alt ?? '';
   if (fileId != null && Number.isFinite(Number(fileId))) {
     el.dataset.fileId = String(fileId);
+    delete el.dataset.imagePath;
+    el.classList.remove('block-image-missing');
     if (img) loadInlineImage(img, Number(fileId));
+  } else if (dataUrl) {
+    delete el.dataset.fileId;
+    delete el.dataset.imagePath;
+    el.classList.remove('block-image-missing');
+    if (img) img.src = dataUrl;
+  } else {
+    delete el.dataset.fileId;
+    const caminho = imagePath || (src && /^(\.\.\/)?imagens\//.test(src) ? src : null);
+    if (caminho) {
+      el.dataset.imagePath = caminho;
+      el.classList.add('block-image-missing');
+      // Download sob demanda (preguiçoso): busca o arquivo na pasta imagens/
+      // e renderiza assim que o resolvedor (SyncController) salvar no Dexie local.
+      if (typeof imageResolver === 'function') {
+        imageResolver(caminho, currentNoteId).then(res => {
+          if (!root.contains(el)) return;
+          if (res && res.fileId != null) {
+            setImageData(el, { fileId: res.fileId, alt });
+          }
+        }).catch(() => {});
+      }
+    } else {
+      delete el.dataset.imagePath;
+      el.classList.add('block-image-missing');
+    }
   }
 }
 
@@ -1287,6 +1319,7 @@ function serializeBlockEl(block) {
   if (type === 'image') {
     const fileId = Number(block.dataset.fileId);
     if (Number.isFinite(fileId)) b.fileId = fileId;
+    if (block.dataset.imagePath) b.imagePath = block.dataset.imagePath;
     if (block.dataset.alt) b.alt = block.dataset.alt;
     return b;
   }
@@ -1363,6 +1396,7 @@ function scheduleSave() {
 
 export async function flushSave() {
   clearTimeout(saveTimer);
+  saveTimer = null;
   flushRescan();
   if (editingTemplate || currentNoteId == null) return;
   const blocks = serializeBlocks();
@@ -1372,6 +1406,22 @@ export async function flushSave() {
   const content = blocksToMarkdown(blocks);
   await updateNoteBlocksById(currentNoteId, blocks, content);
   showSaved();
+}
+
+export function getCurrentNoteId() {
+  return currentNoteId;
+}
+
+export function isEditorFocused() {
+  return !!noteEditorEl?.contains(document.activeElement);
+}
+
+export function hasPendingSave() {
+  return saveTimer !== null;
+}
+
+export function canSafelyReloadCurrentNote() {
+  return !isEditingTemplate() && !isEditorFocused() && !hasPendingSave();
 }
 
 // Esvazia a nota aberta. Tem que passar pelo editor: escrever direto no banco
