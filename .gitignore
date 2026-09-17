@@ -9,3 +9,7 @@ brand/quickdock-logo.html
 
 # Arquivo de trava do Affinity, criado enquanto o .af está aberto
 *~lock~
+
+# Chave privada da extensão: define o ID e NUNCA pode ir pro repositório
+# (que é público). A metade pública vai no manifest.json, essa não.
+*.pem
