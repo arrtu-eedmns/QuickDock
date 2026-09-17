@@ -17,6 +17,7 @@ import {
 } from './note.js';
 import { blocksToMarkdown, blocksToPlainText, parseMarkdownToBlocks } from './blocks.js';
 import { buildBackup, parseBackup } from './backup.js';
+import { iconSvg, createIcon } from './icons.js';
 
 const tabsEl        = document.getElementById('notes-tabs');
 const btnNew        = document.getElementById('btn-new-note');
@@ -508,6 +509,11 @@ function scrollTabIntoView(id) {
 // é tratado no nível da própria aba, em buildTab.
 function buildTabIndicator(meta) {
   if (meta.icon) {
+    const ico = createIcon(meta.icon, 'note-tab-icon' + (meta.iconFilled ? ' icon-filled' : ''));
+    if (ico) {
+      ico.style.color = meta.color || 'var(--text-muted)';
+      return ico;
+    }
     const span = document.createElement('span');
     span.className = 'note-tab-icon material-symbols-rounded' + (meta.iconFilled ? ' icon-filled' : '');
     span.textContent = meta.icon;
@@ -621,9 +627,10 @@ function renderAppearanceContent(pop, meta) {
   const filledClass = meta.iconFilled ? ' icon-filled' : '';
   for (const name of COMMON_ICONS) {
     const btn = document.createElement('button');
-    btn.className = 'icon-swatch material-symbols-rounded' + filledClass + (meta.icon === name ? ' active' : '');
-    btn.textContent = name;
+    btn.className = 'icon-swatch' + filledClass + (meta.icon === name ? ' active' : '');
+    btn.innerHTML = iconSvg(name);
     btn.title = name;
+    btn.setAttribute('aria-label', name);
     btn.addEventListener('mousedown', e => e.stopPropagation());
     btn.addEventListener('click', e => { e.stopPropagation(); pickIcon(name); });
     iconGrid.appendChild(btn);
@@ -662,12 +669,13 @@ function renderAppearanceContent(pop, meta) {
   // O preview é o próprio botão de aplicar: antes era um <span> e não dava pra
   // confirmar o ícone personalizado a não ser apertando Enter.
   const iconApply = document.createElement('button');
-  iconApply.className = 'icon-custom-apply material-symbols-rounded' + filledClass;
+  iconApply.className = 'icon-custom-apply' + filledClass;
   iconApply.title = 'Usar este ícone';
+  iconApply.setAttribute('aria-label', 'Usar este ícone');
 
   const syncApply = () => {
     const name = iconInput.value.trim();
-    iconApply.textContent = name || 'add';
+    iconApply.innerHTML = iconSvg(name || 'add');
     iconApply.disabled = !name || name === meta.icon;
     iconApply.classList.toggle('is-empty', !name);
   };
@@ -992,14 +1000,47 @@ function cleanupListDrag() {
   noteDragSrcId = null;
 }
 
-function renderNotesListRows(pop) {
-  pop.querySelectorAll('.notes-list-item').forEach(el => el.remove());
+function renderNotesListRows(container, filterQuery = '', countEl = null, clearBtn = null) {
+  container.querySelectorAll('.notes-list-item, .notes-list-empty').forEach(el => el.remove());
 
-  for (const meta of notesMeta) {
+  const q = filterQuery.trim().toLowerCase();
+  const filtered = q
+    ? notesMeta.filter(m => {
+        const titleMatch = (m.title || '').toLowerCase().includes(q);
+        const contentMatch = (m.content || '').toLowerCase().includes(q);
+        return titleMatch || contentMatch;
+      })
+    : notesMeta;
+
+  if (countEl && clearBtn) {
+    if (q) {
+      const visible = filtered.length;
+      const total = notesMeta.length;
+      const hidden = total - visible;
+      countEl.textContent = `Mostrando ${visible} de ${total} notas (${hidden} oculta${hidden === 1 ? '' : 's'})`;
+      countEl.hidden = false;
+      clearBtn.hidden = false;
+    } else {
+      countEl.hidden = true;
+      clearBtn.hidden = true;
+    }
+  }
+
+  if (filtered.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'copy-opt notes-list-empty';
+    empty.style.color = 'var(--text-muted)';
+    empty.style.justifyContent = 'center';
+    empty.textContent = 'Nenhuma nota encontrada';
+    container.appendChild(empty);
+    return;
+  }
+
+  for (const meta of filtered) {
     const isConflict = /conflito/i.test(meta.title ?? '');
     const row = document.createElement('div');
     row.className = 'copy-opt notes-list-item' + (meta.id === activeId ? ' current' : '') + (isConflict ? ' is-conflict' : '');
-    row.draggable = true;
+    row.draggable = !q;
     row.dataset.id = String(meta.id);
 
     const indicator = buildTabIndicator(meta);
@@ -1011,8 +1052,9 @@ function renderNotesListRows(pop) {
 
     const editBtn = document.createElement('button');
     editBtn.className   = 'notes-list-edit-btn';
-    editBtn.textContent = '⋯';
+    editBtn.innerHTML   = iconSvg('more_horiz');
     editBtn.title       = 'Opções da nota';
+    editBtn.setAttribute('aria-label', 'Opções da nota');
     editBtn.addEventListener('mousedown', e => e.stopPropagation());
     editBtn.addEventListener('click', e => { e.stopPropagation(); openTabMenuForNote(meta); });
     row.appendChild(editBtn);
@@ -1024,34 +1066,36 @@ function renderNotesListRows(pop) {
       scrollTabIntoView(meta.id);
     });
 
-    row.addEventListener('dragstart', e => {
-      e.stopPropagation();
-      noteDragSrcId = meta.id;
-      e.dataTransfer.effectAllowed = 'move';
-      listDropIndicatorEl = document.createElement('div');
-      listDropIndicatorEl.className = 'notes-list-drop-indicator';
-    });
-    row.addEventListener('dragover', e => {
-      if (noteDragSrcId == null || noteDragSrcId === meta.id || !listDropIndicatorEl) return;
-      e.preventDefault();
-      const rect = row.getBoundingClientRect();
-      const before = e.clientY < rect.top + rect.height / 2;
-      row[before ? 'before' : 'after'](listDropIndicatorEl);
-    });
-    row.addEventListener('drop', async e => {
-      e.preventDefault();
-      e.stopPropagation();
-      if (noteDragSrcId == null) return;
-      const rect = row.getBoundingClientRect();
-      const before = e.clientY < rect.top + rect.height / 2;
-      const srcId = noteDragSrcId;
-      cleanupListDrag();
-      const moved = await reorderNotes(srcId, meta.id, before);
-      if (moved) { renderNotesListRows(pop); renderTabs(); }
-    });
-    row.addEventListener('dragend', e => { e.stopPropagation(); cleanupListDrag(); });
+    if (!q) {
+      row.addEventListener('dragstart', e => {
+        e.stopPropagation();
+        noteDragSrcId = meta.id;
+        e.dataTransfer.effectAllowed = 'move';
+        listDropIndicatorEl = document.createElement('div');
+        listDropIndicatorEl.className = 'notes-list-drop-indicator';
+      });
+      row.addEventListener('dragover', e => {
+        if (noteDragSrcId == null || noteDragSrcId === meta.id || !listDropIndicatorEl) return;
+        e.preventDefault();
+        const rect = row.getBoundingClientRect();
+        const before = e.clientY < rect.top + rect.height / 2;
+        row[before ? 'before' : 'after'](listDropIndicatorEl);
+      });
+      row.addEventListener('drop', async e => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (noteDragSrcId == null) return;
+        const rect = row.getBoundingClientRect();
+        const before = e.clientY < rect.top + rect.height / 2;
+        const srcId = noteDragSrcId;
+        cleanupListDrag();
+        const moved = await reorderNotes(srcId, meta.id, before);
+        if (moved) { renderNotesListRows(container, filterQuery, countEl, clearBtn); renderTabs(); }
+      });
+      row.addEventListener('dragend', e => { e.stopPropagation(); cleanupListDrag(); });
+    }
 
-    pop.appendChild(row);
+    container.appendChild(row);
   }
 }
 
@@ -1059,15 +1103,74 @@ function openNotesListPopover() {
   closeNotesListPopover();
   const pop = document.createElement('div');
   pop.className = 'copy-menu notes-list-popover';
-  renderNotesListRows(pop);
+
+  const searchBar = document.createElement('div');
+  searchBar.className = 'notes-search-bar';
+
+  const searchIcon = document.createElement('span');
+  searchIcon.className = 'search-icon';
+  searchIcon.innerHTML = iconSvg('search');
+
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.className = 'notes-search-input';
+  input.placeholder = 'Buscar por título ou conteúdo...';
+  input.setAttribute('aria-label', 'Buscar por título ou conteúdo');
+
+  const clearBtn = document.createElement('button');
+  clearBtn.className = 'notes-search-clear icon-btn';
+  clearBtn.innerHTML = iconSvg('close');
+  clearBtn.title = 'Limpar busca';
+  clearBtn.setAttribute('aria-label', 'Limpar busca');
+  clearBtn.hidden = true;
+
+  searchBar.append(searchIcon, input, clearBtn);
+  pop.appendChild(searchBar);
+
+  const countEl = document.createElement('div');
+  countEl.className = 'notes-search-count';
+  countEl.hidden = true;
+  pop.appendChild(countEl);
+
+  const scrollArea = document.createElement('div');
+  scrollArea.className = 'notes-list-scroll';
+  pop.appendChild(scrollArea);
+
+  const doUpdate = () => renderNotesListRows(scrollArea, input.value, countEl, clearBtn);
+
+  input.addEventListener('input', doUpdate);
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Escape') {
+      if (input.value) {
+        e.stopPropagation();
+        input.value = '';
+        doUpdate();
+      } else {
+        closeNotesListPopover();
+      }
+    }
+  });
+
+  clearBtn.addEventListener('click', e => {
+    e.stopPropagation();
+    input.value = '';
+    doUpdate();
+    input.focus();
+  });
+
+  renderNotesListRows(scrollArea, '', countEl, clearBtn);
   document.body.appendChild(pop);
   notesListPopover = pop;
   positionPopover(pop, btnNotesList);
+  setTimeout(() => input.focus(), 50);
 }
 
 btnNotesList.addEventListener('click', e => { e.stopPropagation(); openNotesListPopover(); });
 document.addEventListener('mousedown', e => {
   if (notesListPopover && !notesListPopover.contains(e.target)) closeNotesListPopover();
+});
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && notesListPopover) closeNotesListPopover();
 });
 
 // ── "Nova nota" / "Importar" (botão combinado) ────────────────────────────────

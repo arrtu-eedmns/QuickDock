@@ -221,8 +221,8 @@ export async function loadAllNotesMeta() {
   const notes = await (db.notes.schema.indexes.some(idx => idx.name === 'ordem')
     ? db.notes.orderBy('ordem')
     : db.notes.orderBy('order')).toArray();
-  return notes.map(({ id, uid, title, color, icon, iconFilled, titleHidden, ordem, order, updatedAt }) => ({
-    id, uid: uid ?? null, title, color, icon: icon ?? null, iconFilled: !!iconFilled, titleHidden: !!titleHidden, ordem: ordem ?? ordemDeIndice(order ?? 0), updatedAt,
+  return notes.map(({ id, uid, title, content, color, icon, iconFilled, titleHidden, ordem, order, updatedAt }) => ({
+    id, uid: uid ?? null, title, content: content ?? '', color, icon: icon ?? null, iconFilled: !!iconFilled, titleHidden: !!titleHidden, ordem: ordem ?? ordemDeIndice(order ?? 0), updatedAt,
   }));
 }
 

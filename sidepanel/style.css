@@ -25,11 +25,16 @@
 /* ===== RESET ===== */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-/* ===== ÍCONES (Material Symbols Rounded, Google Fonts — ver index.html) =====
-   FILL e opsz ficam em variáveis CSS (--icon-fill/--icon-opsz) em vez de
-   fixos — assim dá pra ligar "preenchido" (.icon-filled) ou ajustar o
-   tamanho óptico (.note-tab-icon) sem precisar reescrever o eixo inteiro
-   de font-variation-settings toda vez (ele não é aditivo entre regras). */
+/* ===== ÍCONES (SVG local embutido via icons.js e fallback Material Symbols) ===== */
+.qd-icon {
+  width: 1.15em;
+  height: 1.15em;
+  fill: currentColor;
+  vertical-align: middle;
+  display: inline-flex;
+  flex-shrink: 0;
+}
+
 .material-symbols-rounded {
   font-family: 'Material Symbols Rounded';
   font-variation-settings: 'FILL' var(--icon-fill, 0), 'wght' 400, 'GRAD' 0, 'opsz' var(--icon-opsz, 24);
@@ -2498,3 +2503,196 @@ body:not(.booting) .note-editor-blocks {
   border-radius: 50%;
   background: #f59e0b;
 }
+
+/* ===== LARGURA DE LEITURA (PWA Desktop / telas largas - Tarefa 2) =====
+   Evita que o texto estique por milhares de pixels na tela do computador.
+   Alinhado ao centro com margem confortável para leitura. */
+@media (min-width: 768px) {
+  .note-editor-blocks {
+    max-width: 720px;
+    margin: 0 auto;
+    width: 100%;
+  }
+}
+
+/* ===== ENTRADA POR TOQUE / PONTEIRO GROSSO (pointer: coarse - Tarefas 1, 2, 3) =====
+   Alvos com no mínimo 44px, alças acessíveis e botão flutuante de seleção. */
+.btn-touch-select {
+  display: none;
+}
+
+@media (pointer: coarse) {
+  .btn-touch-select {
+    display: flex;
+    position: fixed;
+    right: 16px;
+    bottom: 20px;
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    z-index: 999;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.28);
+    background: var(--bg-secondary);
+    color: var(--text-muted);
+    border: 2px solid var(--border);
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s, border-color 0.15s, transform 0.15s;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .btn-touch-select svg.qd-icon {
+    width: 24px;
+    height: 24px;
+  }
+
+  .btn-touch-select.is-active,
+  .btn-touch-select[aria-pressed="true"] {
+    background: var(--accent);
+    color: #ffffff;
+    border-color: var(--accent);
+    transform: scale(1.08);
+    box-shadow: 0 4px 16px rgba(35, 131, 226, 0.5);
+  }
+
+  /* Alvos mínimos de 44px para dedos */
+  .icon-btn,
+  .docs-view-opt,
+  .group-action-btn,
+  .group-action-close,
+  .viewer-btn,
+  .template-bar-btn,
+  .btn-touch-select,
+  .tt-btn {
+    min-height: 44px;
+    min-width: 44px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .note-tab {
+    min-height: 40px;
+    padding: 0 12px;
+  }
+
+  .type-cell {
+    min-height: 52px;
+    padding: 6px 4px;
+  }
+
+  /* Controles de bloco (+ / ⠿) em dispositivos com toque: alvos maiores e visíveis ao focar */
+  .block-controls {
+    gap: 6px;
+  }
+
+  .block-add-btn,
+  .block-handle-btn {
+    min-width: 44px;
+    min-height: 44px;
+    font-size: 16px;
+    background: var(--bg-hover);
+    border-radius: var(--radius-sm);
+  }
+
+  /* Exibe controles de bloco no toque ou foco sem depender de hover */
+  .note-editor-blocks .block:focus-within {
+    position: relative;
+  }
+}
+
+/* ===== SEÇÃO DE DOCUMENTOS COLAPSÁVEL (Tarefa 6) ===== */
+.docs-header {
+  cursor: pointer;
+  user-select: none;
+}
+
+.docs-toggle-btn {
+  margin-right: 2px;
+  transition: transform 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.docs-section.is-collapsed .docs-toggle-btn svg {
+  transform: rotate(-90deg);
+}
+
+.docs-section.is-collapsed {
+  height: 38px !important;
+  min-height: 38px !important;
+  max-height: 38px !important;
+  flex: 0 0 38px !important;
+  overflow: hidden;
+}
+
+.docs-section.is-collapsed .drop-zone,
+.docs-section.is-collapsed #group-bar,
+.docs-section.is-collapsed .docs-view-switch,
+.docs-section.is-collapsed #btn-upload {
+  display: none !important;
+}
+
+.note-section.docs-collapsed,
+#app:has(.docs-section.is-collapsed) .note-section {
+  flex: 1 1 auto;
+  height: calc(100vh - 38px) !important;
+}
+
+#resize-handle.docs-collapsed,
+#app:has(.docs-section.is-collapsed) #resize-handle {
+  display: none !important;
+}
+
+/* ===== BUSCA NO POPOVER DE NOTAS (Tarefa 5) ===== */
+.notes-search-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-secondary);
+}
+
+.notes-search-bar .search-icon {
+  width: 16px;
+  height: 16px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.notes-search-input {
+  flex: 1;
+  background: none;
+  border: none;
+  outline: none;
+  font-family: var(--font);
+  font-size: 12px;
+  color: var(--text);
+}
+
+.notes-search-input::placeholder {
+  color: var(--text-muted);
+}
+
+.notes-search-clear {
+  padding: 2px 4px;
+  font-size: 11px;
+  line-height: 1;
+}
+
+.notes-search-count {
+  padding: 5px 8px 3px;
+  font-size: 10.5px;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.notes-list-scroll {
+  max-height: 320px;
+  overflow-y: auto;
+}
+

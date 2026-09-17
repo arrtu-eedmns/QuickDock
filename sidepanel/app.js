@@ -7,6 +7,8 @@ import { SyncController, SYNC_STATE } from './modules/sync-controller.js';
 import { canSafelyReloadCurrentNote, switchToNote, flushSave, isEditingTemplate, setImageResolver } from './modules/note.js';
 import { conectarPainel } from './modules/platform.js';
 
+import { iconSvg } from './modules/icons.js';
+
 const btnAppMenu = document.getElementById('btn-app-menu');
 const btnSync    = document.getElementById('btn-sync');
 const html       = document.documentElement;
@@ -47,10 +49,16 @@ function openAppMenu() {
   const menu = document.createElement('div');
   menu.className = 'copy-menu app-menu';
 
-  const addOpt = (label, onClick, className = '') => {
+  const addOpt = (iconName, label, onClick, className = '') => {
     const opt = document.createElement('button');
     opt.className = `copy-opt ${className}`.trim();
-    opt.textContent = label;
+    const icon = document.createElement('span');
+    icon.style.marginRight = '8px';
+    icon.style.display = 'inline-flex';
+    icon.innerHTML = iconSvg(iconName);
+    const span = document.createElement('span');
+    span.textContent = label;
+    opt.append(icon, span);
     opt.addEventListener('click', async () => {
       closeAppMenu();
       await onClick();
@@ -59,15 +67,15 @@ function openAppMenu() {
   };
 
   const dark = html.getAttribute('data-theme') === 'dark';
-  addOpt('📘  Ver tutorial', createTutorialNote);
-  addOpt(dark ? '☀️  Tema claro' : '🌙  Tema escuro', toggleTheme);
-  addOpt('🔄  Sincronização…', () => syncController?.abrirPopover(btnAppMenu));
+  addOpt('menu_book', 'Ver tutorial', createTutorialNote);
+  addOpt(dark ? 'light_mode' : 'dark_mode', dark ? 'Tema claro' : 'Tema escuro', toggleTheme);
+  addOpt('sync', 'Sincronização…', () => syncController?.abrirPopover(btnAppMenu));
 
   menu.appendChild(Object.assign(document.createElement('div'), { className: 'math-divider' }));
 
   // Um arquivo com tudo dentro. Existe pra que atualizar a extensão nunca
   // dependa de confiança: dá pra guardar as notas antes e conferir depois.
-  addOpt('💾  Baixar todas as notas', downloadAllNotes);
+  addOpt('download', 'Baixar todas as notas', downloadAllNotes);
 
   document.body.appendChild(menu);
   appMenuEl = menu;

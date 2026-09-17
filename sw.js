@@ -40,6 +40,7 @@ const ASSET_PATHS = [
   'sidepanel/modules/active-area.js',
   'sidepanel/modules/popover.js',
   'sidepanel/modules/templates.js',
+  'sidepanel/modules/icons.js',
   'sidepanel/modules/backup.js',
   'sidepanel/modules/snapshot.js',
   'sidepanel/modules/sync-engine.js',

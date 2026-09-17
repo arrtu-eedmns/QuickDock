@@ -6,7 +6,9 @@ import { openModal } from './modal.js';
 import { startInject, startInjectMultiple } from './inject.js';
 import { initSelection, clearSelection, getSelectedMetas } from './selection.js';
 import { setActiveArea } from './active-area.js';
-import { podeInserirNaPagina } from './platform.js';
+import { podeInserirNaPagina, isExtension, platformStorage } from './platform.js';
+import { isTouchSelectionMode } from './note.js';
+import { iconSvg } from './icons.js';
 
 const grid           = document.getElementById('doc-grid');
 const dropZone       = document.getElementById('drop-zone');
@@ -22,6 +24,9 @@ const btnViewNote    = document.getElementById('btn-view-note');
 const btnViewAll     = document.getElementById('btn-view-all');
 const hiddenHint     = document.getElementById('docs-hidden-hint');
 const docsSection    = document.querySelector('.docs-section');
+const docsHeader     = document.getElementById('docs-header');
+const btnDocsToggle  = document.getElementById('btn-docs-toggle');
+const docsTitle      = document.getElementById('docs-title');
 
 const ALLOWED_TYPES = ['image/', 'application/pdf', 'text/plain'];
 
@@ -33,6 +38,35 @@ let currentNoteId = null;
 let allMetas      = [];
 let viewMode      = 'note';
 let ready         = false;
+let isDocsCollapsed = false;
+
+export function updateDocsHeader() {
+  if (!docsTitle) return;
+  const count = allMetas.filter(isVisible).length;
+  if (isDocsCollapsed) {
+    docsTitle.textContent = `Documentos (${count})`;
+    docsTitle.title = 'Clique para expandir documentos';
+  } else {
+    docsTitle.textContent = 'Documentos';
+    docsTitle.title = '';
+  }
+}
+
+export function setDocsCollapsed(collapsed) {
+  isDocsCollapsed = collapsed;
+  docsSection.classList.toggle('is-collapsed', collapsed);
+  const noteSec = document.querySelector('.note-section');
+  if (noteSec) noteSec.classList.toggle('docs-collapsed', collapsed);
+  const resizer = document.getElementById('resize-handle');
+  if (resizer) resizer.classList.toggle('docs-collapsed', collapsed);
+  updateDocsHeader();
+}
+
+export async function toggleDocsCollapsed() {
+  const next = !docsSection.classList.contains('is-collapsed');
+  setDocsCollapsed(next);
+  await platformStorage.set('docs_collapsed', next);
+}
 
 // Imagem colada dentro da nota fica fora da lista de Documentos: ela já está
 // visível dentro da nota, e repeti-la aqui faria a seção encher de recorte a
@@ -60,6 +94,7 @@ async function renderGrid() {
     grid.appendChild(await buildCard(meta));
   }
   paintView();
+  updateDocsHeader();
 }
 
 // O ponto da visão "Nesta nota" é filtrar, mas filtrar em silêncio é como se
@@ -109,9 +144,9 @@ function updateGroupBar() {
   groupCount.textContent = `${metas.length} selecionado${metas.length > 1 ? 's' : ''}`;
 
   const pin = selectionWouldPin();
-  btnScopeSel.hidden      = currentNoteId === null;
-  btnScopeSel.textContent = pin ? '📌 Vincular' : '📌 Tornar geral';
-  btnScopeSel.title       = pin
+  btnScopeSel.hidden    = currentNoteId === null;
+  btnScopeSel.innerHTML = `${iconSvg('push_pin')} ${pin ? 'Vincular' : 'Tornar geral'}`;
+  btnScopeSel.title     = pin
     ? 'Mostrar estes documentos só na nota aberta'
     : 'Mostrar estes documentos em todas as notas';
 }
@@ -204,7 +239,7 @@ async function buildThumbEl(type, blob) {
   }
   const icon = document.createElement('div');
   icon.className = 'doc-icon';
-  icon.textContent = type === 'application/pdf' ? '📄' : '📝';
+  icon.innerHTML = iconSvg(type === 'application/pdf' ? 'picture_as_pdf' : 'description');
   return icon;
 }
 
@@ -227,7 +262,7 @@ async function buildCard(meta) {
   const delBtn = document.createElement('button');
   delBtn.className   = 'doc-delete';
   delBtn.title       = 'Remover';
-  delBtn.textContent = '✕';
+  delBtn.innerHTML   = iconSvg('close');
   delBtn.addEventListener('click', async e => {
     e.stopPropagation();
     await deleteFile(id);
@@ -237,8 +272,8 @@ async function buildCard(meta) {
   });
 
   const scopeBtn = document.createElement('button');
-  scopeBtn.className = 'doc-scope material-symbols-rounded';
-  scopeBtn.textContent = 'push_pin';
+  scopeBtn.className = 'doc-scope';
+  scopeBtn.innerHTML = iconSvg('push_pin');
   scopeBtn.hidden = currentNoteId === null;
   scopeBtn.addEventListener('click', async e => {
     e.stopPropagation();
@@ -300,10 +335,10 @@ export async function initDocuments() {
   ready = true;
   await renderGrid();
 
-  // Clique simples em card abre modal (sem modificadores)
-  // Ctrl/Shift são tratados por selection.js via mousedown
+  // Clique simples em card abre modal (sem modificadores nem modo toque)
+  // Ctrl/Shift/modo toque são tratados por selection.js via mousedown/touchstart
   grid.addEventListener('click', e => {
-    if (e.ctrlKey || e.metaKey || e.shiftKey) return;
+    if (e.ctrlKey || e.metaKey || e.shiftKey || isTouchSelectionMode()) return;
     if (e.target.closest('.doc-delete, .doc-inject')) return;
     const card = e.target.closest('.doc-card');
     if (!card) return;
@@ -314,6 +349,26 @@ export async function initDocuments() {
     const gallery = type.startsWith('image/') ? getImageGalleryMetas() : null;
     openModal(Number(card.dataset.id), card.dataset.name, type, gallery);
   });
+
+  // Estado colapsável da seção de documentos (Tarefa 6)
+  // Padrão: recolhido no PWA (!isExtension), aberto na extensão (isExtension)
+  const savedCollapsed = await platformStorage.get('docs_collapsed');
+  const initialCollapsed = savedCollapsed !== undefined ? !!savedCollapsed : !isExtension;
+  setDocsCollapsed(initialCollapsed);
+
+  if (btnDocsToggle) {
+    btnDocsToggle.addEventListener('click', e => {
+      e.stopPropagation();
+      toggleDocsCollapsed();
+    });
+  }
+
+  if (docsHeader) {
+    docsHeader.addEventListener('click', e => {
+      if (e.target.closest('#btn-upload, .docs-view-opt, #file-input, .icon-btn:not(.docs-toggle-btn)')) return;
+      toggleDocsCollapsed();
+    });
+  }
 
   // Seleção centralizada no módulo selection.js
   initSelection(grid, dropZone, updateGroupBar);

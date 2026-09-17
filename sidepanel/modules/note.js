@@ -13,14 +13,49 @@ import {
 } from './blocks.js';
 import { blockTemplates, openSaveBlockTemplate } from './templates.js';
 import { copyBlocksAsImage, downloadBlocksAsImage } from './snapshot.js';
+import { iconSvg, createIcon } from './icons.js';
 
 const noteSection  = document.querySelector('.note-section');
 const noteEditorEl = document.querySelector('.note-editor');
 const root         = document.getElementById('note-editor-blocks');
 const indicator    = document.getElementById('save-indicator');
+const btnTouchSelect = document.getElementById('btn-touch-select');
 
 let currentNoteId  = null;
 let isCtrlHeld     = false;
+let touchSelectionActive = false;
+
+// ── Modo de seleção por toque (em telas com dedo / pointer: coarse) ─────────
+export function isTouchSelectionMode() {
+  return touchSelectionActive;
+}
+
+export function setTouchSelectionMode(active) {
+  if (touchSelectionActive === active) return;
+  touchSelectionActive = active;
+  noteSection.classList.toggle('touch-selection-active', active);
+  noteSection.classList.toggle('ctrl-active', active || isCtrlHeld);
+  if (btnTouchSelect) {
+    btnTouchSelect.classList.toggle('is-active', active);
+    btnTouchSelect.setAttribute('aria-pressed', active ? 'true' : 'false');
+  }
+  if (active) {
+    showFeedback('Modo seleção ativo · toque para selecionar');
+  } else {
+    if (!activeMenu) indicator.classList.remove('visible');
+  }
+}
+
+export function toggleTouchSelectionMode() {
+  setTouchSelectionMode(!touchSelectionActive);
+}
+
+if (btnTouchSelect) {
+  btnTouchSelect.addEventListener('click', e => {
+    e.stopPropagation();
+    toggleTouchSelectionMode();
+  });
+}
 let activeMenu     = null;
 let indicatorTimer = null;
 let saveTimer      = null;
@@ -1344,7 +1379,7 @@ export function getCurrentBlocks() {
 }
 
 function showSaved() {
-  indicator.textContent = 'salvo ✓';
+  indicator.innerHTML = `salvo ${iconSvg('check')}`;
   indicator.classList.add('visible');
   clearTimeout(indicatorTimer);
   indicatorTimer = setTimeout(() => indicator.classList.remove('visible'), 2200);
@@ -1552,7 +1587,10 @@ document.addEventListener('mousedown', e => {
   if (activeMenu && !activeMenu.contains(e.target)) closeCopyMenu();
 });
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') closeCopyMenu();
+  if (e.key === 'Escape') {
+    closeCopyMenu();
+    if (touchSelectionActive) setTouchSelectionMode(false);
+  }
 });
 
 // ── Feedback visual ───────────────────────────────────────────────────────────
@@ -1565,6 +1603,9 @@ function showFeedback(msg) {
     if (isCtrlHeld) {
       indicator.textContent = 'Ctrl+clique para copiar';
       indicator.classList.add('visible');
+    } else if (touchSelectionActive) {
+      indicator.textContent = 'Modo seleção ativo · toque para selecionar';
+      indicator.classList.add('visible');
     }
   }, 1400);
 }
@@ -1573,12 +1614,12 @@ function showFeedback(msg) {
 function setCtrl(active) {
   if (isCtrlHeld === active) return;
   isCtrlHeld = active;
-  noteSection.classList.toggle('ctrl-active', active);
+  noteSection.classList.toggle('ctrl-active', active || touchSelectionActive);
 
   if (active) {
     showFeedback('Ctrl+clique para copiar');
   } else {
-    if (!activeMenu) indicator.classList.remove('visible');
+    if (!activeMenu && !touchSelectionActive) indicator.classList.remove('visible');
   }
 }
 
@@ -1590,12 +1631,12 @@ document.addEventListener('keyup', e => {
 });
 window.addEventListener('blur', () => setCtrl(false));
 
-// ── Clique em marcação detectada (CPF, data, cálculo…) ────────────────────────
+// ── Clique em marcação detectada (CPF, data, cálculo…) ou seleção por toque ──
 root.addEventListener('click', e => {
-  if (!isCtrlHeld) return;
+  if (!isCtrlHeld && !touchSelectionActive) return;
 
-  // Mesmo gesto que abre o menu de CPF/data: com Ctrl, clique em link navega.
-  // Sem Ctrl o clique só posiciona o cursor — senão não dá pra editar o texto.
+  // Mesmo gesto que abre o menu de CPF/data: com Ctrl ou modo de seleção por toque, clique em link navega.
+  // Sem Ctrl/modo toque o clique só posiciona o cursor — senão não dá pra editar o texto.
   const link = e.target.closest('a');
   if (link && root.contains(link)) {
     const href = safeHref(link.getAttribute('href'));
@@ -1607,7 +1648,18 @@ root.addEventListener('click', e => {
   }
 
   const mark = e.target.closest('mark');
-  if (!mark) { closeCopyMenu(); return; }
+  if (!mark) {
+    // No modo de seleção por toque, tocar em um bloco (fora de link/mark) seleciona o bloco
+    if (touchSelectionActive) {
+      const block = e.target.closest('.block');
+      if (block && root.contains(block)) {
+        handleHandleClick(block, true);
+        e.preventDefault();
+      }
+    }
+    closeCopyMenu();
+    return;
+  }
 
   const type = mark.dataset.type;
   const raw  = mark.dataset.value;
@@ -2114,14 +2166,18 @@ function buildTypeGrid(itens, aoEscolher) {
     const btn = document.createElement('button');
     btn.className = 'type-cell';
     btn.title = it.hint ? `${it.label} · ${it.hint}` : it.label;
-    const ico = document.createElement('span');
-    ico.className = 'material-symbols-rounded';
-    ico.textContent = it.icon;
+    const ico = createIcon(it.icon, 'type-cell-icon') || (() => {
+      const s = document.createElement('span');
+      s.className = 'material-symbols-rounded';
+      s.textContent = it.icon;
+      return s;
+    })();
     const nome = document.createElement('span');
     nome.className = 'type-cell-label';
     nome.textContent = it.short;   // textContent: nome de modelo é texto do usuário
     btn.append(ico, nome);
     btn.addEventListener('mousedown', e => { e.preventDefault(); e.stopPropagation(); });
+    btn.addEventListener('touchstart', e => { e.stopPropagation(); }, { passive: true });
     btn.addEventListener('click', e => { e.stopPropagation(); aoEscolher(i); });
     grade.appendChild(btn);
   });
@@ -3279,7 +3335,7 @@ const MD_BUTTONS = [
   { label: 'I',   title: 'Itálico (selecione o texto)',   action: () => execFormat('italic') },
   { label: 'S',   title: 'Riscado (selecione o texto)',   action: () => execFormat('strikeThrough') },
   { label: '</>', title: 'Código (selecione o texto)',     action: () => wrapSelectionInTag('code') },
-  { label: '🔗',  title: 'Link (Ctrl+K)',                  action: () => applyLink() },
+  { label: '🔗', iconName: 'link', title: 'Link (Ctrl+K)', action: () => applyLink() },
   null,
   { label: 'T',   title: 'Texto normal (remove a formatação do bloco)', action: () => convertSelectedBlocks('paragraph') },
   { label: 'H1',  title: 'Título 1',                       action: () => convertSelectedBlocks('heading1') },
@@ -3308,7 +3364,11 @@ for (const b of MD_BUTTONS) {
   const btn = document.createElement('button');
   btn.className   = 'tt-btn';
   btn.title       = b.title;
-  btn.textContent = b.label;
+  if (b.iconName) {
+    btn.innerHTML = iconSvg(b.iconName);
+  } else {
+    btn.textContent = b.label;
+  }
   btn.addEventListener('mousedown', e => e.preventDefault());
   btn.addEventListener('click', b.action);
   mdBar.appendChild(btn);
@@ -3392,13 +3452,15 @@ blockControls.hidden = true;
 
 const blockAddBtn = document.createElement('button');
 blockAddBtn.className = 'block-add-btn';
-blockAddBtn.textContent = '+';
+blockAddBtn.innerHTML = iconSvg('add');
 blockAddBtn.title = 'Adicionar bloco abaixo (Ctrl+clique: acima)';
+blockAddBtn.setAttribute('aria-label', 'Adicionar bloco');
 
 const blockHandleBtn = document.createElement('button');
 blockHandleBtn.className = 'block-handle-btn';
-blockHandleBtn.textContent = '⠿';
+blockHandleBtn.innerHTML = iconSvg('drag_indicator');
 blockHandleBtn.title = 'Clique: opções do bloco · Arrastar: mover · Ctrl+arrastar (em qualquer lugar do bloco): selecionar vários';
+blockHandleBtn.setAttribute('aria-label', 'Opções e movimentação do bloco');
 
 blockControls.append(blockAddBtn, blockHandleBtn);
 noteEditorEl.appendChild(blockControls);
@@ -3571,7 +3633,7 @@ function openBlockMenu(block, anchorEl) {
     const btn = document.createElement('button');
     btn.className = `block-menu-quick ${extra}`.trim();
     btn.title = scopeCount > 1 ? `${titulo} (${scopeCount} blocos)` : titulo;
-    btn.innerHTML = `<span class="material-symbols-rounded">${icone}</span>`;
+    btn.innerHTML = iconSvg(icone);
     btn.addEventListener('mousedown', e => e.stopPropagation());
     btn.addEventListener('click', e => { e.stopPropagation(); closeBlockMenu(); run(); });
     barra.appendChild(btn);
@@ -3960,6 +4022,87 @@ document.addEventListener('mousemove', e => {
 
 document.addEventListener('mouseup', finishPointerGesture);
 
+// ── Toque na alça de bloco (dedo / pointer: coarse) ──────────────────────────
+// Diferencia toque rápido (abre menu / seleciona) de toque longo (~350ms) para
+// arrastar e reordenar blocos sem brigar com a rolagem natural da página.
+let touchDragTimer = null;
+let touchDragState = null; // { block, startX, startY, moved, dragging }
+
+blockHandleBtn.addEventListener('touchstart', e => {
+  if (!hoveredBlock) return;
+  const touch = e.touches[0];
+  const block = hoveredBlock;
+  touchDragState = {
+    block,
+    startX: touch.clientX,
+    startY: touch.clientY,
+    moved: false,
+    dragging: false,
+  };
+
+  clearTimeout(touchDragTimer);
+  touchDragTimer = setTimeout(() => {
+    if (!touchDragState) return;
+    touchDragState.dragging = true;
+    hideBlockControls();
+    if (touchSelectionActive) {
+      startRangeSelectDrag(block);
+    } else {
+      startBlockReorderDrag(block);
+    }
+    if (navigator.vibrate) {
+      try { navigator.vibrate(40); } catch (_) {}
+    }
+  }, 350);
+}, { passive: true });
+
+blockHandleBtn.addEventListener('touchmove', e => {
+  if (!touchDragState) return;
+  const touch = e.touches[0];
+  const dx = Math.abs(touch.clientX - touchDragState.startX);
+  const dy = Math.abs(touch.clientY - touchDragState.startY);
+
+  // Se moveu mais de 8px antes dos 350ms, o usuário estava rolando a página: cancela
+  if (!touchDragState.dragging) {
+    if (dx > 8 || dy > 8) {
+      clearTimeout(touchDragTimer);
+      touchDragState = null;
+    }
+    return;
+  }
+
+  // Toque longo confirmado: arrasto ativo, previne rolagem nativa
+  e.preventDefault();
+  if (touchSelectionActive) {
+    updateRangeSelectDrag(touch);
+  } else {
+    updateBlockReorderDrag(touch);
+  }
+}, { passive: false });
+
+function finishTouchDrag() {
+  clearTimeout(touchDragTimer);
+  if (!touchDragState) return;
+  if (touchDragState.dragging) {
+    if (touchSelectionActive) finishRangeSelectDrag();
+    else finishBlockReorderDrag();
+  } else {
+    // Toque rápido (soltou antes dos 350ms sem mover): abre o menu ou seleciona
+    handleHandleClick(touchDragState.block, touchSelectionActive);
+  }
+  touchDragState = null;
+}
+
+blockHandleBtn.addEventListener('touchend', finishTouchDrag);
+blockHandleBtn.addEventListener('touchcancel', () => {
+  clearTimeout(touchDragTimer);
+  if (touchDragState?.dragging) {
+    if (touchSelectionActive) finishRangeSelectDrag();
+    else finishBlockReorderDrag();
+  }
+  touchDragState = null;
+});
+
 // ── Ctrl+arrastar a partir de qualquer lugar do bloco (não só a alça) ────────
 // Só ativa como seleção quando o mouse realmente se move — um Ctrl+clique
 // parado continua funcionando normalmente pro menu de cópia de CPF/data/etc.
@@ -4041,3 +4184,51 @@ document.addEventListener('selectionchange', () => {
   // ela tem os próprios caminhos de saída (Esc, clique fora).
   if (selecaoEspelhada) clearBlockSelection();
 });
+
+// ── Controles de bloco sem hover (toque e foco no celular) ───────────────────
+// Em telas de toque (:hover não existe), posiciona os controles (+ / ⠿) ao tocar
+// ou focar em um bloco qualquer, tornando as ações alcançáveis no celular.
+root.addEventListener('focusin', e => {
+  const block = e.target.closest('.block');
+  if (block && root.contains(block)) {
+    positionBlockControls(block);
+  }
+});
+
+root.addEventListener('touchstart', e => {
+  const block = e.target.closest('.block');
+  if (block && root.contains(block)) {
+    positionBlockControls(block);
+  }
+}, { passive: true });
+
+// ── Teclado virtual: rolar para manter o cursor visível ao digitar ───────────
+function scrollCursorIntoView() {
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0) return;
+  const range = sel.getRangeAt(0);
+  let rect = range.getBoundingClientRect();
+  if (rect.width === 0 && rect.height === 0) {
+    const el = range.startContainer.nodeType === Node.ELEMENT_NODE
+      ? range.startContainer
+      : range.startContainer.parentElement;
+    if (el) rect = el.getBoundingClientRect();
+  }
+  if (!rect || (rect.top === 0 && rect.bottom === 0)) return;
+
+  const vpBottom = window.visualViewport
+    ? window.visualViewport.offsetTop + window.visualViewport.height
+    : window.innerHeight;
+
+  const margin = 50;
+  if (rect.bottom > vpBottom - margin) {
+    const diff = rect.bottom - (vpBottom - margin);
+    root.scrollTop += diff;
+  }
+}
+
+if (window.visualViewport) {
+  window.visualViewport.addEventListener('resize', scrollCursorIntoView);
+}
+root.addEventListener('input', scrollCursorIntoView);
+

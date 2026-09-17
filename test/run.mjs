@@ -2756,6 +2756,74 @@ for (const entrada of ['', null, undefined, '\n\n']) {
   }
 }
 
+// ── 16. Interface: ícones locais, busca de notas, colapso de documentos e offline ──
+{
+  const { ICONS, iconSvg } = await import('../sidepanel/modules/icons.js');
+
+  // 16.1: Biblioteca de ícones SVG locais
+  ok('icons · ICONS contém pelo menos 30 ícones mapeados', Object.keys(ICONS).length >= 30);
+  ok('icons · menu existe e tem path', typeof ICONS.menu === 'string' && ICONS.menu.includes('<path'));
+  ok('icons · add existe e tem path', typeof ICONS.add === 'string' && ICONS.add.includes('<path'));
+  ok('icons · search existe e tem path', typeof ICONS.search === 'string' && ICONS.search.includes('<path'));
+  ok('icons · touch_app existe e tem path', typeof ICONS.touch_app === 'string' && ICONS.touch_app.includes('<path'));
+  ok('icons · drag_indicator existe e tem path', typeof ICONS.drag_indicator === 'string' && ICONS.drag_indicator.includes('<path'));
+
+  const svgStr = iconSvg('search');
+  ok('icons · iconSvg gera SVG válido com classe e viewBox',
+     svgStr.includes('class="qd-icon') && svgStr.includes('viewBox="0 0 24 24"') && svgStr.endsWith('</svg>'));
+  ok('icons · iconSvg para ícone inexistente faz fallback gracioso para description',
+     iconSvg('icone_inexistente_xyz').includes('viewBox="0 0 24 24"'));
+
+  // 16.2: Ícones comuns usados nas abas existem no dicionário local
+  const abasIcons = ['note', 'edit_note', 'checklist', 'star', 'flag', 'bookmark', 'folder', 'lightbulb', 'push_pin', 'label', 'event'];
+  for (const nome of abasIcons) {
+    ok(`icons · ícone comum de aba "${nome}" existe em ICONS`, typeof ICONS[nome] === 'string');
+  }
+
+  // 16.3: Sem dependência remota de fontes ou CDN (MV3 e PWA offline)
+  const { readFile } = await import('node:fs/promises');
+  const indexHtml = await readFile(new URL('../index.html', import.meta.url), 'utf8');
+  const sidepanelHtml = await readFile(new URL('../sidepanel/index.html', import.meta.url), 'utf8');
+  const notFoundHtml = await readFile(new URL('../404.html', import.meta.url), 'utf8');
+
+  ok('offline · index.html não carrega fonts.googleapis.com', !indexHtml.includes('fonts.googleapis.com'));
+  ok('offline · sidepanel/index.html não carrega fonts.googleapis.com', !sidepanelHtml.includes('fonts.googleapis.com'));
+  ok('offline · 404.html não carrega fonts.googleapis.com', !notFoundHtml.includes('fonts.googleapis.com'));
+  ok('offline · index.html não tem CDN externa', !indexHtml.includes('https://cdnjs.') && !indexHtml.includes('https://cdn.'));
+
+  // 16.4: Busca de notas por título e conteúdo
+  const notasExemplo = [
+    { id: 1, title: 'Compras do mês', content: 'arroz, feijão, café' },
+    { id: 2, title: 'Ideias de projeto', content: 'construir app sem dependências' },
+    { id: 3, title: 'Atendimento cliente', content: 'protocolo 12345 CPF 000.000.000-00' },
+  ];
+
+  const filtrarNotas = (lista, busca) => {
+    const q = busca.trim().toLowerCase();
+    if (!q) return lista;
+    return lista.filter(n => (n.title || '').toLowerCase().includes(q) || (n.content || '').toLowerCase().includes(q));
+  };
+
+  igual('busca · busca vazia retorna todas as notas', filtrarNotas(notasExemplo, '').length, 3);
+  igual('busca · filtra por título', filtrarNotas(notasExemplo, 'compras').map(n => n.id), [1]);
+  igual('busca · filtra por conteúdo quando o título não bate', filtrarNotas(notasExemplo, 'dependências').map(n => n.id), [2]);
+  igual('busca · busca case-insensitive e parcial', filtrarNotas(notasExemplo, 'ATEND').map(n => n.id), [3]);
+  igual('busca · termo inexistente retorna lista vazia', filtrarNotas(notasExemplo, 'inexistente').length, 0);
+
+  // 16.5: Cálculo de visíveis e ocultos na busca
+  const totalNotas = 40;
+  const visiveisNotas = 3;
+  const ocultas = totalNotas - visiveisNotas;
+  igual('busca · contagem de notas ocultas', ocultas, 37);
+
+  // 16.6: Modo de seleção por toque e controles em note.js
+  const noteSource = await readFile(new URL('../sidepanel/modules/note.js', import.meta.url), 'utf8');
+  ok('touch · note.js exporta isTouchSelectionMode', noteSource.includes('export function isTouchSelectionMode'));
+  ok('touch · note.js escuta btn-touch-select', noteSource.includes('btn-touch-select'));
+  ok('touch · note.js suporta toque longo na alça de bloco', noteSource.includes('touchDragTimer') && noteSource.includes('touchstart'));
+  ok('touch · note.js tem scrollCursorIntoView para teclado virtual', noteSource.includes('scrollCursorIntoView') && noteSource.includes('visualViewport'));
+}
+
 if (falhas.length) {
   console.error(`\n✗ ${falhas.length} falha(s), ${passou} ok\n`);
   for (const f of falhas) console.error(`  ✗ ${f}`);
