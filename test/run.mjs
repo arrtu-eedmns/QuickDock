@@ -2555,6 +2555,109 @@ for (const entrada of ['', null, undefined, '\n\n']) {
   igual('cursor · adaptador que devolve lista simples continua funcionando', r.enviadas, 1);
 }
 
+// ── Adaptador do Google Drive ────────────────────────────────────────────────
+// Exercitado contra um Drive de mentira (test/drive-falso.mjs) com a forma das
+// respostas da API v3. Sem ele esta seria a única peça da sincronização testável
+// só com conta de verdade, na rede, à mão -- ou seja: na prática, nunca.
+//
+// O Drive não tem caminhos: tem arquivos com pastas-mãe. Traduzir "notas/x.md"
+// para um fileId é o trabalho do adaptador, e é onde mora o risco.
+{
+  const { criarDriveFalso } = await import('./drive-falso.mjs');
+  const { GoogleDriveAdapter } = await import('../sidepanel/modules/google-drive-adapter.js');
+  const { SyncEngine } = await import('../sidepanel/modules/sync-engine.js');
+  const { InMemoryStore } = await import('./memory-store.mjs');
+
+  // 1. Contrato do adaptador
+  {
+    const drive = criarDriveFalso();
+    const ad = new GoogleDriveAdapter({ obterToken: async () => 'tok', fetchImpl: drive.fetchFalso });
+
+    igual('drive · autentica e prepara a pasta raiz', (await ad.autenticar()).ok, true);
+    igual('drive · só a raiz é criada antes de precisar de subpasta', drive.contarPastas(), 1);
+
+    const e1 = await ad.escrever('notas/minha.md', 'conteudo original', null);
+    ok('drive · gravar arquivo novo devolve revisão', !!e1.rev);
+    igual('drive · a subpasta é criada sob demanda', drive.contarPastas(), 2);
+
+    const l1 = await ad.ler('notas/minha.md');
+    igual('drive · o que foi gravado é o que se lê', l1.texto, 'conteudo original');
+    igual('drive · a revisão lida bate com a gravada', l1.rev, e1.rev);
+
+    const e2 = await ad.escrever('notas/minha.md', 'segunda versao', l1.rev);
+    ok('drive · atualizar com a revisão certa funciona', !!e2.rev && e2.rev !== l1.rev);
+
+    // O ponto do revBase: impedir que um aparelho apague a edição do outro.
+    const e3 = await ad.escrever('notas/minha.md', 'de outro aparelho', l1.rev);
+    ok('drive · gravar com revisão velha acusa conflito', e3.conflito === true);
+    igual('drive · e informa a revisão que está lá', e3.revAtual, e2.rev);
+    igual('drive · o conteúdo não foi sobrescrito no conflito',
+          (await ad.ler('notas/minha.md')).texto, 'segunda versao');
+
+    // Lixeira, não exclusão definitiva: o Drive guarda 30 dias, e uma exclusão
+    // errada -- bug nosso ou clique errado -- deixa de ser irreversível.
+    igual('drive · apagar manda para a lixeira', await ad.apagar('notas/minha.md'), true);
+    igual('drive · arquivo na lixeira não é mais encontrado', await ad.ler('notas/minha.md'), null);
+    ok('drive · e continua existindo, recuperável',
+       [...drive.arquivos.values()].some(a => a.name === 'minha.md' && a.trashed));
+  }
+
+  // 2. Nome com aspas não quebra a consulta do Drive
+  {
+    const drive = criarDriveFalso();
+    const ad = new GoogleDriveAdapter({ obterToken: async () => 'tok', fetchImpl: drive.fetchFalso });
+    await ad.escrever("notas/o'reilly.md", 'conteudo', null);
+
+    // Ler com OUTRO adaptador é o que importa: o mesmo teria o caminho em cache
+    // e devolveria sem consultar o Drive — não exercitaria o escape nenhum.
+    const limpo = new GoogleDriveAdapter({ obterToken: async () => 'tok', fetchImpl: drive.fetchFalso });
+    igual('drive · nome com aspas simples é escapado na consulta',
+          (await limpo.ler("notas/o'reilly.md"))?.texto, 'conteudo');
+  }
+
+  // 3. O motor de verdade dirigindo o Drive, com dois clientes
+  {
+    const drive = criarDriveFalso();
+    const novo = () => new GoogleDriveAdapter({ obterToken: async () => 'tok', fetchImpl: drive.fetchFalso });
+    const stA = new InMemoryStore(), stB = new InMemoryStore();
+    const A = new SyncEngine({ adapter: novo(), store: stA, deviceName: 'Extensao' });
+    const Bc = new SyncEngine({ adapter: novo(), store: stB, deviceName: 'Site' });
+
+    const t = Date.now();
+    await stA.salvarNotaLocal({ uid: 'u1', title: 'Atendimento Maria', ordem: 'a0',
+      blocks: [{ type: 'paragraph', html: 'texto original' }], createdAt: t, updatedAt: t });
+
+    igual('drive+motor · a nota sobe', (await A.sincronizar()).enviadas, 1);
+    const cursorA = await stA.obterCursorSync();
+    ok('drive+motor · o cursor guardado é o token opaco do Drive',
+       typeof cursorA === 'string' && cursorA.length > 0, String(cursorA));
+
+    igual('drive+motor · o outro cliente baixa', (await Bc.sincronizar()).baixadas, 1);
+    const nb = await stB.obterNotaPorUid('u1');
+    igual('drive+motor · título atravessou', nb?.title, 'Atendimento Maria');
+    igual('drive+motor · conteúdo atravessou', nb?.blocks?.[0]?.html, 'texto original');
+
+    const na = await stA.obterNotaPorUid('u1');
+    await stA.salvarNotaLocal({ ...na, blocks: [{ type: 'paragraph', html: 'EDITADO POR A' }],
+      updatedAt: Date.now() + 1 });
+    await A.sincronizar();
+    await Bc.sincronizar();
+    igual('drive+motor · a edição chega no outro cliente',
+          (await stB.obterNotaPorUid('u1'))?.blocks?.[0]?.html, 'EDITADO POR A');
+
+    // O laço de conflitos que apareceu em uso real com a pasta local não pode
+    // renascer aqui: rodada ociosa não inventa conflito nem multiplica nota.
+    let conflitos = 0;
+    for (let i = 0; i < 4; i++) {
+      conflitos += (await A.sincronizar()).conflitos;
+      conflitos += (await Bc.sincronizar()).conflitos;
+    }
+    igual('drive+motor · 4 rodadas ociosas não geram conflito', conflitos, 0);
+    igual('drive+motor · nem multiplicam a nota de um lado', (await stA.listarNotasLocais()).length, 1);
+    igual('drive+motor · nem do outro', (await stB.listarNotasLocais()).length, 1);
+  }
+}
+
 if (falhas.length) {
   console.error(`\n✗ ${falhas.length} falha(s), ${passou} ok\n`);
   for (const f of falhas) console.error(`  ✗ ${f}`);
