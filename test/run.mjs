@@ -2262,6 +2262,83 @@ for (const entrada of ['', null, undefined, '\n\n']) {
         (await st2.obterNotaPorUid('u2')).title, umaMarca);
 }
 
+// ── Dois clientes na mesma pasta ─────────────────────────────────────────────
+// A suíte nunca tinha exercitado o caso central da arquitetura: extensão e PWA
+// apontando para a MESMA pasta. Relatado em uso real: com a mesma nota aberta
+// nos dois, a sincronização gerava conflito sem ninguém ter editado nada.
+//
+// A causa não era edição simultânea: era o arquivo não convergir. Quem baixava
+// uma nota sem `criadoEm` carimbava Date.now() e regravava COM o campo; o outro
+// lado via diferença e regravava SEM. Ping-pong infinito, e conflito sempre que
+// os dois subiam na mesma janela. Em quatro rodadas, uma nota virava seis de um
+// lado e oito do outro.
+{
+  const { SyncEngine } = await import('../sidepanel/modules/sync-engine.js');
+  const { MemorySyncAdapter } = await import('../sidepanel/modules/sync-adapter.js');
+  const { InMemoryStore } = await import('./memory-store.mjs');
+
+  // Revisão "mtime-tamanho", como o adaptador de pasta local gera de verdade —
+  // e diferente da numérica do adaptador de memória, contra a qual o motor foi
+  // originalmente escrito.
+  const revDe = t => { let h = 0; for (const c of t) h = (h * 31 + c.charCodeAt(0)) | 0;
+    return `${1726531200000 + Math.abs(h % 99999)}-${t.length}`; };
+  class PastaCompartilhada extends MemorySyncAdapter {
+    async escrever(c, t, rb) { const r = await super.escrever(c, t, rb);
+      if (r && r.rev) r.rev = revDe(t); return r; }
+    async ler(c) { const r = await super.ler(c); return r ? { ...r, rev: revDe(r.texto) } : r; }
+    async listarMudancas(d) { const m = await super.listarMudancas(d); const o = [];
+      for (const x of m) { const a = await super.ler(x.caminho);
+        o.push({ ...x, rev: a ? revDe(a.texto) : x.rev }); } return o; }
+  }
+
+  const pasta = new PastaCompartilhada();
+  const stExt = new InMemoryStore(), stWeb = new InMemoryStore();
+
+  // Os dois com a MESMA nota aberta, e flushSave carimbando antes de cada rodada
+  const cliente = (st, nome) => new SyncEngine({
+    adapter: pasta, store: st, deviceName: nome,
+    obterNotaAbertaUid: () => 'u1',
+    podeRecarregarNotaAberta: () => true,
+    recarregarNotaAberta: async () => {},
+    antesDeSincronizar: async () => {
+      for (const n of await st.listarNotasLocais()) {
+        await st.salvarNotaLocal({ ...n, updatedAt: Date.now() });
+      }
+    },
+  });
+  const ext = cliente(stExt, 'Extensao'), web = cliente(stWeb, 'Site');
+
+  // Sem createdAt de propósito: é o campo que disparava a divergência.
+  await stExt.salvarNotaLocal({ uid: 'u1', title: 'Nota compartilhada', ordem: 'a0',
+    blocks: [{ type: 'paragraph', html: 'texto que ninguem edita' }], updatedAt: Date.now() });
+
+  let conflitos = 0;
+  for (let i = 0; i < 4; i++) {
+    conflitos += (await ext.sincronizar()).conflitos;
+    conflitos += (await web.sincronizar()).conflitos;
+    await new Promise(r => setTimeout(r, 2));
+  }
+
+  const nExt = await stExt.listarNotasLocais();
+  const nWeb = await stWeb.listarNotasLocais();
+  igual('dois clientes · nenhum conflito sem ninguém editar', conflitos, 0);
+  igual('dois clientes · a extensão continua com uma nota só', nExt.length, 1);
+  igual('dois clientes · o site continua com uma nota só', nWeb.length, 1);
+  ok('dois clientes · nenhum título ganhou marca de conflito',
+     ![...nExt, ...nWeb].some(n => /conflito/.test(n.title)),
+     [...nExt, ...nWeb].map(n => n.title).join(' | '));
+  igual('dois clientes · os dois lados convergem no mesmo conteúdo',
+        nWeb[0].blocks[0].html, nExt[0].blocks[0].html);
+
+  // O arquivo tem que ser ponto fixo: quem baixa e regrava não pode mudar nada.
+  const caminho = (await stExt.obterEstadoSync('u1')).caminho;
+  const texto1 = (await pasta.ler(caminho)).texto;
+  await web.sincronizar();
+  await ext.sincronizar();
+  igual('dois clientes · o arquivo não muda sozinho a cada rodada',
+        (await pasta.ler(caminho)).texto, texto1);
+}
+
 if (falhas.length) {
   console.error(`\n✗ ${falhas.length} falha(s), ${passou} ok\n`);
   for (const f of falhas) console.error(`  ✗ ${f}`);

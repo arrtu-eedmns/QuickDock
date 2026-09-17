@@ -51,7 +51,11 @@ export function hashConteudo(str) {
  * não decide se houve mudança.
  */
 export function hashDaNota(texto) {
-  return hashConteudo(String(texto ?? '').replace(/^atualizadoEm:.*$/m, ''));
+  return hashConteudo(
+    String(texto ?? '')
+      .replace(/^atualizadoEm:.*$/m, '')
+      .replace(/^criadoEm:.*$/m, '')
+  );
 }
 
 export function slugTitulo(titulo) {
@@ -470,7 +474,12 @@ export class SyncEngine {
           iconFilled: !!parsed.meta.iconePreenchido,
           titleHidden: !!parsed.meta.tituloOculto,
           ordem: parsed.meta.ordem ?? 'a0',
-          createdAt: parsed.meta.criadoEm ? new Date(parsed.meta.criadoEm).getTime() : Date.now(),
+          // Sem inventar: se o arquivo não traz criadoEm, a nota fica sem ele, e a
+          // reserialização volta a omitir o campo. Carimbar Date.now() aqui fazia o
+          // arquivo nunca convergir — quem baixava regravava com um campo que quem
+          // enviou não tinha, o outro lado via diferença e regravava sem, sem fim.
+          // Com os dois clientes sincronizando ao mesmo tempo, virava conflito.
+          createdAt: parsed.meta.criadoEm ? new Date(parsed.meta.criadoEm).getTime() : undefined,
           updatedAt: parsed.meta.atualizadoEm ? new Date(parsed.meta.atualizadoEm).getTime() : Date.now(),
         });
         await this.store.salvarEstadoSync({
