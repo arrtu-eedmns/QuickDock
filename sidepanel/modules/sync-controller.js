@@ -17,6 +17,9 @@
 
 import { SyncEngine } from './sync-engine.js';
 import { LocalFolderAdapter } from './local-folder-adapter.js';
+import { GoogleDriveAdapter } from './google-drive-adapter.js';
+import { criarProvedorDeToken } from './google-auth.js';
+import { isExtension } from './platform.js';
 import { DexieSyncStore, getSyncMeta, setSyncMeta, deleteSyncMeta, db } from './storage.js';
 import { positionPopover } from './popover.js';
 
@@ -149,9 +152,29 @@ export class SyncController {
       this.conflitosPendentes = (await this._obterMeta('syncPendingConflicts')) || [];
       this.avisosVersao = (await this._obterMeta('syncVersionWarnings')) || [];
 
-      // Recupera o handle da pasta salva
+      this.destino = (await this._obterMeta('syncDestino')) ?? 'pasta';
+
+      // Drive: reconecta sozinho, mas SEM abrir tela de permissão. O Chrome
+      // guarda a autorização, então um token silencioso costuma bastar. Se não
+      // bastar, o estado vira "precisa reautorizar" e a tela do Google só abre
+      // no clique -- painel que abre janela de permissão sozinho ao iniciar é
+      // hostil, e o Chrome nem permitiria sem gesto.
       const handleSalvo = await this._obterMeta('folderHandle');
-      if (handleSalvo && typeof handleSalvo.queryPermission === 'function') {
+      if (this.destino === 'drive' && isExtension) {
+        try {
+          const provedor = criarProvedorDeToken();
+          await provedor.obterToken();               // silencioso
+          this.provedorToken = provedor;
+          await this._montarEngineComAdapter(new GoogleDriveAdapter({
+            obterToken: () => provedor.obterToken(),
+            renovarToken: () => provedor.renovar(),
+          }));
+          this.folderName = this.folderName || 'Google Drive';
+          this.state = SYNC_STATE.IDLE;
+        } catch {
+          this.state = SYNC_STATE.NEEDS_REAUTH;
+        }
+      } else if (handleSalvo && typeof handleSalvo.queryPermission === 'function') {
         this.rootHandle = handleSalvo;
         // Verifica silenciosamente se a permissão continua ativa
         const status = await handleSalvo.queryPermission({ mode: 'readwrite' });
@@ -267,7 +290,55 @@ export class SyncController {
     await this.sincronizarAgora();
   }
 
+  /**
+   * Conecta ao Google Drive. Só a extensão por enquanto: o PWA usa outro fluxo
+   * de autenticação, que ainda não existe.
+   *
+   * A janela de permissão do Google só pode abrir a partir de um clique, e é
+   * por isso que este caminho é separado do `obterToken` silencioso que o
+   * adaptador usa durante as rodadas automáticas.
+   */
+  async conectarDrive() {
+    if (!isExtension) {
+      throw new Error('A conexão com o Google Drive ainda está disponível apenas na extensão.');
+    }
+
+    const provedor = criarProvedorDeToken();
+    await provedor.conectar();              // abre a tela de permissão do Google
+
+    const adapter = new GoogleDriveAdapter({
+      obterToken: () => provedor.obterToken(),
+      renovarToken: () => provedor.renovar(),
+    });
+
+    const r = await adapter.autenticar();
+    if (r && r.ok === false) throw new Error(r.erro || 'Falha ao conectar ao Drive');
+
+    this.provedorToken = provedor;
+    this.rootHandle = null;
+    this.destino = 'drive';
+    this.folderName = 'Google Drive';
+
+    await this._salvarMeta('syncDestino', 'drive');
+    await this._salvarMeta('folderName', this.folderName);
+    // O handle de pasta local deixa de valer: os dois destinos não convivem.
+    await this._excluirMeta?.('folderHandle');
+
+    await this._montarEngineComAdapter(adapter);
+    this.state = SYNC_STATE.IDLE;
+    this.lastSyncError = null;
+    this._notificar();
+
+    await this.sincronizarAgora({ manual: true });
+  }
+
   async reautorizar() {
+    // No Drive, reautorizar é reabrir a tela do Google — que só pode vir de um
+    // clique, e este método sempre vem de um.
+    if (this.destino === 'drive') {
+      await this.conectarDrive();
+      return;
+    }
     if (!this.rootHandle) return;
     const perm = await this.rootHandle.requestPermission({ mode: 'readwrite' });
     if (perm === 'granted') {
@@ -292,6 +363,18 @@ export class SyncController {
     await this._excluirMeta('lastSyncStats');
     await this._excluirMeta('syncPendingConflicts');
     await this._excluirMeta('syncVersionWarnings');
+    await this._excluirMeta('syncDestino');
+
+    // No Drive, desconectar REVOGA o token no Google. Só limpar o cache local
+    // deixaria o app autorizado na conta da pessoa, e o próximo "conectar"
+    // entraria sem perguntar nada — não é o que quem desconecta espera.
+    // Os arquivos no Drive continuam lá: desconectar para de sincronizar,
+    // nunca apaga nada.
+    if (this.provedorToken) {
+      try { await this.provedorToken.desconectar(); } catch { /* offline: o token local já saiu */ }
+    }
+    this.provedorToken = null;
+    this.destino = 'pasta';
 
     this.rootHandle = null;
     this.folderName = null;
@@ -427,6 +510,12 @@ export class SyncController {
           <button class="copy-opt sync-action-btn sync-btn-primary" id="sync-btn-escolher">
             📁 Escolher pasta…
           </button>
+          ${isExtension ? `
+            <button class="copy-opt sync-action-btn" id="sync-btn-drive">
+              ☁️ Conectar Google Drive
+            </button>
+            <div class="sync-desc-sub">O Drive guarda os arquivos na sua conta, numa pasta <code>QuickDock</code>. O QuickDock só enxerga o que ele mesmo criou.</div>
+          ` : ''}
         `;
       } else if (this.state === SYNC_STATE.NEEDS_REAUTH) {
         statusBox.innerHTML = `
@@ -536,6 +625,18 @@ export class SyncController {
           renderConteudo();
         } catch (e) {
           alert(`Não foi possível selecionar a pasta: ${e.message}`);
+        }
+      });
+
+      menu.querySelector('#sync-btn-drive')?.addEventListener('click', async () => {
+        try {
+          await this.conectarDrive();
+          renderConteudo();
+        } catch (e) {
+          // A mensagem do Google costuma dizer exatamente o que falta — conta
+          // fora da lista de teste, escopo recusado, API desativada. Mostrar o
+          // texto cru ajuda mais que traduzir para um genérico.
+          alert(`Não foi possível conectar ao Google Drive: ${e.message}`);
         }
       });
 

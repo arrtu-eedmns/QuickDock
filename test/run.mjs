@@ -2658,6 +2658,84 @@ for (const entrada of ['', null, undefined, '\n\n']) {
   }
 }
 
+// ── Ligação do Drive no painel ───────────────────────────────────────────────
+// Guardas de fonte: esta camada precisa de chrome.identity e de DOM, e não roda
+// na suíte. São as propriedades que, se sumirem num refactor, quebram em
+// silêncio ou incomodam o usuário sem ninguém perceber.
+{
+  const { readFile } = await import('node:fs/promises');
+  const ctrl = await readFile(new URL('../sidepanel/modules/sync-controller.js', import.meta.url), 'utf8');
+  const auth = await readFile(new URL('../sidepanel/modules/google-auth.js', import.meta.url), 'utf8');
+  const drv = await readFile(new URL('../sidepanel/modules/google-drive-adapter.js', import.meta.url), 'utf8');
+
+  ok('drive/ui · existe o caminho de conectar ao Drive', /async conectarDrive\(/.test(ctrl));
+  ok('drive/ui · e um botão que o chama', /sync-btn-drive/.test(ctrl));
+
+  // Tela de permissão do Google só a partir de clique. Sincronização automática
+  // que abre janela de autorização sozinha no meio da digitação é inaceitável,
+  // e o Chrome nem permitiria sem gesto do usuário.
+  ok('drive/auth · rodada automática pede token em silêncio',
+     /interactive:\s*interativo/.test(auth) && /interativo\s*=\s*false/.test(auth));
+  const reconectar = ctrl.slice(ctrl.indexOf("this.destino === 'drive' && isExtension"));
+  ok('drive/ui · reconexão ao abrir o painel não é interativa',
+     /obterToken\(\)/.test(reconectar.slice(0, 400)) && !/conectar\(\)/.test(reconectar.slice(0, 400)));
+
+  // Token recusado precisa sair do cache do Chrome, senão vira 401 permanente:
+  // pedir de novo devolve exatamente o token que acabou de ser recusado.
+  ok('drive/auth · token recusado é descartado do cache',
+     /removeCachedAuthToken/.test(auth));
+  ok('drive/adapter · 401 tenta renovar uma vez',
+     /resp\.status === 401/.test(drv) && /_jaRenovou/.test(drv));
+  ok('drive/adapter · e só uma vez, para não virar laço',
+     /!_jaRenovou/.test(drv));
+
+  // Desconectar tem que revogar, não só esquecer.
+  ok('drive/auth · desconectar revoga o token no Google',
+     /oauth2\.googleapis\.com\/revoke/.test(auth));
+  ok('drive/ui · e o painel chama essa revogação ao desconectar',
+     /provedorToken[\s\S]{0,200}?desconectar\(\)/.test(ctrl));
+
+  // O escopo é o que mantém o projeto fora da categoria restrita do Google.
+  const cfg = await readFile(new URL('../sidepanel/modules/google-config.js', import.meta.url), 'utf8');
+  ok('drive · o escopo é drive.file, não o Drive inteiro',
+     /auth\/drive\.file/.test(cfg) && !/auth\/drive['"]/.test(cfg));
+
+  const manifesto = JSON.parse(await readFile(new URL('../manifest.json', import.meta.url), 'utf8'));
+  ok('drive · o manifesto declara identity', manifesto.permissions.includes('identity'));
+  igual('drive · e o mesmo escopo do google-config',
+        manifesto.oauth2?.scopes?.[0], 'https://www.googleapis.com/auth/drive.file');
+  ok('drive · o client_id do manifesto é o do tipo Chrome Extension',
+     /^\d+-[a-z0-9]+\.apps\.googleusercontent\.com$/.test(manifesto.oauth2?.client_id ?? ''));
+  // Vazamento de segredo é irreversível num repositório público: uma vez no
+  // histórico, fica. Procurar a palavra "client_secret" não serve -- ela aparece
+  // legitimamente em comentário explicando por que não há nenhum. O que se
+  // procura é o FORMATO do segredo do Google (GOCSPX-) e uma atribuição com
+  // valor de verdade, varrendo os arquivos que vão pro repositório.
+  {
+    const { readdir } = await import('node:fs/promises');
+    const raiz = new URL('../', import.meta.url);
+    const alvos = [];
+    for (const dir of ['', 'sidepanel/', 'sidepanel/modules/', 'test/', 'content/']) {
+      let nomes = [];
+      try { nomes = await readdir(new URL(dir, raiz)); } catch { continue; }
+      for (const n of nomes) {
+        if (/\.(js|mjs|json|html|webmanifest)$/.test(n)) alvos.push(dir + n);
+      }
+    }
+
+    const vazando = [];
+    for (const rel of alvos) {
+      let txt = '';
+      try { txt = await readFile(new URL(rel, raiz), 'utf8'); } catch { continue; }
+      if (/GOCSPX-[\w-]+/.test(txt)) vazando.push(`${rel} (formato de segredo do Google)`);
+      if (/client_secret["']?\s*[:=]\s*["'][^"']+["']/.test(txt)) vazando.push(`${rel} (client_secret com valor)`);
+    }
+    ok('drive · nenhum client secret no repositório', vazando.length === 0, vazando.join(', '));
+    ok('drive · a varredura olhou uma quantidade plausível de arquivos',
+       alvos.length > 20, `${alvos.length} arquivos`);
+  }
+}
+
 if (falhas.length) {
   console.error(`\n✗ ${falhas.length} falha(s), ${passou} ok\n`);
   for (const f of falhas) console.error(`  ✗ ${f}`);

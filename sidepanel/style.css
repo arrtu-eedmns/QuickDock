@@ -2392,6 +2392,15 @@ body:not(.booting) .note-editor-blocks {
 /* Aviso de nota adiada: informação, não erro — a nota não foi atualizada agora
    porque estava sendo editada, e isso é o comportamento correto. Cor de alerta
    em vez de vermelho para não parecer que algo quebrou. */
+/* Explicação curta abaixo do botão do Drive. Diz o que a permissão alcança
+   antes de a pessoa clicar — pedir acesso ao Drive de alguém sem dizer o que
+   se vai enxergar é o tipo de coisa que corrói confiança. */
+.sync-desc-sub {
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--text-muted, #6b7280);
+  margin-top: 6px;
+}
 .sync-skipped-msg {
   font-size: 11px;
   color: #b45309;
