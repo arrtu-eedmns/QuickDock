@@ -2475,6 +2475,38 @@ for (const entrada of ['', null, undefined, '\n\n']) {
         (await stB.obterNotaPorUid('u2'))?.blocks?.[0]?.html, 'de A');
 }
 
+// ── Recarregar a nota não pode gravar o editor por cima ──────────────────────
+// Relatado em uso real: forçar subir num cliente e descer no outro "não vai de
+// imediato, e acaba fazendo sync reverso e desfazendo a alteração".
+//
+// A sincronização gravava a versão nova no banco e mandava o editor recarregar.
+// Mas `switchToNote` começa com `await flushSave()` -- correto para quem TROCA de
+// nota, e destrutivo aqui: serializava o DOM antigo por cima do que acabara de
+// descer, e o editor lia de volta justamente o texto velho. Na rodada seguinte
+// ele subia como "alteração local" e desfazia a edição do outro aparelho.
+//
+// Não roda em node (precisa de DOM e Dexie); verificado à mão no navegador, onde
+// sem a opção o banco reverte e com ela mantém a versão remota.
+{
+  const { readFile } = await import('node:fs/promises');
+  const notaJs = await readFile(new URL('../sidepanel/modules/note.js', import.meta.url), 'utf8');
+  const appJs = await readFile(new URL('../sidepanel/app.js', import.meta.url), 'utf8');
+
+  const assinatura = /export async function switchToNote\(\s*id\s*,\s*\{[^}]*descartarDom/.test(notaJs);
+  ok('recarga · switchToNote aceita descartar o editor', assinatura);
+
+  const corpo = notaJs.slice(notaJs.indexOf('export async function switchToNote'));
+  const trecho = corpo.slice(0, corpo.indexOf('\n}\n'));
+  ok('recarga · com descartarDom o flushSave não roda',
+     /if\s*\(\s*descartarDom\s*\)/.test(trecho) && /else\s*\{[\s\S]{0,80}flushSave\(\)/.test(trecho));
+  ok('recarga · e o autosave pendente é cancelado junto',
+     /clearTimeout\(saveTimer\)/.test(trecho),
+     'sem isso um save agendado grava o DOM antigo depois do render');
+
+  ok('recarga · a sincronização pede para descartar o editor',
+     /recarregarNotaAberta[\s\S]{0,300}?switchToNote\(\s*id\s*,\s*\{\s*descartarDom:\s*true\s*\}\s*\)/.test(appJs));
+}
+
 if (falhas.length) {
   console.error(`\n✗ ${falhas.length} falha(s), ${passou} ok\n`);
   for (const f of falhas) console.error(`  ✗ ${f}`);

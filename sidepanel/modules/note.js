@@ -1449,8 +1449,24 @@ function renderBlocks(blocks) {
   resetUndoHistory(); // histórico de undo é por nota, não deve vazar de uma pra outra
 }
 
-export async function switchToNote(id) {
-  await flushSave();
+// `descartarDom`: o banco passa a ser a verdade e o que está no editor é jogado
+// fora. Só a sincronização usa isso, e ela precisa.
+//
+// O `flushSave()` abaixo existe para quem TROCA de nota: salva o que você estava
+// escrevendo antes de sair. Mas quando a sincronização acaba de gravar a versão
+// nova da MESMA nota e manda recarregar, esse flush serializa o DOM antigo por
+// cima do que acabou de descer — e o editor então lê de volta justamente o texto
+// velho. Na rodada seguinte ele sobe como "alteração local" e desfaz a edição
+// feita no outro aparelho. Era isso que estava revertendo as notas.
+export async function switchToNote(id, { descartarDom = false } = {}) {
+  if (descartarDom) {
+    // Sem isso, um autosave já agendado dispararia depois do render e gravaria
+    // o DOM antigo assim mesmo.
+    clearTimeout(saveTimer);
+    saveTimer = null;
+  } else {
+    await flushSave();
+  }
   editingTemplate = null;            // trocar de nota abandona o modo modelo
   currentNoteId = id;
   const note = await getNoteById(id);

@@ -114,7 +114,10 @@ async function init() {
       obterNotaAbertaUid: getActiveNoteUid,
       podeRecarregarNotaAberta: canSafelyReloadCurrentNote,
       recarregarNotaAberta: async id => {
-        if (id != null) await switchToNote(id);
+        // `descartarDom` é obrigatório aqui: a sincronização já gravou a versão
+        // nova no banco, e salvar o editor antes de recarregar escreveria o
+        // texto antigo por cima dela.
+        if (id != null) await switchToNote(id, { descartarDom: true });
       },
       antesDeSincronizar: flushSave,
       emModoModelo: isEditingTemplate,
