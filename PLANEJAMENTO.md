@@ -521,13 +521,13 @@ Encaixa bem por dois motivos do projeto: **não existe build** (ES modules puros
 Quinas conhecidas:
 
 - **Sem cabeçalho HTTP.** CSP vai em `<meta>`; cache quem controla é o service worker. Só doeria com `COOP/COEP`, que não é o caso.
-- **Subpasta.** Em `arrtu-eedmns.github.io/QuickDock/` o escopo do service worker fica preso a `/QuickDock/`, e `start_url`, `scope`, ícones e registro do SW precisam todos carregar o prefixo. É o erro clássico: o app instala e abre em branco.
+- **Subpasta.** Em `rruat.github.io/QuickDock/` o escopo do service worker fica preso a `/QuickDock/`, e `start_url`, `scope`, ícones e registro do SW precisam todos carregar o prefixo. É o erro clássico: o app instala e abre em branco.
 - **Sem rewrite.** Link direto dá 404; copiar `index.html` como `404.html` resolve.
 - **Nome colidindo.** O `manifest.json` da raiz é o da extensão. O PWA precisa do dele, com outro formato e outro nome (`manifest.webmanifest`), em outra pasta.
 
 **Domínio próprio (~R$50/ano) é o único gasto recomendado.** Não por vaidade: a tela de consentimento **mostra o domínio para o usuário** no momento em que ele decide dar acesso ao Drive dele — é o pior lugar possível para parecer improvisado. Além disso desamarra do GitHub (trocar de host vira mudar DNS, em vez de mexer em redirect URI de app já verificado) e resolve o problema de subpasta de graça.
 
-Enquanto não houver domínio: `github.io` está na Public Suffix List, então `arrtu-eedmns.github.io` conta como site próprio e é verificável no Search Console por arquivo ou meta tag, que o Pages serve normalmente.
+Enquanto não houver domínio: `github.io` está na Public Suffix List, então `rruat.github.io` conta como site próprio e é verificável no Search Console por arquivo ou meta tag, que o Pages serve normalmente.
 
 **Ganho de brinde:** o mesmo repositório servindo os dois clientes significa que `blocks.js`, `calc.js`, `math-parser.js` e `snapshot.js` são os *mesmos arquivos* na extensão e no PWA, sem cópia e sem divergir. Só o que toca `chrome.storage` e `chrome.identity` precisa de camada de plataforma — o mesmo padrão de adaptador que a sincronização já exige. O trabalho do adaptador paga duas contas.
 
