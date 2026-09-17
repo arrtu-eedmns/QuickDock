@@ -2676,9 +2676,12 @@ for (const entrada of ['', null, undefined, '\n\n']) {
   // e o Chrome nem permitiria sem gesto do usuário.
   ok('drive/auth · rodada automática pede token em silêncio',
      /interactive:\s*interativo/.test(auth) && /interativo\s*=\s*false/.test(auth));
-  const reconectar = ctrl.slice(ctrl.indexOf("this.destino === 'drive' && isExtension"));
+  const iReconexao = ctrl.indexOf("if (this.destino === 'drive')");
+  ok('drive/ui · o caminho de reconexão ao abrir existe', iReconexao > 0);
+  const reconectar = iReconexao > 0 ? ctrl.slice(iReconexao, iReconexao + 500) : '';
   ok('drive/ui · reconexão ao abrir o painel não é interativa',
-     /obterToken\(\)/.test(reconectar.slice(0, 400)) && !/conectar\(\)/.test(reconectar.slice(0, 400)));
+     /obterToken\(\)/.test(reconectar) && !/\.conectar\(\)/.test(reconectar),
+     'abrir o painel não pode disparar tela de permissão do Google');
 
   // Token recusado precisa sair do cache do Chrome, senão vira 401 permanente:
   // pedir de novo devolve exatamente o token que acabou de ser recusado.

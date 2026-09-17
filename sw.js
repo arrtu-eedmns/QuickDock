@@ -24,6 +24,7 @@ const ASSET_PATHS = [
   'sidepanel/modules/platform.js',
   'sidepanel/modules/google-config.js',
   'sidepanel/modules/google-auth.js',
+  'sidepanel/modules/google-auth-web.js',
   'sidepanel/modules/google-drive-adapter.js',
   'sidepanel/modules/storage.js',
   'sidepanel/modules/notes-tabs.js',

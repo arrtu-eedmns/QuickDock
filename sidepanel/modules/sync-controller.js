@@ -19,6 +19,7 @@ import { SyncEngine } from './sync-engine.js';
 import { LocalFolderAdapter } from './local-folder-adapter.js';
 import { GoogleDriveAdapter } from './google-drive-adapter.js';
 import { criarProvedorDeToken } from './google-auth.js';
+import { criarProvedorDeTokenWeb } from './google-auth-web.js';
 import { isExtension } from './platform.js';
 import { DexieSyncStore, getSyncMeta, setSyncMeta, deleteSyncMeta, db } from './storage.js';
 import { positionPopover } from './popover.js';
@@ -160,9 +161,9 @@ export class SyncController {
       // no clique -- painel que abre janela de permissão sozinho ao iniciar é
       // hostil, e o Chrome nem permitiria sem gesto.
       const handleSalvo = await this._obterMeta('folderHandle');
-      if (this.destino === 'drive' && isExtension) {
+      if (this.destino === 'drive') {
         try {
-          const provedor = criarProvedorDeToken();
+          const provedor = this._criarProvedorDeToken();
           await provedor.obterToken();               // silencioso
           this.provedorToken = provedor;
           await this._montarEngineComAdapter(new GoogleDriveAdapter({
@@ -298,12 +299,14 @@ export class SyncController {
    * por isso que este caminho é separado do `obterToken` silencioso que o
    * adaptador usa durante as rodadas automáticas.
    */
-  async conectarDrive() {
-    if (!isExtension) {
-      throw new Error('A conexão com o Google Drive ainda está disponível apenas na extensão.');
-    }
+  // Extensão e PWA obtêm token por caminhos que não têm nada em comum, e é aqui
+  // que essa diferença para de importar para o resto do código.
+  _criarProvedorDeToken() {
+    return isExtension ? criarProvedorDeToken() : criarProvedorDeTokenWeb();
+  }
 
-    const provedor = criarProvedorDeToken();
+  async conectarDrive() {
+    const provedor = this._criarProvedorDeToken();
     await provedor.conectar();              // abre a tela de permissão do Google
 
     const adapter = new GoogleDriveAdapter({
@@ -505,17 +508,21 @@ export class SyncController {
       statusBox.className = 'sync-status-box';
 
       if (this.state === SYNC_STATE.DISCONNECTED) {
+        // Escolher pasta depende do File System Access API, que só existe no
+        // navegador de computador. No celular o botão não é oferecido: mostrar
+        // uma opção que não funciona é pior que não mostrar.
+        const temPastaLocal = typeof window !== 'undefined' && !!window.showDirectoryPicker;
         statusBox.innerHTML = `
-          <div class="sync-desc">Sincronize suas notas como arquivos <code>.md</code> em uma pasta local, no OneDrive ou Syncthing.</div>
-          <button class="copy-opt sync-action-btn sync-btn-primary" id="sync-btn-escolher">
-            📁 Escolher pasta…
-          </button>
-          ${isExtension ? `
-            <button class="copy-opt sync-action-btn" id="sync-btn-drive">
-              ☁️ Conectar Google Drive
+          <div class="sync-desc">Sincronize suas notas como arquivos <code>.md</code> — no seu Google Drive, ou numa pasta sua.</div>
+          ${temPastaLocal ? `
+            <button class="copy-opt sync-action-btn sync-btn-primary" id="sync-btn-escolher">
+              📁 Escolher pasta…
             </button>
-            <div class="sync-desc-sub">O Drive guarda os arquivos na sua conta, numa pasta <code>QuickDock</code>. O QuickDock só enxerga o que ele mesmo criou.</div>
           ` : ''}
+          <button class="copy-opt sync-action-btn" id="sync-btn-drive">
+            ☁️ Conectar Google Drive
+          </button>
+          <div class="sync-desc-sub">O Drive guarda os arquivos na sua conta, numa pasta <code>QuickDock</code>. O QuickDock só enxerga o que ele mesmo criou.</div>
         `;
       } else if (this.state === SYNC_STATE.NEEDS_REAUTH) {
         statusBox.innerHTML = `
