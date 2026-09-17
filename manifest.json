@@ -15,8 +15,15 @@
   "permissions": [
     "sidePanel",
     "storage",
-    "tabs"
+    "tabs",
+    "identity"
   ],
+  "oauth2": {
+    "client_id": "324044251913-1ftlbp9ip7g9mhv3iuum47hl0tuq41md.apps.googleusercontent.com",
+    "scopes": [
+      "https://www.googleapis.com/auth/drive.file"
+    ]
+  },
   "host_permissions": [
     "<all_urls>"
   ],
