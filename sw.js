@@ -16,6 +16,7 @@ const ASSET_PATHS = [
   '',
   'index.html',
   '404.html',
+  'privacidade.html',
   'manifest.webmanifest',
   'sidepanel/style.css',
   'lib/dexie.min.js',

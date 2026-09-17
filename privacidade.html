@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Privacidade — QuickDock</title>
+<link rel="icon" href="icons/48.png">
+<style>
+  :root {
+    --fundo: #fff; --texto: #1c1f23; --fraco: #5b6470; --borda: #e3e6ea;
+    --acento: #2563eb; --caixa: #f6f7f9;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --fundo: #14171a; --texto: #e6e8ea; --fraco: #9aa3ad; --borda: #2e343a;
+      --acento: #60a5fa; --caixa: #1c2024;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0 auto; padding: 48px 20px 80px; max-width: 680px;
+    background: var(--fundo); color: var(--texto);
+    font: 16px/1.65 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  h1 { font-size: 28px; margin: 0 0 4px; letter-spacing: -0.01em; }
+  h2 { font-size: 18px; margin: 36px 0 10px; letter-spacing: -0.01em; }
+  .data { color: var(--fraco); font-size: 14px; margin-bottom: 32px; }
+  p { margin: 0 0 14px; }
+  ul { margin: 0 0 14px; padding-left: 22px; }
+  li { margin-bottom: 7px; }
+  a { color: var(--acento); }
+  code {
+    font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+    font-size: .88em; background: var(--caixa); padding: 2px 5px; border-radius: 4px;
+  }
+  .destaque {
+    background: var(--caixa); border: 1px solid var(--borda);
+    border-left: 3px solid var(--acento);
+    border-radius: 8px; padding: 14px 16px; margin: 0 0 20px;
+  }
+  .destaque p:last-child { margin-bottom: 0; }
+  footer {
+    margin-top: 48px; padding-top: 20px; border-top: 1px solid var(--borda);
+    color: var(--fraco); font-size: 14px;
+  }
+</style>
+</head>
+<body>
+
+<h1>Política de Privacidade</h1>
+<div class="data">QuickDock · atualizada em 17 de setembro de 2026</div>
+
+<div class="destaque">
+  <p><strong>O QuickDock não tem servidor.</strong> Não existe banco de dados nosso, não há conta para criar aqui, e ninguém do outro lado consegue ler o que você escreve — porque não há outro lado.</p>
+  <p>Suas notas ficam no seu navegador. Se você ligar a sincronização, elas passam a ficar também numa pasta que <strong>você</strong> escolhe: no seu computador ou no seu próprio Google Drive.</p>
+</div>
+
+<h2>O que fica guardado, e onde</h2>
+
+<p>Tudo que você escreve — notas, modelos, imagens coladas e documentos anexados — é gravado no armazenamento local do seu navegador (IndexedDB). Isso vale tanto para a extensão do Chrome quanto para a versão web.</p>
+
+<p>Esses dados não saem do seu aparelho a menos que você ligue a sincronização.</p>
+
+<h2>Se você ligar a sincronização</h2>
+
+<p>A sincronização copia suas notas para uma pasta escolhida por você, em um de dois lugares:</p>
+
+<ul>
+  <li><strong>Uma pasta do seu computador</strong>, que você aponta. Nada trafega pela internet.</li>
+  <li><strong>Seu próprio Google Drive</strong>, numa pasta chamada <code>QuickDock</code>.</li>
+</ul>
+
+<p>Em ambos os casos os arquivos são markdown comum e imagens: você consegue abrir, ler, editar e apagar sem o QuickDock. A pasta é sua, e continua sua se você desinstalar o aplicativo.</p>
+
+<h2>Sobre o acesso ao Google Drive</h2>
+
+<p>Quando você conecta sua conta, o QuickDock pede a permissão <code>drive.file</code>. Essa permissão é deliberadamente a mais restrita que existe para o Drive:</p>
+
+<ul>
+  <li>Dá acesso <strong>apenas</strong> aos arquivos que o próprio QuickDock criou.</li>
+  <li><strong>Não</strong> dá acesso ao resto do seu Drive. Seus outros documentos, fotos e planilhas são invisíveis para o aplicativo.</li>
+  <li>Não é possível listar, abrir nem apagar nada que o QuickDock não tenha criado.</li>
+</ul>
+
+<p>O acesso acontece direto entre o seu navegador e o Google. Nenhum servidor nosso participa, porque não existe nenhum.</p>
+
+<p>Você pode revogar a permissão quando quiser, pelo botão Desconectar dentro do aplicativo ou em <a href="https://myaccount.google.com/permissions" target="_blank" rel="noopener">myaccount.google.com/permissions</a>. Revogar não apaga nada: seus arquivos continuam na sua pasta do Drive.</p>
+
+<h2>O que não fazemos</h2>
+
+<ul>
+  <li>Não coletamos dados de uso, estatísticas nem telemetria.</li>
+  <li>Não usamos rastreadores, cookies de análise ou publicidade.</li>
+  <li>Não enviamos nada para terceiros — não há terceiros.</li>
+  <li>Não temos como ler suas notas, mesmo que quiséssemos.</li>
+</ul>
+
+<h2>Sobre dados sensíveis</h2>
+
+<p>O QuickDock reconhece padrões como CPF, CNPJ e datas dentro do texto para facilitar cópia e conferência. Esse reconhecimento acontece <strong>inteiramente dentro do seu navegador</strong>: nada é enviado para lugar nenhum para ser analisado.</p>
+
+<p>Se você guarda informação sensível nas notas e liga a sincronização, essa informação passa a existir também na pasta que você escolheu — com a proteção que aquela pasta tiver. Vale escolher onde com isso em mente.</p>
+
+<h2>Apagar tudo</h2>
+
+<p>Para remover seus dados: apague as notas dentro do aplicativo, ou limpe os dados do site/extensão no seu navegador. Se você usava sincronização, apague também a pasta <code>QuickDock</code> no seu computador ou no seu Drive.</p>
+
+<p>Como não temos servidor, não existe nada nosso para pedir que seja apagado.</p>
+
+<h2>Mudanças</h2>
+
+<p>Se esta política mudar, a data no topo muda junto. O histórico completo de alterações é público no repositório do projeto.</p>
+
+<h2>Contato</h2>
+
+<p>O QuickDock é um projeto de código aberto mantido por uma pessoa só. Para dúvidas, problemas ou pedidos, abra uma questão em
+<a href="https://github.com/rruat/QuickDock" target="_blank" rel="noopener">github.com/rruat/QuickDock</a>.</p>
+
+<footer>
+  <a href="./">← Voltar para o QuickDock</a>
+</footer>
+
+</body>
+</html>
