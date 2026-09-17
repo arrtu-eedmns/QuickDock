@@ -633,6 +633,16 @@ export class DexieSyncStore {
     return this.db.files.add(registro);
   }
 
+  // Imagem sincronizada se chama `<hash>.<ext>`, e o nome vem do conteúdo — então
+  // procurar pelo nome é procurar pela imagem, com certeza e não por semelhança.
+  // É isso que evita baixar de novo e guardar uma segunda cópia da mesma imagem
+  // quando o painel é reaberto: o cache do motor vive só em memória, mas o banco
+  // não. A tabela `files` já indexa `name` desde a v3, então não custa nada.
+  async obterArquivoPorNome(name) {
+    if (!name) return null;
+    return (await this.db.files.where('name').equals(name).first()) ?? null;
+  }
+
   async listarModelosLocais() {
     return this.db.templates.toArray();
   }

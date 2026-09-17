@@ -1398,6 +1398,144 @@ for (const { nome, blocks } of BLOCOS_V18) {
     igual('imagem · dedup: mesma imagem em duas notas gera apenas um arquivo em imagens/', arquivosImagens.length, 1);
     igual('imagem · caminho do arquivo remoto corresponde ao hash', arquivosImagens[0], `imagens/${hash1}.png`);
 
+    // ── Identidade de imagem: sem certeza, não se atribui ────────────────────
+    // Uma versão anterior casava bloco baixado com imagem local pela ORDEM de
+    // ocorrência quando o texto alternativo não ajudava. Isso não identifica
+    // nada: se o outro aparelho apagou a primeira imagem e manteve a segunda,
+    // o bloco passa a exibir a imagem ERRADA, sem aviso. Errar pra menos aqui
+    // é obrigatório — bloco sem imagem é honesto, imagem trocada não é.
+    {
+      const eng = new SyncEngine({ adapter: new MemorySyncAdapter(), store: new InMemoryStore() });
+
+      // Dois locais de alt vazio, um bloco descendo: impossível saber qual é.
+      const locais = [
+        { type: 'image', fileId: 10, alt: '' },
+        { type: 'image', fileId: 11, alt: '' },
+      ];
+      const desceu = [{ type: 'image', alt: '', unsynced: true }];
+      eng._preservarImagensLocais(locais, desceu);
+      igual('imagem · identidade incerta não atribui fileId (alt vazio)', desceu[0].fileId, undefined);
+
+      // Mesmo alt repetido dos dois lados também não identifica.
+      const locais2 = [
+        { type: 'image', fileId: 20, alt: 'print' },
+        { type: 'image', fileId: 21, alt: 'print' },
+      ];
+      const desceu2 = [{ type: 'image', alt: 'print', unsynced: true }];
+      eng._preservarImagensLocais(locais2, desceu2);
+      igual('imagem · alt repetido não identifica e não atribui', desceu2[0].fileId, undefined);
+
+      // Alt não-vazio e único dos dois lados: aí sim identifica.
+      const locais3 = [
+        { type: 'image', fileId: 30, alt: 'recibo de março' },
+        { type: 'image', fileId: 31, alt: 'print do portal' },
+      ];
+      const desceu3 = [{ type: 'image', alt: 'print do portal', unsynced: true }];
+      eng._preservarImagensLocais(locais3, desceu3);
+      igual('imagem · alt único dos dois lados ainda casa', desceu3[0].fileId, 31);
+
+      // Caminho igual é identidade de verdade (mesmo hash), e vence qualquer alt.
+      const locais4 = [
+        { type: 'image', fileId: 40, alt: 'a', imagePath: '../imagens/aaa.png' },
+        { type: 'image', fileId: 41, alt: 'b', imagePath: '../imagens/bbb.png' },
+      ];
+      const desceu4 = [{ type: 'image', alt: 'a', imagePath: '../imagens/bbb.png' }];
+      eng._preservarImagensLocais(locais4, desceu4);
+      igual('imagem · caminho igual identifica mesmo com alt divergente', desceu4[0].fileId, 41);
+    }
+
+    // ── Dedup do lado que RECEBE ─────────────────────────────────────────────
+    // O teste acima conta arquivos na pasta remota, onde duplicar é impossível:
+    // o nome vem do conteúdo. Quem pode duplicar é o aparelho que baixa. O cache
+    // de tradução do motor vive só em memória, então duas sessões diferentes
+    // abrindo notas diferentes que usam a MESMA imagem guardariam duas cópias.
+    {
+      const ad = new MemorySyncAdapter();
+      const st = new InMemoryStore();
+      await ad.escrever('imagens/abc123def456.png', 'BYTES-DA-IMAGEM', null);
+
+      const caminho = '../imagens/abc123def456.png';
+      await st.salvarNotaLocal({ uid: 'dd1', title: 'Uma', ordem: 'a0',
+        blocks: [{ type: 'image', imagePath: caminho, alt: 'print' }] });
+      await st.salvarNotaLocal({ uid: 'dd2', title: 'Outra', ordem: 'a1',
+        blocks: [{ type: 'image', imagePath: caminho, alt: 'print' }] });
+
+      // Duas instâncias do motor = duas sessões do painel, com o cache zerado.
+      await new SyncEngine({ adapter: ad, store: st }).resolverImagensDaNota('dd1');
+      await new SyncEngine({ adapter: ad, store: st }).resolverImagensDaNota('dd2');
+
+      igual('imagem · dedup local: mesma imagem em duas sessões não duplica o arquivo',
+            st.arquivos.size, 1);
+      const n1 = await st.obterNotaPorUid('dd1');
+      const n2 = await st.obterNotaPorUid('dd2');
+      igual('imagem · dedup local: as duas notas apontam para o mesmo arquivo',
+            n1.blocks[0].fileId, n2.blocks[0].fileId);
+      ok('imagem · dedup local: a imagem foi mesmo resolvida', n1.blocks[0].fileId != null);
+    }
+
+    // ── O nome do arquivo acompanha o título ─────────────────────────────────
+    // A identidade continua sendo o `id` do frontmatter, nunca o nome — é isso
+    // que deixa o usuário renomear arquivos na mão sem quebrar nada. Mas a pasta
+    // existe pra ele conseguir se achar nela sem o QuickDock, e nomes que não
+    // correspondem ao conteúdo destroem justamente isso.
+    {
+      const ad = new MemorySyncAdapter();
+      const st = new InMemoryStore();
+      const eng = new SyncEngine({ adapter: ad, store: st, deviceName: 'X' });
+
+      await st.salvarNotaLocal({ uid: 'rn1', title: 'Nome antigo', ordem: 'a0',
+        blocks: [{ type: 'paragraph', html: 'conteúdo que não pode sumir' }], updatedAt: Date.now() });
+      await eng.sincronizar();
+
+      const antes = await st.obterNotaPorUid('rn1');
+      await st.salvarNotaLocal({ ...antes, title: 'Nome novo', updatedAt: Date.now() + 1 });
+      await eng.sincronizar();
+
+      const vivos = (await ad.listarMudancas(null)).filter(m => !m.apagado).map(m => m.caminho);
+      const notas = vivos.filter(c => c.startsWith('notas/'));
+      igual('renomear · sobra um único arquivo', notas.length, 1);
+      igual('renomear · o arquivo tem o nome novo', notas[0], 'notas/nome-novo.md');
+
+      const conteudo = (await ad.ler('notas/nome-novo.md'))?.texto ?? '';
+      ok('renomear · o conteúdo sobreviveu', conteudo.includes('conteúdo que não pode sumir'));
+      ok('renomear · o frontmatter traz o título novo', conteudo.includes('Nome novo'));
+      igual('renomear · o estado local aponta para o caminho novo',
+            (await st.obterEstadoSync('rn1'))?.caminho, 'notas/nome-novo.md');
+    }
+
+    // Dois títulos diferentes podem gerar o mesmo apelido de arquivo. Renomear
+    // não pode sobrescrever a nota de outra pessoa: nome feio é melhor que nota
+    // perdida, e o id do frontmatter garante que o nome antigo não quebra nada.
+    {
+      const ad = new MemorySyncAdapter();
+      const st = new InMemoryStore();
+      const eng = new SyncEngine({ adapter: ad, store: st, deviceName: 'X' });
+
+      await st.salvarNotaLocal({ uid: 'col1', title: 'Relatorio', ordem: 'a0',
+        blocks: [{ type: 'paragraph', html: 'sou a primeira' }], updatedAt: Date.now() });
+      await st.salvarNotaLocal({ uid: 'col2', title: 'Outra coisa', ordem: 'a1',
+        blocks: [{ type: 'paragraph', html: 'sou a segunda' }], updatedAt: Date.now() });
+      await eng.sincronizar();
+
+      // A segunda é renomeada para um título que gera o MESMO apelido da primeira
+      const segunda = await st.obterNotaPorUid('col2');
+      await st.salvarNotaLocal({ ...segunda, title: 'Relatório', updatedAt: Date.now() + 1 });
+      await eng.sincronizar();
+
+      const primeira = (await ad.ler('notas/relatorio.md'))?.texto ?? '';
+      ok('renomear · colisão de apelido não sobrescreve a nota que já estava lá',
+         primeira.includes('sou a primeira'));
+
+      const vivos = (await ad.listarMudancas(null)).filter(m => !m.apagado)
+        .map(m => m.caminho).filter(c => c.startsWith('notas/'));
+      igual('renomear · colisão mantém as duas notas', vivos.length, 2);
+
+      const daSegunda = await st.obterEstadoSync('col2');
+      const textoSegunda = (await ad.ler(daSegunda.caminho))?.texto ?? '';
+      ok('renomear · a segunda manteve o próprio arquivo, com o título novo',
+         textoSegunda.includes('sou a segunda') && textoSegunda.includes('Relatório'));
+    }
+
     // No markdown de cada nota, a imagem vira o caminho relativo ../imagens/<hash>.png
     const mdNota1 = (await adapter.ler('notas/nota-com-imagem-1.md')).texto;
     const mdNota2 = (await adapter.ler('notas/nota-com-imagem-2.md')).texto;

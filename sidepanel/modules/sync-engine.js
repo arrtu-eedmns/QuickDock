@@ -586,13 +586,27 @@ export class SyncEngine {
           }
         }
       } else if (estado.hash !== hashAtual) {
+        // Renomear a nota renomeia o arquivo. A identidade continua sendo o `id`
+        // do frontmatter — nada depende do nome, e um arquivo renomeado à mão
+        // pelo usuário continua funcionando. Mas o motivo de as notas morarem
+        // numa pasta legível é a pessoa poder abri-la e se achar sem o
+        // QuickDock; uma pasta onde os nomes não correspondem ao conteúdo perde
+        // exatamente isso.
+        const caminhoUsado = await this._renomearSePreciso(nota, estado);
+
         // Nota editada localmente: tenta atualizar com revBase
-        const res = await this.adapter.escrever(estado.caminho, texto, estado.rev);
+        const revBase = caminhoUsado === estado.caminho ? estado.rev : null;
+        const res = await this.adapter.escrever(caminhoUsado, texto, revBase);
 
         if (res && res.rev) {
+          // O antigo só sai depois que o novo já está gravado. Na ordem inversa,
+          // uma falha no meio deixaria a nota sem arquivo nenhum.
+          if (caminhoUsado !== estado.caminho) {
+            try { await this.adapter.apagar(estado.caminho); } catch { /* sobra é melhor que perda */ }
+          }
           await this.store.salvarEstadoSync({
             uid: nota.uid,
-            caminho: estado.caminho,
+            caminho: caminhoUsado,
             rev: res.rev,
             hash: hashAtual,
             sincronizadoEm: Date.now(),
@@ -698,17 +712,32 @@ export class SyncEngine {
     const caminhoRemoto = caminhoImagem.replace(/^\.\.\//, '');
     if (!caminhoRemoto.startsWith('imagens/')) return null;
 
+    const nomeArquivo = caminhoRemoto.split('/').pop();
+
     if (this.cacheImagensLocais.has(caminhoRemoto)) {
       const idExistente = this.cacheImagensLocais.get(caminhoRemoto);
       if (notaUid) await this._associarImagemLocalANota(notaUid, caminhoImagem, idExistente);
       return { fileId: idExistente };
     }
 
+    // O cache acima vive só em memória e zera quando o painel fecha. O banco não:
+    // como o nome do arquivo É o hash do conteúdo, procurar por ele encontra a
+    // mesma imagem com certeza. Sem esta busca, reabrir o painel e abrir uma
+    // segunda nota que usa a mesma imagem baixaria tudo de novo e guardaria uma
+    // cópia a mais — desperdício do disco de quem usa, com prints de megabytes.
+    if (this.store.obterArquivoPorNome) {
+      const jaTem = await this.store.obterArquivoPorNome(nomeArquivo);
+      if (jaTem && jaTem.id != null) {
+        this.cacheImagensLocais.set(caminhoRemoto, jaTem.id);
+        if (notaUid) await this._associarImagemLocalANota(notaUid, caminhoImagem, jaTem.id);
+        return { fileId: jaTem.id };
+      }
+    }
+
     const arq = await this.adapter.ler(caminhoRemoto);
     if (!arq) return null;
 
-    const nome = caminhoRemoto.split('/').pop();
-    const ext = nome.split('.').pop().toLowerCase();
+    const ext = nomeArquivo.split('.').pop().toLowerCase();
     const mime = ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg'
                : (ext === 'webp' ? 'image/webp' : (ext === 'gif' ? 'image/gif' : 'image/png'));
     const blob = arq.blob || arq.conteudo || arq.texto;
@@ -716,7 +745,7 @@ export class SyncEngine {
     let fileId = null;
     if (this.store.salvarArquivo) {
       fileId = await this.store.salvarArquivo({
-        name: nome,
+        name: nomeArquivo,
         type: mime,
         blob,
         inline: true,
@@ -731,6 +760,27 @@ export class SyncEngine {
     }
 
     return { fileId, blob };
+  }
+
+  /**
+   * Decide em qual caminho a nota deve ser gravada quando o título mudou.
+   *
+   * Não renomeia se o destino já existir: dois títulos diferentes podem gerar o
+   * mesmo apelido de arquivo, e sobrescrever seria apagar a nota de outra
+   * pessoa. Nome feio é melhor que nota perdida — e o `id` do frontmatter
+   * continua sendo a identidade, então ficar com o nome antigo não quebra nada.
+   */
+  async _renomearSePreciso(nota, estado) {
+    const desejado = `notas/${slugTitulo(nota.title)}.md`;
+    if (desejado === estado.caminho) return estado.caminho;
+
+    try {
+      const ocupado = await this.adapter.ler(desejado);
+      if (ocupado) return estado.caminho;
+    } catch {
+      return estado.caminho;   // na dúvida, não mexe no nome
+    }
+    return desejado;
   }
 
   async _associarImagemLocalANota(notaUid, caminhoImagem, fileId) {
@@ -770,32 +820,65 @@ export class SyncEngine {
   }
 
   /**
-   * No aparelho de origem, se a nota já possui fileId em suas imagens locais,
-   * preserva esses IDs sobre os blocos de imagem não-sincronizados que desceram.
-   * Em aparelhos que nunca tiveram esse arquivo, o fileId permanece ausente.
+   * Quando blocos de imagem descem sem `fileId`, tenta reencontrar o arquivo
+   * local correspondente — mas só quando dá pra ter CERTEZA de qual é.
+   *
+   * Uma versão anterior casava pela ordem de ocorrência quando o texto
+   * alternativo não ajudava. Casar por posição não é identificar, é chutar: se
+   * o outro aparelho apagou a primeira imagem e manteve a segunda, o bloco
+   * passa a exibir a imagem errada, com toda a confiança e sem aviso nenhum.
+   * É o mesmo estrago que a troca de `quickdock:file/<id>` por hash existiu
+   * pra impedir, voltando por uma heurística.
+   *
+   * A regra agora é errar pra menos: sem certeza, o bloco fica sem `fileId` e
+   * aparece como imagem indisponível. Indisponível é honesto; errada não é.
    */
   _preservarImagensLocais(blocosLocais, novosBlocos) {
     if (!Array.isArray(blocosLocais) || !Array.isArray(novosBlocos)) return;
     const imagensLocais = blocosLocais.filter(b => b.type === 'image' && b.fileId != null);
     if (!imagensLocais.length) return;
 
-    for (const nb of novosBlocos) {
-      if (nb.type === 'image' && nb.fileId == null) {
-        // Tenta casar primeiro por texto alternativo idêntico
-        const match = imagensLocais.find(ib => (ib.alt ?? '') === (nb.alt ?? '') && !ib._pareado);
-        if (match) {
-          nb.fileId = match.fileId;
-          match._pareado = true;
-        } else {
-          // Se não houver texto alternativo idêntico, casa pela ordem de ocorrência
-          const proximo = imagensLocais.find(ib => !ib._pareado);
-          if (proximo) {
-            nb.fileId = proximo.fileId;
-            proximo._pareado = true;
-          }
-        }
+    const candidatos = novosBlocos.filter(b => b.type === 'image' && b.fileId == null);
+    if (!candidatos.length) return;
+
+    const usados = new Set();
+
+    // 1. Identidade de verdade: mesmo caminho = mesmo hash = mesma imagem.
+    for (const nb of candidatos) {
+      if (!nb.imagePath) continue;
+      const igual = imagensLocais.find(ib => ib.imagePath === nb.imagePath && !usados.has(ib.fileId));
+      if (igual) {
+        nb.fileId = igual.fileId;
+        usados.add(igual.fileId);
       }
     }
-    for (const ib of imagensLocais) delete ib._pareado;
+
+    // 2. Texto alternativo, e só quando ele identifica sozinho: não-vazio e
+    //    único dos DOIS lados. Dois blocos com o mesmo alt não identificam nada,
+    //    e alt vazio identifica menos ainda.
+    const contar = (lista, pegar) => {
+      const n = new Map();
+      for (const b of lista) {
+        const k = pegar(b);
+        if (k) n.set(k, (n.get(k) ?? 0) + 1);
+      }
+      return n;
+    };
+    const alt = b => (b.alt ?? '').trim();
+    const quantosLocais = contar(imagensLocais, alt);
+    const quantosNovos  = contar(candidatos, alt);
+
+    for (const nb of candidatos) {
+      if (nb.fileId != null) continue;
+      const a = alt(nb);
+      if (!a || quantosLocais.get(a) !== 1 || quantosNovos.get(a) !== 1) continue;
+      const unico = imagensLocais.find(ib => alt(ib) === a && !usados.has(ib.fileId));
+      if (unico) {
+        nb.fileId = unico.fileId;
+        usados.add(unico.fileId);
+      }
+    }
+
+    // O que sobrou fica sem fileId de propósito.
   }
 }

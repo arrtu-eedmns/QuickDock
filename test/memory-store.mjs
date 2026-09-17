@@ -33,6 +33,14 @@ export class InMemoryStore {
     return arq ? arq.blob : null;
   }
 
+  // Espelha o DexieSyncStore: o nome da imagem sincronizada é o hash do
+  // conteúdo, então achar pelo nome é achar a mesma imagem.
+  async obterArquivoPorNome(name) {
+    if (!name) return null;
+    for (const arq of this.arquivos.values()) if (arq.name === name) return arq;
+    return null;
+  }
+
   async listarModelosLocais() {
     return [...this.modelos.values()];
   }
