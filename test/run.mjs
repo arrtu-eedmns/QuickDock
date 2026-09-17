@@ -2216,6 +2216,52 @@ for (const entrada of ['', null, undefined, '\n\n']) {
   }
 }
 
+// ── Nome de arquivo que não dá pra gravar não pode ser gerado ────────────────
+// Segunda metade do mesmo relato de uso real: mesmo com o laço de conflito
+// corrigido, a nota que JÁ tinha o título inchado continuava falhando a cada
+// sincronização. 243 caracteres só no caminho relativo, e o Windows recusa
+// acima de ~260 contando a pasta escolhida. Falha permanente, não resquício.
+{
+  const { SyncEngine, slugTitulo } = await import('../sidepanel/modules/sync-engine.js');
+  const { MemorySyncAdapter } = await import('../sidepanel/modules/sync-adapter.js');
+  const { InMemoryStore } = await import('./memory-store.mjs');
+
+  const sufixo = ' (conflito 2026-09-17, QuickDock Windows)';
+  const monstro = 'Nota 2' + sufixo.repeat(6);
+
+  ok('nome · slug de título gigante cabe num caminho gravável',
+     slugTitulo(monstro).length <= 60, `${slugTitulo(monstro).length} caracteres`);
+  igual('nome · título curto não é mexido', slugTitulo('Atendimento Maria'), 'atendimento-maria');
+  ok('nome · corte não deixa hífen sobrando no fim', !slugTitulo(monstro).endsWith('-'));
+
+  // E a nota danificada tem que se curar sozinha, sem o usuário renomear na mão.
+  const ad = new MemorySyncAdapter(), st = new InMemoryStore();
+  const eng = new SyncEngine({ adapter: ad, store: st, deviceName: 'QuickDock Windows' });
+  await st.salvarNotaLocal({ uid: 'u1', title: monstro, ordem: 'a0',
+    blocks: [{ type: 'paragraph', html: 'conteudo que nao pode sumir' }], updatedAt: Date.now() });
+
+  await eng.sincronizar();
+  const nota = await st.obterNotaPorUid('u1');
+  const marcas = (nota.title.match(/\(conflito /g) || []).length;
+
+  igual('nome · título empilhado se cura e mantém uma marca só', marcas, 1);
+  ok('nome · a cura preserva o nome original da nota', nota.title.startsWith('Nota 2'), nota.title);
+
+  const caminho = (await st.obterEstadoSync('u1')).caminho;
+  ok('nome · o arquivo gravado cabe no limite do sistema', caminho.length < 120, `${caminho.length} caracteres`);
+  ok('nome · a cura não perdeu o conteúdo',
+     (await ad.ler(caminho)).texto.includes('conteudo que nao pode sumir'));
+
+  // Uma marca só é escolha possível do usuário: não pode ser mexida.
+  const st2 = new InMemoryStore();
+  const eng2 = new SyncEngine({ adapter: new MemorySyncAdapter(), store: st2, deviceName: 'X' });
+  const umaMarca = 'Relatorio' + sufixo;
+  await st2.salvarNotaLocal({ uid: 'u2', title: umaMarca, ordem: 'a0', blocks: [], updatedAt: Date.now() });
+  await eng2.sincronizar();
+  igual('nome · uma única marca de conflito é preservada',
+        (await st2.obterNotaPorUid('u2')).title, umaMarca);
+}
+
 if (falhas.length) {
   console.error(`\n✗ ${falhas.length} falha(s), ${passou} ok\n`);
   for (const f of falhas) console.error(`  ✗ ${f}`);

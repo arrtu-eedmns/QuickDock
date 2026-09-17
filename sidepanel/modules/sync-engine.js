@@ -63,7 +63,28 @@ export function slugTitulo(titulo) {
     .replace(/\s+/g, '-')
     .replace(/-{2,}/g, '-')
     .replace(/^-|-$/g, '');
-  return s || 'sem-titulo';
+
+  // Teto de tamanho. O motor nunca pode gerar um nome que ele não consegue
+  // gravar: o Windows recusa caminho acima de ~260 caracteres, e a falha é
+  // permanente — toda sincronização seguinte tenta o mesmo nome e falha de novo.
+  // Apareceu em uso real, com um título inchado por sufixos de conflito
+  // empilhados gerando 243 caracteres só no caminho relativo.
+  //
+  // Cortar é seguro porque o nome do arquivo é enfeite legível: a identidade da
+  // nota é o `id` do frontmatter. Dois títulos que colidam depois do corte são
+  // resolvidos por quem chama, que nunca sobrescreve arquivo ocupado.
+  const corte = cortarNoHifen(s, MAX_SLUG);
+  return corte || 'sem-titulo';
+}
+
+const MAX_SLUG = 60;
+
+function cortarNoHifen(s, max) {
+  if (s.length <= max) return s;
+  const bruto = s.slice(0, max);
+  const ultimo = bruto.lastIndexOf('-');
+  // Corta na última palavra inteira, desde que não jogue fora quase tudo.
+  return (ultimo > max * 0.6 ? bruto.slice(0, ultimo) : bruto).replace(/-+$/, '');
 }
 
 /**
@@ -588,6 +609,13 @@ export class SyncEngine {
     }
 
     // ── PASSO 3: Subir o que mudou aqui ─────────────────────────────────────────
+    // Antes de subir, cura títulos que uma versão anterior empilhou. Uma nota
+    // chamada "X (conflito ...) (conflito ...) (conflito ...)" não é escolha de
+    // ninguém: é dano do laço de conflito que existia até aqui. Deixar como está
+    // seria manter na cara do usuário o estrago de um bug já corrigido.
+    // Um único sufixo é preservado — esse pode ser legítimo.
+    await this._curarTitulosEmpilhados();
+
     const notasLocais = await this.store.listarNotasLocais();
     const uidAbertaParaUpload = this.obterNotaAbertaUid ? this.obterNotaAbertaUid() : null;
     const podeRecarregarUpload = this.podeRecarregarNotaAberta ? this.podeRecarregarNotaAberta() : true;
@@ -868,6 +896,22 @@ export class SyncEngine {
       return estado.caminho;   // na dúvida, não mexe no nome
     }
     return desejado;
+  }
+
+  async _curarTitulosEmpilhados() {
+    const notas = await this.store.listarNotasLocais();
+    for (const nota of notas) {
+      const titulo = String(nota.title ?? '');
+      // Dois ou mais sufixos empilhados = dano. Um só pode ser conflito de verdade.
+      const quantos = (titulo.match(/\(conflito \d{4}-\d{2}-\d{2}, [^)]*\)/g) || []).length;
+      if (quantos < 2) continue;
+
+      let base = titulo.trim(), antes;
+      do { antes = base; base = base.replace(SUFIXO_CONFLITO, '').trim(); } while (base !== antes);
+      const primeiro = titulo.match(/\(conflito \d{4}-\d{2}-\d{2}, [^)]*\)/)[0];
+      const limpo = `${base || 'Sem título'} ${primeiro}`;
+      if (limpo !== titulo) await this.store.salvarNotaLocal({ ...nota, title: limpo });
+    }
   }
 
   async _associarImagemLocalANota(notaUid, caminhoImagem, fileId) {
