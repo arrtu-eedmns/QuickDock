@@ -37,8 +37,9 @@ export class GoogleDriveAdapter {
    * @param {Function} [opcoes.fetchImpl] Substituto de fetch (testes).
    * @param {string} [opcoes.pastaRaiz] Nome da pasta no Drive da pessoa.
    */
-  constructor({ obterToken, fetchImpl = null, pastaRaiz = PASTA_RAIZ } = {}) {
+  constructor({ obterToken, renovarToken = null, fetchImpl = null, pastaRaiz = PASTA_RAIZ } = {}) {
     this.obterToken = obterToken;
+    this.renovarToken = renovarToken;
     this.fetchImpl = fetchImpl || ((...a) => globalThis.fetch(...a));
     this.pastaRaiz = pastaRaiz;
 
@@ -50,13 +51,23 @@ export class GoogleDriveAdapter {
   }
 
   // ── Plumbing ─────────────────────────────────────────────────────────────
-  async _api(url, { method = 'GET', headers = {}, body = null, cru = false } = {}) {
+  async _api(url, { method = 'GET', headers = {}, body = null, cru = false, _jaRenovou = false } = {}) {
     const token = await this.obterToken();
     const resp = await this.fetchImpl(url, {
       method,
       headers: { Authorization: `Bearer ${token}`, ...headers },
       body,
     });
+
+    // Token vencido ou revogado. O Chrome guarda o token em cache e continua
+    // entregando o mesmo, então sem pedir renovação isso vira 401 permanente:
+    // toda rodada seguinte manda exatamente o token que acabou de ser recusado.
+    // Uma tentativa só — se a renovada também for recusada, o problema é outro
+    // e insistir viraria laço.
+    if ((resp.status === 401 || resp.status === 403) && this.renovarToken && !_jaRenovou) {
+      await this.renovarToken();
+      return this._api(url, { method, headers, body, cru, _jaRenovou: true });
+    }
 
     if (!resp.ok) {
       // 404 é resposta legítima em vários pontos (arquivo que não existe), e
