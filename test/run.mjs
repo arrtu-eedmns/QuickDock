@@ -2406,6 +2406,75 @@ for (const entrada of ['', null, undefined, '\n\n']) {
      /notasPuladas/.test(ctrl) && /sync-skipped-msg/.test(ctrl));
 }
 
+// ── Subir a nota aberta é sempre seguro ──────────────────────────────────────
+// Relatado em uso real: editar na extensão com a nota aberta, clicar em
+// sincronizar, e do outro lado não chegar nada. A causa não era o lado que
+// recebe -- era o que envia: a nota aberta simplesmente NÃO SUBIA enquanto o
+// editor estivesse em foco, nem na primeira vez. O arquivo nem chegava a existir
+// na pasta, e o outro cliente parecia travado por não ter o que buscar.
+//
+// Enviar só grava um arquivo e não encosta no editor. Quem arrisca atropelar a
+// digitação é baixar, e essa parte continua adiando.
+{
+  const { SyncEngine } = await import('../sidepanel/modules/sync-engine.js');
+  const { MemorySyncAdapter } = await import('../sidepanel/modules/sync-adapter.js');
+  const { InMemoryStore } = await import('./memory-store.mjs');
+
+  const ad = new MemorySyncAdapter(), st = new InMemoryStore();
+  const ext = new SyncEngine({ adapter: ad, store: st, deviceName: 'Extensao',
+    obterNotaAbertaUid: () => 'u1',
+    podeRecarregarNotaAberta: () => false,   // editor em foco o tempo todo
+    recarregarNotaAberta: async () => {},
+  });
+
+  const t = Date.now();
+  await st.salvarNotaLocal({ uid: 'u1', title: 'N', ordem: 'a0',
+    blocks: [{ type: 'paragraph', html: 'original' }], createdAt: t, updatedAt: t });
+
+  const r1 = await ext.sincronizar();
+  igual('subir · nota aberta sobe mesmo com o editor em foco', r1.enviadas, 1);
+  ok('subir · o arquivo chega a existir na pasta', (await ad.ler('notas/n.md')) !== null);
+
+  // E a edição seguinte também tem que chegar.
+  const n = await st.obterNotaPorUid('u1');
+  await st.salvarNotaLocal({ ...n, blocks: [{ type: 'paragraph', html: 'EDITADO' }],
+    updatedAt: Date.now() + 1 });
+  const r2 = await ext.sincronizar();
+  igual('subir · edição na nota aberta é enviada', r2.enviadas, 1);
+  ok('subir · o conteúdo editado está no arquivo',
+     ((await ad.ler('notas/n.md'))?.texto ?? '').includes('EDITADO'));
+
+  // Baixar continua adiando: é o lado que pode atropelar a digitação.
+  const ad2 = new MemorySyncAdapter();
+  const stA = new InMemoryStore(), stB = new InMemoryStore();
+  const A = new SyncEngine({ adapter: ad2, store: stA, deviceName: 'A' });
+  // O editor só fica ocupado DEPOIS que B já tem a nota: baixar uma nota que não
+  // existe localmente não atropela nada, então não faria sentido adiar antes.
+  let ocupado = false;
+  const Bcliente = new SyncEngine({ adapter: ad2, store: stB, deviceName: 'B',
+    obterNotaAbertaUid: () => 'u2',
+    podeRecarregarNotaAberta: () => !ocupado,
+    recarregarNotaAberta: async () => {},
+  });
+  const t2 = Date.now();
+  await stA.salvarNotaLocal({ uid: 'u2', title: 'M', ordem: 'a0',
+    blocks: [{ type: 'paragraph', html: 'de A' }], createdAt: t2, updatedAt: t2 });
+  await A.sincronizar();
+  await Bcliente.sincronizar();                  // B recebe a nota e a abre
+
+  ocupado = true;                                // agora a pessoa está digitando nela
+  const na2 = await stA.obterNotaPorUid('u2');
+  await stA.salvarNotaLocal({ ...na2, blocks: [{ type: 'paragraph', html: 'A editou depois' }],
+    updatedAt: Date.now() + 1 });
+  await A.sincronizar();
+
+  const rb = await Bcliente.sincronizar();
+  igual('subir · baixar continua adiando quando o editor está ocupado', rb.baixadas, 0);
+  igual('subir · o adiamento é contabilizado para poder ser avisado', rb.puladas, 1);
+  igual('subir · o texto que a pessoa está editando não é atropelado',
+        (await stB.obterNotaPorUid('u2'))?.blocks?.[0]?.html, 'de A');
+}
+
 if (falhas.length) {
   console.error(`\n✗ ${falhas.length} falha(s), ${passou} ok\n`);
   for (const f of falhas) console.error(`  ✗ ${f}`);

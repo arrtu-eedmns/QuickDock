@@ -626,15 +626,23 @@ export class SyncEngine {
     await this._curarTitulosEmpilhados();
 
     const notasLocais = await this.store.listarNotasLocais();
-    const uidAbertaParaUpload = this.obterNotaAbertaUid ? this.obterNotaAbertaUid() : null;
-    const podeRecarregarUpload = this.podeRecarregarNotaAberta ? this.podeRecarregarNotaAberta() : true;
 
     for (const nota of notasLocais) {
-      // Se a nota teve seu download adiado nesta rodada (por estar aberta/ocupada),
-      // ou se ainda está aberta com digitação pendente no editor, NÃO sobe nesta rodada.
-      // Ela subirá na próxima rodada após flushSave e reconciliação segura.
+      // SUBIR a nota aberta é sempre seguro: enviar só grava um arquivo e não
+      // encosta no editor. Quem arrisca atropelar o que está sendo digitado é
+      // BAIXAR, e essa parte continua adiando.
+      //
+      // Havia aqui uma segunda condição que também bloqueava a subida enquanto o
+      // editor estivesse em foco. O efeito era grave e silencioso: uma nota
+      // aberta simplesmente nunca era enviada -- nem na primeira vez. A pessoa
+      // editava, clicava em sincronizar, e o arquivo nem chegava a existir na
+      // pasta; do outro lado não havia o que buscar, e parecia que o outro
+      // cliente é que estava travado.
+      //
+      // O adiamento por download continua: se a descida desta nota foi adiada
+      // nesta rodada, subir agora colidiria com a versão remota que ainda não
+      // foi reconciliada, e isso viraria cópia de conflito à toa.
       if (uidsPulados.has(nota.uid)) continue;
-      if (nota.uid === uidAbertaParaUpload && !podeRecarregarUpload) continue;
 
       // Traduz imagens locais para caminhos imutáveis ../imagens/<hash>.<ext>
       const mapaImagens = new Map();
