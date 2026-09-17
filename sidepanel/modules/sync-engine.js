@@ -36,6 +36,24 @@ export function hashConteudo(str) {
   return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(16);
 }
 
+/**
+ * Hash usado para detectar mudança de verdade num arquivo de nota.
+ *
+ * O `atualizadoEm` do frontmatter NÃO entra na conta, e isso é o ponto todo da
+ * função. O `flushSave()` do editor grava sempre que é chamado — inclusive
+ * quando nada mudou — e carimba `updatedAt: Date.now()`. Como ele roda antes de
+ * cada rodada de sincronização, o texto serializado mudava a cada rodada, a nota
+ * parecia editada localmente, e bastava o lado remoto também parecer mudado para
+ * nascer uma cópia de conflito. A cópia então virava fonte da próxima, e o nome
+ * do arquivo crescia até estourar o limite de caminho do sistema.
+ *
+ * Carimbo de tempo é metadado, não conteúdo. Fica no arquivo para quem lê, mas
+ * não decide se houve mudança.
+ */
+export function hashDaNota(texto) {
+  return hashConteudo(String(texto ?? '').replace(/^atualizadoEm:.*$/m, ''));
+}
+
 export function slugTitulo(titulo) {
   const s = (titulo ?? '')
     .trim()
@@ -46,6 +64,31 @@ export function slugTitulo(titulo) {
     .replace(/-{2,}/g, '-')
     .replace(/^-|-$/g, '');
   return s || 'sem-titulo';
+}
+
+/**
+ * Título da cópia de conflito, sem aninhar.
+ *
+ * Rede de segurança: se a cópia já traz um sufixo de conflito, ele é SUBSTITUÍDO
+ * em vez de acrescentado. Sem isso, conflitos repetidos empilham sufixos e o nome
+ * do arquivo cresce sem limite até estourar o caminho máximo do sistema — que foi
+ * exatamente o sintoma que apareceu em uso real, com seis sufixos empilhados e
+ * uma falha de gravação no fim.
+ *
+ * A causa raiz daquele caso era outra (ver `hashDaNota`), mas empilhar sufixo
+ * nunca é o comportamento desejado: a marca precisa dizer "esta é uma cópia de
+ * conflito", e uma vez basta.
+ */
+const SUFIXO_CONFLITO = /\s*\(conflito \d{4}-\d{2}-\d{2}, [^)]*\)\s*$/;
+
+function tituloDeConflito(titulo, aparelho) {
+  // Repete até estabilizar: um título que já empilhou vários sufixos (dano de
+  // uma versão anterior) volta ao nome original, não fica com um a menos.
+  let base = String(titulo ?? '').trim();
+  let antes;
+  do { antes = base; base = base.replace(SUFIXO_CONFLITO, '').trim(); } while (base !== antes);
+  if (!base) base = 'Sem título';
+  return `${base} (conflito ${dataIsoHoje()}, ${aparelho})`;
 }
 
 function dataIsoHoje() {
@@ -203,7 +246,7 @@ export class SyncEngine {
             continue;
           }
           const textoLocalMod = this.serializarModelo(modLocal);
-          if (hashConteudo(textoLocalMod) === estadoLocal.hash) {
+          if (hashDaNota(textoLocalMod) === estadoLocal.hash) {
             await this.store.excluirModeloLocal(modLocal.uid);
             await this.store.excluirEstadoSync(modLocal.uid);
             resultado.apagadas++;
@@ -238,7 +281,7 @@ export class SyncEngine {
         }
 
         const uidMod = parsedMod.meta.id;
-        const hashRemotoMod = hashConteudo(arqMod.texto);
+        const hashRemotoMod = hashDaNota(arqMod.texto);
         const modLocal = await this.store.obterModeloPorUid(uidMod);
         const estadoModPorUid = await this.store.obterEstadoSync(uidMod);
 
@@ -262,7 +305,7 @@ export class SyncEngine {
           resultado.baixadas++;
         } else {
           const textoModLocal = this.serializarModelo(modLocal);
-          const hashModLocal = hashConteudo(textoModLocal);
+          const hashModLocal = hashDaNota(textoModLocal);
 
           if (estadoModPorUid && estadoModPorUid.hash === hashRemotoMod && estadoModPorUid.rev === revRemotaMod) {
             if (!tevePulo && Number(rev) > Number(maiorCursor || 0)) maiorCursor = rev;
@@ -344,7 +387,7 @@ export class SyncEngine {
 
         // Verifica se o usuário editou localmente após o último sync
         const textoLocalAtual = this.serializarNota(notaLocal);
-        const hashAtual = hashConteudo(textoLocalAtual);
+        const hashAtual = hashDaNota(textoLocalAtual);
 
         if (hashAtual === estadoLocal.hash) {
           // Nota não foi tocada localmente: exclusão remota propaga para cá
@@ -390,7 +433,7 @@ export class SyncEngine {
       }
 
       const uid = parsed.meta.id;
-      const hashRemoto = hashConteudo(textoRemoto);
+      const hashRemoto = hashDaNota(textoRemoto);
       const notaLocal = await this.store.obterNotaPorUid(uid);
       const estadoPorUid = await this.store.obterEstadoSync(uid);
 
@@ -420,7 +463,7 @@ export class SyncEngine {
       } else {
         // Nota existe localmente: verifica se houve alteração de ambos os lados
         const textoLocal = this.serializarNota(notaLocal);
-        const hashLocal = hashConteudo(textoLocal);
+        const hashLocal = hashDaNota(textoLocal);
 
         if (estadoPorUid && estadoPorUid.hash === hashRemoto && estadoPorUid.rev === revRemota) {
           // Conteúdo remoto é idêntico ao já sincronizado: nada a fazer no download
@@ -478,7 +521,7 @@ export class SyncEngine {
             ? crypto.randomUUID()
             : `u_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
 
-          const tituloConflito = `${notaLocal.title} (conflito ${dataIsoHoje()}, ${this.deviceName})`;
+          const tituloConflito = tituloDeConflito(notaLocal.title, this.deviceName);
           const caminhoConflito = `notas/${slugTitulo(notaLocal.title)} (conflito ${dataIsoHoje()}, ${this.deviceName}).md`;
 
           // 1. Salva a cópia de conflito com os dados locais.
@@ -586,7 +629,7 @@ export class SyncEngine {
       }
 
       const texto = this.serializarNota(nota, mapaImagens);
-      const hashAtual = hashConteudo(texto);
+      const hashAtual = hashDaNota(texto);
       const estado = await this.store.obterEstadoSync(nota.uid);
 
       if (!estado) {
@@ -656,7 +699,7 @@ export class SyncEngine {
           resultado.enviadas++;
         } else if (res && res.conflito) {
           // Colisão na subida: gera arquivo de cópia de conflito no destino
-          const tituloConflito = `${nota.title} (conflito ${dataIsoHoje()}, ${this.deviceName})`;
+          const tituloConflito = tituloDeConflito(nota.title, this.deviceName);
           const caminhoConflito = `notas/${slugTitulo(nota.title)} (conflito ${dataIsoHoje()}, ${this.deviceName}).md`;
           const resConf = await this.adapter.escrever(caminhoConflito, texto, null);
           if (resConf && resConf.rev) {
@@ -682,7 +725,7 @@ export class SyncEngine {
       for (const mod of modelosLocais) {
         if (uidsPulados.has(mod.uid)) continue;
         const textoMod = this.serializarModelo(mod);
-        const hashAtualMod = hashConteudo(textoMod);
+        const hashAtualMod = hashDaNota(textoMod);
         const estadoMod = await this.store.obterEstadoSync(mod.uid);
 
         if (!estadoMod) {

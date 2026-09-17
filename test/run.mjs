@@ -2132,6 +2132,90 @@ for (const entrada of ['', null, undefined, '\n\n']) {
      sobrando.length === 0, `não existem: ${sobrando.join(', ')}`);
 }
 
+// ── Sincronizar sem editar não pode gerar conflito ───────────────────────────
+// Bug encontrado em uso real: o arquivo virou
+//   nota-2-conflito-...-conflito-...-conflito-... (seis vezes) .md
+// e a gravação falhou por estourar o caminho máximo do Windows.
+//
+// Duas causas somadas. O `flushSave()` do editor grava sempre que é chamado,
+// mesmo sem mudança, carimbando updatedAt — e ele roda antes de CADA rodada de
+// sincronização. Com `atualizadoEm` entrando no texto serializado, a nota parecia
+// editada localmente toda vez. Junto disso, o adaptador de pasta gera revisão
+// "mtime-tamanho", que não é número, então o cursor nunca avançava e o lado
+// remoto também parecia mudado sempre. Os dois juntos = conflito por rodada, e
+// cada cópia virava fonte da próxima.
+{
+  const { SyncEngine, hashDaNota } = await import('../sidepanel/modules/sync-engine.js');
+  const { MemorySyncAdapter } = await import('../sidepanel/modules/sync-adapter.js');
+  const { InMemoryStore } = await import('./memory-store.mjs');
+
+  // Carimbo de tempo é metadado, não conteúdo.
+  // A quebra vem de fromCharCode porque este arquivo já foi corrompido antes por
+  // camada de escape comendo o "\n" — mesma razão do QUEBRA em blocks.js.
+  const QUEBRA_TESTE = String.fromCharCode(10);
+  const base = ['---', 'quickdock: 1', 'id: x', 'titulo: T',
+                'atualizadoEm: "2026-01-01T00:00:00.000Z"', '---', '', 'corpo'].join(QUEBRA_TESTE);
+  const outro = base.replace('2026-01-01', '2026-09-17');
+  igual('sync · hash ignora o carimbo de atualização', hashDaNota(base), hashDaNota(outro));
+  ok('sync · hash ainda enxerga mudança de conteúdo de verdade',
+     hashDaNota(base) !== hashDaNota(base.replace('corpo', 'outro corpo')));
+
+  // Adaptador com revisão não-numérica, como o de pasta local
+  const revDe = t => { let h = 0; for (const c of t) h = (h * 31 + c.charCodeAt(0)) | 0;
+    return `${1726531200000 + Math.abs(h % 99999)}-${t.length}`; };
+  class PastaLocalFalsa extends MemorySyncAdapter {
+    async escrever(c, t, rb) { const r = await super.escrever(c, t, rb);
+      if (r && r.rev) r.rev = revDe(t); return r; }
+    async ler(c) { const r = await super.ler(c); return r ? { ...r, rev: revDe(r.texto) } : r; }
+    async listarMudancas(d) { const m = await super.listarMudancas(d); const o = [];
+      for (const x of m) { const a = await super.ler(x.caminho);
+        o.push({ ...x, rev: a ? revDe(a.texto) : x.rev }); } return o; }
+  }
+
+  const ad = new PastaLocalFalsa(), st = new InMemoryStore();
+  const eng = new SyncEngine({ adapter: ad, store: st, deviceName: 'QuickDock Windows',
+    antesDeSincronizar: async () => {
+      for (const n of await st.listarNotasLocais()) {
+        await st.salvarNotaLocal({ ...n, updatedAt: Date.now() });
+      }
+    },
+  });
+  await st.salvarNotaLocal({ uid: 'u1', title: 'Nota 2', ordem: 'a0',
+    blocks: [{ type: 'paragraph', html: 'texto que nunca muda' }], updatedAt: Date.now() });
+
+  let totalConflitos = 0;
+  for (let i = 0; i < 5; i++) {
+    const r = await eng.sincronizar();
+    totalConflitos += r.conflitos;
+    await new Promise(x => setTimeout(x, 2));
+  }
+  const notas = await st.listarNotasLocais();
+  igual('sync · 5 rodadas sem edição não geram conflito nenhum', totalConflitos, 0);
+  igual('sync · 5 rodadas sem edição não multiplicam a nota', notas.length, 1);
+  ok('sync · o título não ganha sufixo de conflito à toa',
+     !/conflito/.test(notas[0].title), notas[0].title);
+}
+
+// Rede de segurança: sufixo de conflito não empilha, e título já danificado por
+// uma versão anterior volta ao nome original.
+{
+  const { SyncEngine } = await import('../sidepanel/modules/sync-engine.js');
+  const { MemorySyncAdapter } = await import('../sidepanel/modules/sync-adapter.js');
+  const { InMemoryStore } = await import('./memory-store.mjs');
+  const eng = new SyncEngine({ adapter: new MemorySyncAdapter(), store: new InMemoryStore(),
+    deviceName: 'Aparelho' });
+
+  const sufixo = ' (conflito 2026-09-17, QuickDock Windows)';
+  const empilhado = 'Nota 2' + sufixo.repeat(6);
+  const saida = eng._tituloDeConflitoParaTeste
+    ? eng._tituloDeConflitoParaTeste(empilhado)
+    : null;
+  if (saida !== null) {
+    ok('sync · título com sufixos empilhados volta ao nome original',
+       (saida.match(/conflito/g) || []).length === 1, saida);
+  }
+}
+
 if (falhas.length) {
   console.error(`\n✗ ${falhas.length} falha(s), ${passou} ok\n`);
   for (const f of falhas) console.error(`  ✗ ${f}`);
