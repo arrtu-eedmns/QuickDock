@@ -133,22 +133,24 @@ export async function cancelInject() {
   hideToast();
 }
 
-// Ouve resultado da injeção vindo do content script
-chrome.runtime.onMessage.addListener(msg => {
-  if (msg.type === 'QD_INJECT_RESULT') {
-    activeTabId = null;
-    if (msg.ok) {
-      showToast('✅ Arquivo enviado com sucesso!');
-    } else {
-      showToast('⚠️ Não foi possível injetar o arquivo neste elemento.');
+// Ouve resultado da injeção vindo do content script (apenas no contexto de extensão)
+if (typeof chrome !== 'undefined' && chrome?.runtime?.onMessage?.addListener) {
+  chrome.runtime.onMessage.addListener(msg => {
+    if (msg.type === 'QD_INJECT_RESULT') {
+      activeTabId = null;
+      if (msg.ok) {
+        showToast('✅ Arquivo enviado com sucesso!');
+      } else {
+        showToast('⚠️ Não foi possível injetar o arquivo neste elemento.');
+      }
+      setTimeout(hideToast, 3000);
     }
-    setTimeout(hideToast, 3000);
-  }
 
-  if (msg.type === 'QD_INJECT_CANCELLED') {
-    activeTabId = null;
-    hideToast();
-  }
-});
+    if (msg.type === 'QD_INJECT_CANCELLED') {
+      activeTabId = null;
+      hideToast();
+    }
+  });
+}
 
-btnCancel.addEventListener('click', cancelInject);
+btnCancel?.addEventListener('click', cancelInject);

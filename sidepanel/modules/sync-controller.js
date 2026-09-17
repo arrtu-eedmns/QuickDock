@@ -76,6 +76,7 @@ export class SyncController {
     this.lastSyncError = null;
     this.lastStats = null;
     this.conflitosPendentes = [];
+    this.avisosVersao = [];
 
     this.engine = null;
     this.isSyncing = false;
@@ -131,6 +132,8 @@ export class SyncController {
       isSyncing: this.isSyncing,
       conflitosPendentes: this.conflitosPendentes,
       totalConflitos: this.conflitosPendentes.length,
+      avisosVersao: this.avisosVersao,
+      totalAvisosVersao: this.avisosVersao.length,
     };
   }
 
@@ -143,6 +146,7 @@ export class SyncController {
       this.lastSyncError = (await this._obterMeta('lastSyncError')) ?? null;
       this.lastStats = (await this._obterMeta('lastSyncStats')) ?? null;
       this.conflitosPendentes = (await this._obterMeta('syncPendingConflicts')) || [];
+      this.avisosVersao = (await this._obterMeta('syncVersionWarnings')) || [];
 
       // Recupera o handle da pasta salva
       const handleSalvo = await this._obterMeta('folderHandle');
@@ -278,6 +282,7 @@ export class SyncController {
     await this._excluirMeta('lastSyncError');
     await this._excluirMeta('lastSyncStats');
     await this._excluirMeta('syncPendingConflicts');
+    await this._excluirMeta('syncVersionWarnings');
 
     this.rootHandle = null;
     this.folderName = null;
@@ -286,12 +291,19 @@ export class SyncController {
     this.lastSyncError = null;
     this.lastStats = null;
     this.conflitosPendentes = [];
+    this.avisosVersao = [];
     this._notificar();
   }
 
   async dispensarConflitos() {
     this.conflitosPendentes = [];
     await this._excluirMeta('syncPendingConflicts');
+    this._notificar();
+  }
+
+  async dispensarAvisosVersao() {
+    this.avisosVersao = [];
+    await this._excluirMeta('syncVersionWarnings');
     this._notificar();
   }
 
@@ -342,6 +354,11 @@ export class SyncController {
       if (Array.isArray(resultado.notasConflito) && resultado.notasConflito.length > 0) {
         this.conflitosPendentes.push(...resultado.notasConflito);
         await this._salvarMeta('syncPendingConflicts', this.conflitosPendentes);
+      }
+
+      if (Array.isArray(resultado.avisosVersao) && resultado.avisosVersao.length > 0) {
+        this.avisosVersao.push(...resultado.avisosVersao);
+        await this._salvarMeta('syncVersionWarnings', this.avisosVersao);
       }
 
       await this._salvarMeta('lastSyncAt', this.lastSyncAt);
@@ -456,9 +473,33 @@ export class SyncController {
         menu.appendChild(conflictBox);
       }
 
+      // Caixa de aviso de versão de formato não suportada (criada por cliente mais novo)
+      if (this.avisosVersao && this.avisosVersao.length > 0) {
+        const esc = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        const versionBox = document.createElement('div');
+        versionBox.className = 'sync-conflict-box sync-version-box';
+        const listaHtml = this.avisosVersao
+          .map(v => `<li><strong>${esc(v.titulo || v.caminho)}</strong>: esta nota foi criada por uma versão mais nova do QuickDock</li>`)
+          .join('');
+        versionBox.innerHTML = `
+          <div class="sync-conflict-box-title">ℹ Formato não suportado (${this.avisosVersao.length})</div>
+          <div class="sync-conflict-box-desc">Arquivos criados por versão mais nova foram mantidos intactos:</div>
+          <ul class="sync-conflict-box-list">${listaHtml}</ul>
+          <button class="copy-opt sync-action-btn sync-btn-dismiss" id="sync-btn-dispensar-versao">
+            Dispensar aviso
+          </button>
+        `;
+        menu.appendChild(versionBox);
+      }
+
       // Eventos dos botões internos
       menu.querySelector('#sync-btn-dispensar-conflitos')?.addEventListener('click', async () => {
         await this.dispensarConflitos();
+        renderConteudo();
+      });
+
+      menu.querySelector('#sync-btn-dispensar-versao')?.addEventListener('click', async () => {
+        await this.dispensarAvisosVersao();
         renderConteudo();
       });
 

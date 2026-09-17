@@ -15,7 +15,7 @@
 // reside exclusivamente no aparelho e nunca sobe. É ele que diferencia uma
 // nota apagada remotamente de uma nota que ainda não chegou.
 
-import { buildNoteFile, parseNoteFile } from './notefile.js';
+import { buildNoteFile, parseNoteFile, extrairMetadadosBrutos, FORMATO_QUICKDOCK_SUPORTADO } from './notefile.js';
 import { parseMarkdownToBlocks, blocksToMarkdown } from './blocks.js';
 // Só a função pura de ordenação — o motor não fala com o banco.
 import { ordemEntre } from './storage.js';
@@ -170,11 +170,12 @@ export class SyncEngine {
 
     await this.adapter.autenticar();
 
-    const resultado = { baixadas: 0, enviadas: 0, conflitos: 0, apagadas: 0, puladas: 0, notasConflito: [] };
+    const resultado = { baixadas: 0, enviadas: 0, conflitos: 0, apagadas: 0, puladas: 0, notasConflito: [], avisosVersao: [] };
     const cursor = await this.store.obterCursorSync();
     let maiorCursor = cursor;
     let tevePulo = false;
     const uidsPulados = new Set();
+    const caminhosRecusadosPorVersao = new Set();
 
     // ── PASSO 1 & 2: Baixar o que mudou lá (sempre antes de subir) ─────────────
     const mudancas = await this.adapter.listarMudancas(cursor);
@@ -217,7 +218,24 @@ export class SyncEngine {
         if (!arqMod) continue;
         const revRemotaMod = arqMod.rev;
         const parsedMod = parseNoteFile(arqMod.texto);
-        if (!parsedMod || !parsedMod.meta || !parsedMod.meta.id) continue;
+        if (!parsedMod || !parsedMod.meta || !parsedMod.meta.id) {
+          // Se o arquivo foi recusado por usar uma versão de formato mais recente do que
+          // este cliente suporta, nunca devemos sobrescrevê-lo nem tentar aceitá-lo com perdas.
+          const brutoMod = extrairMetadadosBrutos(arqMod.texto);
+          if (brutoMod?.meta?.quickdock && brutoMod.meta.quickdock > FORMATO_QUICKDOCK_SUPORTADO) {
+            tevePulo = true;
+            resultado.puladas++;
+            if (brutoMod.meta.id) uidsPulados.add(brutoMod.meta.id);
+            caminhosRecusadosPorVersao.add(caminho);
+            resultado.avisosVersao.push({
+              caminho,
+              titulo: brutoMod.meta.nome || brutoMod.meta.titulo || caminho,
+              versao: brutoMod.meta.quickdock,
+              mensagem: 'esta nota foi criada por uma versão mais nova do QuickDock',
+            });
+          }
+          continue;
+        }
 
         const uidMod = parsedMod.meta.id;
         const hashRemotoMod = hashConteudo(arqMod.texto);
@@ -352,7 +370,24 @@ export class SyncEngine {
 
       const { texto: textoRemoto, rev: revRemota } = arquivoRemoto;
       const parsed = parseNoteFile(textoRemoto);
-      if (!parsed || !parsed.meta || !parsed.meta.id) continue;
+      if (!parsed || !parsed.meta || !parsed.meta.id) {
+        // Se a nota remota tem formato mais novo que este cliente não conhece (ex.: quickdock: 2),
+        // recusa com segurança: pula sem escrever por cima e registra aviso explícito.
+        const bruto = extrairMetadadosBrutos(textoRemoto);
+        if (bruto?.meta?.quickdock && bruto.meta.quickdock > FORMATO_QUICKDOCK_SUPORTADO) {
+          tevePulo = true;
+          resultado.puladas++;
+          if (bruto.meta.id) uidsPulados.add(bruto.meta.id);
+          caminhosRecusadosPorVersao.add(caminho);
+          resultado.avisosVersao.push({
+            caminho,
+            titulo: bruto.meta.titulo || bruto.meta.title || caminho,
+            versao: bruto.meta.quickdock,
+            mensagem: 'esta nota foi criada por uma versão mais nova do QuickDock',
+          });
+        }
+        continue;
+      }
 
       const uid = parsed.meta.id;
       const hashRemoto = hashConteudo(textoRemoto);
@@ -557,6 +592,8 @@ export class SyncEngine {
       if (!estado) {
         // Nota criada localmente: sobe arquivo novo
         const caminho = `notas/${slugTitulo(nota.title)}.md`;
+        // Proteção contra sobrescrita de arquivo remoto recusado por versão mais nova
+        if (caminhosRecusadosPorVersao.has(caminho)) continue;
         const res = await this.adapter.escrever(caminho, texto, null);
 
         if (res && res.rev) {
@@ -586,6 +623,9 @@ export class SyncEngine {
           }
         }
       } else if (estado.hash !== hashAtual) {
+        // Se o arquivo remoto estiver numa versão mais nova recusada, não sobrescreve
+        if (caminhosRecusadosPorVersao.has(estado.caminho)) continue;
+
         // Renomear a nota renomeia o arquivo. A identidade continua sendo o `id`
         // do frontmatter — nada depende do nome, e um arquivo renomeado à mão
         // pelo usuário continua funcionando. Mas o motivo de as notas morarem
@@ -593,6 +633,7 @@ export class SyncEngine {
         // QuickDock; uma pasta onde os nomes não correspondem ao conteúdo perde
         // exatamente isso.
         const caminhoUsado = await this._renomearSePreciso(nota, estado);
+        if (caminhosRecusadosPorVersao.has(caminhoUsado)) continue;
 
         // Nota editada localmente: tenta atualizar com revBase
         const revBase = caminhoUsado === estado.caminho ? estado.rev : null;
@@ -639,12 +680,14 @@ export class SyncEngine {
     if (this.store.listarModelosLocais) {
       const modelosLocais = await this.store.listarModelosLocais();
       for (const mod of modelosLocais) {
+        if (uidsPulados.has(mod.uid)) continue;
         const textoMod = this.serializarModelo(mod);
         const hashAtualMod = hashConteudo(textoMod);
         const estadoMod = await this.store.obterEstadoSync(mod.uid);
 
         if (!estadoMod) {
           const caminhoMod = `modelos/${slugTitulo(mod.name)}.md`;
+          if (caminhosRecusadosPorVersao.has(caminhoMod)) continue;
           const res = await this.adapter.escrever(caminhoMod, textoMod, null);
           if (res && res.rev) {
             await this.store.salvarEstadoSync({
@@ -658,6 +701,7 @@ export class SyncEngine {
             resultado.enviadas++;
           }
         } else if (estadoMod.hash !== hashAtualMod) {
+          if (caminhosRecusadosPorVersao.has(estadoMod.caminho)) continue;
           const res = await this.adapter.escrever(estadoMod.caminho, textoMod, estadoMod.rev);
           if (res && res.rev) {
             await this.store.salvarEstadoSync({

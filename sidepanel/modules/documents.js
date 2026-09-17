@@ -6,6 +6,7 @@ import { openModal } from './modal.js';
 import { startInject, startInjectMultiple } from './inject.js';
 import { initSelection, clearSelection, getSelectedMetas } from './selection.js';
 import { setActiveArea } from './active-area.js';
+import { podeInserirNaPagina } from './platform.js';
 
 const grid           = document.getElementById('doc-grid');
 const dropZone       = document.getElementById('drop-zone');
@@ -136,11 +137,16 @@ btnScopeSel.addEventListener('click', async () => {
   updateGroupBar();
 });
 
-btnInjectSel.addEventListener('click', async () => {
-  const metas = getSelectedMetas();
-  if (!metas.length) return;
-  await startInjectMultiple(metas);
-});
+if (podeInserirNaPagina()) {
+  btnInjectSel?.addEventListener('click', async () => {
+    const metas = getSelectedMetas();
+    if (!metas.length) return;
+    await startInjectMultiple(metas);
+  });
+} else {
+  // Na web/PWA a capacidade não existe: o botão deve sumir completamente da interface
+  btnInjectSel?.remove();
+}
 
 // ── Helpers de renderização ──────────────────────────────────────────────────
 function isAllowed(file) {
@@ -242,21 +248,26 @@ async function buildCard(meta) {
     updateGroupBar();
   });
 
-  const injectBtn = document.createElement('button');
-  injectBtn.className   = 'doc-inject';
-  injectBtn.title       = 'Enviar para campo da página';
-  injectBtn.textContent = '→';
-  injectBtn.addEventListener('click', async e => {
-    e.stopPropagation();
-    await startInject(id, name, type);
-  });
-
   // Clique simples abre o preview (sem modificadores)
 
   card.appendChild(thumb);
   card.appendChild(nameEl);
   card.appendChild(delBtn);
-  card.appendChild(injectBtn);
+
+  // O botão de injeção em campo da página depende de chrome.tabs e content scripts.
+  // Em um PWA / Web, o botão NÃO é criado (desaparece da interface sem deixar resíduo).
+  if (podeInserirNaPagina()) {
+    const injectBtn = document.createElement('button');
+    injectBtn.className   = 'doc-inject';
+    injectBtn.title       = 'Enviar para campo da página';
+    injectBtn.textContent = '→';
+    injectBtn.addEventListener('click', async e => {
+      e.stopPropagation();
+      await startInject(id, name, type);
+    });
+    card.appendChild(injectBtn);
+  }
+
   card.appendChild(scopeBtn);
   paintScope(card, meta.noteId ?? null);
 

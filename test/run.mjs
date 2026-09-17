@@ -1921,10 +1921,212 @@ for (const entrada of ['', null, undefined, '\n\n']) {
      parseMarkdownToBlocks(entrada).length >= 1);
 }
 
+// ── 13. Tarefa 1 (HANDOFF-5): Verificação da versão do formato (Portão) ───────
+{
+  const { parseNoteFile, extrairMetadadosBrutos, FORMATO_QUICKDOCK_SUPORTADO } =
+    await import('../sidepanel/modules/notefile.js');
+  const { SyncEngine } = await import('../sidepanel/modules/sync-engine.js');
+  const { SyncController } = await import('../sidepanel/modules/sync-controller.js');
+  const { MemorySyncAdapter } = await import('../sidepanel/modules/sync-adapter.js');
+  const { InMemoryStore } = await import('./memory-store.mjs');
+
+  igual('versão formato · cliente suporta formato 1', FORMATO_QUICKDOCK_SUPORTADO, 1);
+
+  // 13.1: Arquivo com formato futuro (quickdock: 2) é recusado pelo parseNoteFile
+  const arquivoFuturo = [
+    '---',
+    'quickdock: 2',
+    'id: "u_nota_futura"',
+    'titulo: "Nota em Formato v2"',
+    'recurso_novo: true',
+    '---',
+    '',
+    'Texto com recurso futuro.',
+  ].join('\n');
+
+  igual('versão formato · parseNoteFile recusa formato 2 devolvendo null', parseNoteFile(arquivoFuturo), null);
+
+  const bruto = extrairMetadadosBrutos(arquivoFuturo);
+  ok('versão formato · extrairMetadadosBrutos permite inspecionar metadados de arquivo recusado', bruto !== null);
+  igual('versão formato · extrai a versão 2 sem aceitar o arquivo', bruto?.meta?.quickdock, 2);
+  igual('versão formato · extrai o id da nota recusada', bruto?.meta?.id, 'u_nota_futura');
+
+  // 13.2: SyncEngine recusa arquivo com quickdock: 2
+  // Não escreve por cima do arquivo remoto, mantém a nota local correspondente intacta
+  // e emite aviso explícito para a interface de sincronização.
+  const adapter = new MemorySyncAdapter();
+  const store = new InMemoryStore();
+  const engine = new SyncEngine({ adapter, store, deviceName: 'AparelhoV1' });
+
+  // 1. Simula nota existente localmente com o mesmo UID
+  const notaLocalOriginal = {
+    uid: 'u_nota_futura',
+    title: 'Minha Versão Local',
+    blocks: [{ type: 'paragraph', html: 'conteúdo local intocado' }],
+    ordem: 'a0',
+    updatedAt: Date.now(),
+  };
+  await store.salvarNotaLocal(notaLocalOriginal);
+
+  // 2. Simula arquivo gravado na pasta remota por um cliente com versão mais nova (quickdock: 2)
+  await adapter.escrever('notas/nota-em-formato-v2.md', arquivoFuturo, null);
+
+  // 3. Executa a sincronização
+  const resSync = await engine.sincronizar();
+
+  // Verificação de segurança absoluta contra perda de dados:
+  igual('versão formato · arquivo incompatível é pulado', resSync.puladas, 1);
+  igual('versão formato · nenhum arquivo foi baixado por cima', resSync.baixadas, 0);
+  igual('versão formato · nenhum arquivo foi enviado', resSync.enviadas, 0);
+
+  // A nota local NÃO foi sobrescrita
+  const notaAposSync = await store.obterNotaPorUid('u_nota_futura');
+  igual('versão formato · nota local permanece intacta', notaAposSync.title, 'Minha Versão Local');
+  igual('versão formato · blocos locais continuam intactos', notaAposSync.blocks[0].html, 'conteúdo local intocado');
+
+  // O arquivo remoto NÃO foi sobrescrito
+  const arqRemotoAposSync = await adapter.ler('notas/nota-em-formato-v2.md');
+  igual('versão formato · arquivo remoto não foi sobrescrito', arqRemotoAposSync.texto, arquivoFuturo);
+
+  // Prova adicional: mesmo se a nota local tiver o mesmo título do arquivo remoto,
+  // o Passo 3 não sobe nem sobrescreve o arquivo recusado por versão
+  await store.salvarNotaLocal({
+    ...notaLocalOriginal,
+    title: 'Nota em Formato v2',
+    updatedAt: Date.now() + 10,
+  });
+  const resSync2 = await engine.sincronizar();
+  igual('versão formato · upload local não sobrescreve arquivo recusado por versão', resSync2.enviadas, 0);
+  const arqRemotoAposSync2 = await adapter.ler('notas/nota-em-formato-v2.md');
+  igual('versão formato · arquivo remoto continua intacto após tentativa de upload', arqRemotoAposSync2.texto, arquivoFuturo);
+
+  // O motor gerou aviso estruturado para a interface
+  ok('versão formato · motor emite avisosVersao', Array.isArray(resSync.avisosVersao) && resSync.avisosVersao.length === 1);
+  igual('versão formato · aviso indica o caminho da nota', resSync.avisosVersao[0].caminho, 'notas/nota-em-formato-v2.md');
+  ok('versão formato · aviso contém a mensagem explicativa',
+     resSync.avisosVersao[0].mensagem.includes('esta nota foi criada por uma versão mais nova do QuickDock'));
+
+  // 13.3: SyncController acumula e permite dispensar avisos de versão
+  const controller = new SyncController({ store, adapter });
+  await controller._montarEngineComAdapter(adapter);
+  controller.state = 'IDLE';
+
+  controller.avisosVersao.push(...resSync.avisosVersao);
+  await store.salvarMeta('syncVersionWarnings', controller.avisosVersao);
+
+  const resumo = controller.obterResumoEstado();
+  igual('versão formato · controller resume avisos de versão', resumo.totalAvisosVersao, 1);
+  igual('versão formato · dados do aviso constam no resumo', resumo.avisosVersao[0].versao, 2);
+
+  await controller.dispensarAvisosVersao();
+  igual('versão formato · dispensar limpa avisos da memória', controller.avisosVersao.length, 0);
+  igual('versão formato · dispensar remove metadados salvos', await store.obterMeta('syncVersionWarnings'), null);
+}
+
+// ── 14. Tarefa 2 (HANDOFF-5): Camada de plataforma e desacoplamento do storage ─
+{
+  const fs = await import('fs');
+  const path = await import('path');
+  const { fileURLToPath } = await import('url');
+  const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+  // 14.1: storage.js não menciona chrome. em nenhuma linha
+  const storagePath = path.resolve(__dirname, '../sidepanel/modules/storage.js');
+  const storageSource = fs.readFileSync(storagePath, 'utf-8');
+  ok('plataforma · storage.js não menciona chrome. em nenhuma linha', !/chrome\./.test(storageSource));
+  ok('plataforma · storage.js não menciona a palavra chrome', !/chrome/i.test(storageSource));
+
+  // 14.2: platform.js opera transparentemente no ambiente fora da extensão
+  const { platformStorage, podeInserirNaPagina, conectarPainel, isExtension } =
+    await import('../sidepanel/modules/platform.js');
+
+  igual('plataforma · isExtension é falso no ambiente de teste Node.js', isExtension, false);
+  igual('plataforma · podeInserirNaPagina é falso fora da extensão', podeInserirNaPagina(), false);
+  igual('plataforma · conectarPainel não lança erro e retorna null', conectarPainel(), null);
+
+  // Testa escrita, leitura e remoção pelo platformStorage
+  await platformStorage.set('teste_chave', { ativo: true, valor: 42 });
+  const valorLido = await platformStorage.get('teste_chave');
+  igual('plataforma · platformStorage grava e lê objeto', valorLido?.valor, 42);
+
+  await platformStorage.remove('teste_chave');
+  igual('plataforma · platformStorage remove chave', await platformStorage.get('teste_chave'), undefined);
+}
+
+// ── 15. Tarefas 3 e 4 (HANDOFF-5): Degradação na web, casca PWA e roteamento ──
+{
+  const fs = await import('fs');
+  const path = await import('path');
+  const { fileURLToPath } = await import('url');
+  const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+  // 15.1: inject.js não assume existência incondicional de chrome.runtime
+  const injectPath = path.resolve(__dirname, '../sidepanel/modules/inject.js');
+  const injectSource = fs.readFileSync(injectPath, 'utf-8');
+  ok('web · inject.js protege o listener de runtime contra ausência de chrome',
+     injectSource.includes('typeof chrome !== \'undefined\'') || injectSource.includes('chrome?.runtime?.onMessage'));
+
+  // 15.2: manifest.webmanifest é JSON válido e define escopo do GitHub Pages
+  const manifestPath = path.resolve(__dirname, '../manifest.webmanifest');
+  ok('pwa · manifest.webmanifest existe na raiz', fs.existsSync(manifestPath));
+  const manifestContent = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
+  igual('pwa · manifest define nome do app', manifestContent.name, 'QuickDock');
+  // Caminho relativo, não fixo. O `start_url` e o `scope` se resolvem contra a
+  // URL do próprio manifesto, então "./" funciona em qualquer lugar: na subpasta
+  // do github.io, na raiz de um domínio próprio, ou servido de localhost pra
+  // teste. Fixar "/QuickDock/" amarra o app a um endereço só — e o registro do
+  // service worker, que deriva o escopo de location.pathname, discordaria dele.
+  igual('pwa · manifest usa escopo relativo', manifestContent.scope, './');
+  igual('pwa · manifest usa start_url relativo', manifestContent.start_url, './');
+  ok('pwa · ícones do manifesto são relativos',
+     manifestContent.icons.every(i => !i.src.startsWith('/')),
+     manifestContent.icons.map(i => i.src).join(', '));
+
+  // 15.3: sw.js existe e possui estratégia de cache versionado
+  const swPath = path.resolve(__dirname, '../sw.js');
+  ok('pwa · sw.js existe na raiz', fs.existsSync(swPath));
+  const swSource = fs.readFileSync(swPath, 'utf-8');
+  ok('pwa · sw.js possui nome de cache versionado', swSource.includes('CACHE_NAME = \'quickdock-v'));
+  ok('pwa · sw.js trata SKIP_WAITING', swSource.includes('SKIP_WAITING'));
+
+  // 15.4: 404.html existe e replica index.html para fallback de rotas SPA no GitHub Pages
+  const indexPath = path.resolve(__dirname, '../index.html');
+  const notFoundPath = path.resolve(__dirname, '../404.html');
+  ok('pwa · index.html existe na raiz', fs.existsSync(indexPath));
+  ok('pwa · 404.html existe na raiz', fs.existsSync(notFoundPath));
+  const indexSource = fs.readFileSync(indexPath, 'utf-8');
+  const notFoundSource = fs.readFileSync(notFoundPath, 'utf-8');
+  igual('pwa · 404.html é cópia fiel de index.html', notFoundSource, indexSource);
+}
+
 // ── Resultado ────────────────────────────────────────────────────────────────
+// ── O pré-cache do PWA não pode ficar para trás ──────────────────────────────
+// A lista de arquivos do service worker é escrita à mão e apodrece em silêncio:
+// alguém cria um módulo, o editor passa a importá-lo, e offline o PWA quebra num
+// lugar que nenhum outro teste alcança. Foi o que aconteceu com o snapshot.js.
+{
+  const { readFile, readdir } = await import('node:fs/promises');
+  const sw = await readFile(new URL('../sw.js', import.meta.url), 'utf8');
+  const modulos = (await readdir(new URL('../sidepanel/modules/', import.meta.url)))
+    .filter(n => n.endsWith('.js'));
+
+  const faltando = modulos.filter(n => !sw.includes(`sidepanel/modules/${n}`));
+  ok('pwa · todo módulo está no pré-cache do service worker',
+     faltando.length === 0, `fora da lista: ${faltando.join(', ')}`);
+
+  // O contrário também: caminho listado que não existe mais vira falha silenciosa
+  // de cache a cada instalação do service worker.
+  const listados = [...sw.matchAll(/'(sidepanel\/modules\/[a-z0-9-]+\.js)'/g)].map(m => m[1]);
+  const sobrando = listados.filter(c => !modulos.includes(c.split('/').pop()));
+  ok('pwa · pré-cache não lista módulo inexistente',
+     sobrando.length === 0, `não existem: ${sobrando.join(', ')}`);
+}
+
 if (falhas.length) {
   console.error(`\n✗ ${falhas.length} falha(s), ${passou} ok\n`);
   for (const f of falhas) console.error(`  ✗ ${f}`);
   process.exit(1);
 }
 console.log(`✓ ${passou} verificações passaram`);
+
+

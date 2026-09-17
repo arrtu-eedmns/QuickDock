@@ -1,10 +1,12 @@
 import { blocksToPlainText } from './blocks.js';
+import { platformStorage, setPlatformDb } from './platform.js';
 // O esquema mora numa função (`definirEsquema`, mais abaixo) pra poder ser
 // aplicado a mais de um banco. O de verdade é este; o banco de provas cria um
 // descartável com `criarBancoDeProvas()` e exercita a camada de armazenamento
 // real — Dexie de verdade, IndexedDB de verdade — sem chegar perto das notas de
 // ninguém. Sem isso, o DexieSyncStore seria a única peça sem forma de teste.
 export const db = typeof Dexie !== 'undefined' ? definirEsquema(new Dexie('quickdock')) : null;
+if (db) setPlatformDb(db);
 
 export function criarBancoDeProvas(nome = 'quickdock-provas') {
   if (typeof Dexie === 'undefined') throw new Error('Dexie não está carregado neste ambiente.');
@@ -206,6 +208,11 @@ function definirEsquema(db) {
     syncState: "uid, caminho",
     syncMeta: "chave"
   });
+  // v8: tabela de preferências locais para uso na web/PWA (fora da extensão)
+  db.version(8).stores({
+    preferences: "chave"
+  });
+  setPlatformDb(db);
   return db;
 }
 
@@ -295,7 +302,7 @@ export async function moveNoteRecord(id, ordemAnterior, ordemSeguinte) {
   return ordem;
 }
 
-// Migra a nota única antiga (chrome.storage.local) para a primeira nota do Dexie.
+// Migra a nota única antiga (armazenamento legado) para a primeira nota do Dexie.
 // Executa apenas uma vez: se já existir alguma nota no Dexie, não faz nada.
 // Se não houver conteúdo legado nenhum (instalação nova de verdade), não cria
 // nota nenhuma — quem decide o que mostrar pra um primeiro acesso é o
@@ -304,13 +311,11 @@ export async function migrateLegacyNoteIfNeeded() {
   const count = await db.notes.count();
   if (count > 0) return;
 
-  const legacy = await new Promise(resolve => {
-    chrome.storage.local.get('note_content', ({ note_content }) => resolve(note_content || ''));
-  });
+  const legacy = (await platformStorage.get('note_content')) || '';
   if (!legacy) return;
 
   await createNoteRecord({ title: 'Nota 1', content: legacy });
-  await new Promise(resolve => chrome.storage.local.remove('note_content', resolve));
+  await platformStorage.remove('note_content');
 }
 
 // --- MODELOS DE NOTA ---
@@ -359,67 +364,51 @@ export async function deleteTemplateById(id) {
 // o exemplo não o traz de volta na próxima abertura. A chave é por exemplo:
 // quem já tem o modelo de nota instalado ainda recebe o de bloco.
 export async function wasSeeded(key) {
-  return new Promise(resolve => {
-    chrome.storage.local.get(key, obj => resolve(!!obj[key]));
-  });
+  return !!(await platformStorage.get(key));
 }
 
 export async function markSeeded(key) {
-  return new Promise(resolve => chrome.storage.local.set({ [key]: true }, resolve));
+  return platformStorage.set(key, true);
 }
 
 // --- NOTA ATIVA ---
 export async function loadActiveNoteId() {
-  return new Promise(resolve => {
-    chrome.storage.local.get('active_note_id', ({ active_note_id }) => resolve(active_note_id ?? null));
-  });
+  const active_note_id = await platformStorage.get('active_note_id');
+  return active_note_id ?? null;
 }
 
 export async function saveActiveNoteId(id) {
-  return new Promise(resolve => {
-    chrome.storage.local.set({ active_note_id: id }, resolve);
-  });
+  return platformStorage.set('active_note_id', id);
 }
 
 // --- FILTRO DE DOCUMENTOS ('note' | 'all') ---
 export async function loadDocsView() {
-  return new Promise(resolve => {
-    chrome.storage.local.get('docs_view', ({ docs_view }) => resolve(docs_view === 'all' ? 'all' : 'note'));
-  });
+  const docs_view = await platformStorage.get('docs_view');
+  return docs_view === 'all' ? 'all' : 'note';
 }
 
 export async function saveDocsView(view) {
-  return new Promise(resolve => {
-    chrome.storage.local.set({ docs_view: view }, resolve);
-  });
+  return platformStorage.set('docs_view', view);
 }
 
 // --- LAYOUT (área redimensionável) ---
 export async function loadSplitRatio() {
-  return new Promise(resolve => {
-    chrome.storage.local.get('split_ratio', ({ split_ratio }) => resolve(split_ratio ?? 0.7));
-  });
+  const split_ratio = await platformStorage.get('split_ratio');
+  return split_ratio ?? 0.7;
 }
 
 export async function saveSplitRatio(ratio) {
-  return new Promise(resolve => {
-    chrome.storage.local.set({ split_ratio: ratio }, resolve);
-  });
+  return platformStorage.set('split_ratio', ratio);
 }
 
 // --- TEMA ---
 export async function loadTheme() {
-  return new Promise(resolve => {
-    chrome.storage.local.get('theme', ({ theme }) => {
-      resolve(theme || null);
-    });
-  });
+  const theme = await platformStorage.get('theme');
+  return theme || null;
 }
 
 export async function saveTheme(theme) {
-  return new Promise(resolve => {
-    chrome.storage.local.set({ theme }, resolve);
-  });
+  return platformStorage.set('theme', theme);
 }
 
 // --- ARQUIVOS ---
@@ -504,17 +493,12 @@ export async function deleteFile(id) {
 
 // --- HISTÓRICO DE CÁLCULOS ---
 export async function loadMathHistory() {
-  return new Promise(resolve => {
-    chrome.storage.local.get('math_history', ({ math_history }) => {
-      resolve(math_history ?? []);
-    });
-  });
+  const math_history = await platformStorage.get('math_history');
+  return math_history ?? [];
 }
 
 export async function saveMathHistory(history) {
-  return new Promise(resolve => {
-    chrome.storage.local.set({ math_history: history }, resolve);
-  });
+  return platformStorage.set('math_history', history);
 }
 
 // --- PONTE ENTRE O MOTOR DE SINCRONIZAÇÃO E O BANCO ---

@@ -122,13 +122,20 @@ export function buildNoteFile({ meta = {}, md = '' }) {
   return corpo ? `${linhasFm.join('\n')}\n\n${corpo}\n` : `${linhasFm.join('\n')}\n`;
 }
 
+// Versão do formato suportada por este cliente do QuickDock.
+// Se uma versão futura gravar `quickdock: 2` ou superior, clientes nesta versão
+// devem recusar o arquivo em vez de fazer "melhor esforço" e regravá-lo
+// mutilado, perdendo campos ou estruturas que ainda não conhecem.
+export const FORMATO_QUICKDOCK_SUPORTADO = 1;
+
 /**
- * Lê um arquivo de nota, extraindo metadados do frontmatter e corpo markdown.
- * Devolve null se o arquivo não tiver frontmatter válido no padrão QuickDock.
+ * Extrai o frontmatter bruto e o markdown sem validar a versão do formato.
+ * Permite que o motor de sincronização inspecione os metadados de um arquivo
+ * recusado por versão (ex.: para identificar o título ou o ID sem aceitá-lo).
  * @param {string} texto
  * @returns {{ meta: Object, md: string } | null}
  */
-export function parseNoteFile(texto) {
+export function extrairMetadadosBrutos(texto) {
   if (typeof texto !== 'string') return null;
 
   // Um arquivo de nota precisa começar com o marcador de abertura "---"
@@ -164,3 +171,25 @@ export function parseNoteFile(texto) {
 
   return { meta, md };
 }
+
+/**
+ * Lê um arquivo de nota, extraindo metadados do frontmatter e corpo markdown.
+ * Devolve null se o arquivo não tiver frontmatter válido no padrão QuickDock
+ * OU se tiver uma versão de formato que este cliente não saiba ler.
+ * @param {string} texto
+ * @returns {{ meta: Object, md: string } | null}
+ */
+export function parseNoteFile(texto) {
+  const bruto = extrairMetadadosBrutos(texto);
+  if (!bruto) return null;
+
+  // Recusa explícita de versões incompatíveis/mais novas:
+  // Um cliente antigo lendo formato novo nunca deve tentar ler "como der",
+  // pois uma regravação subsequente destruiria dados gravados pelo cliente novo.
+  if (bruto.meta.quickdock !== FORMATO_QUICKDOCK_SUPORTADO) {
+    return null;
+  }
+
+  return bruto;
+}
+

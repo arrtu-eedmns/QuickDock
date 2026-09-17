@@ -5,6 +5,7 @@ import { loadTheme, saveTheme } from './modules/storage.js';
 import { initResizer } from './modules/resizer.js';
 import { SyncController, SYNC_STATE } from './modules/sync-controller.js';
 import { canSafelyReloadCurrentNote, switchToNote, flushSave, isEditingTemplate, setImageResolver } from './modules/note.js';
+import { conectarPainel } from './modules/platform.js';
 
 const btnAppMenu = document.getElementById('btn-app-menu');
 const btnSync    = document.getElementById('btn-sync');
@@ -161,8 +162,5 @@ async function init() {
 
 init();
 
-// ── Registra este painel no background (necessário para o toggle Ctrl+Q) ───────
-const _panelPort = chrome.runtime.connect({ name: 'sidepanel' });
-_panelPort.onMessage.addListener(msg => {
-  if (msg.type === 'close') window.close();
-});
+// ── Registra este painel no background (necessário para o toggle Ctrl+Q na extensão) ──
+conectarPainel();
