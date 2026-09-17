@@ -132,6 +132,7 @@ export class SyncController {
       isSyncing: this.isSyncing,
       conflitosPendentes: this.conflitosPendentes,
       totalConflitos: this.conflitosPendentes.length,
+      notasPuladas: this.notasPuladas ?? 0,
       avisosVersao: this.avisosVersao,
       totalAvisosVersao: this.avisosVersao.length,
     };
@@ -204,7 +205,15 @@ export class SyncController {
       store,
       deviceName: this.deviceName,
       obterNotaAbertaUid: this.obterNotaAbertaUid,
-      podeRecarregarNotaAberta: this.podeRecarregarNotaAberta,
+      // Quando a pessoa CLICA em "Sincronizar agora", a nota aberta deixa de ser
+      // intocável. A regra conservadora existe para a sincronização automática,
+      // que acontece sem ninguém pedir; um clique é um pedido explícito, e
+      // recusá-lo em silêncio faz o botão parecer quebrado.
+      //
+      // É seguro porque `antesDeSincronizar` roda o flushSave antes: o que estava
+      // digitado já está gravado. O custo é a posição do cursor, não o texto.
+      podeRecarregarNotaAberta: () => this.rodadaManual
+        || (this.podeRecarregarNotaAberta ? this.podeRecarregarNotaAberta() : true),
       recarregarNotaAberta: async (id, uid) => {
         if (this.recarregarNotaAberta) await this.recarregarNotaAberta(id, uid);
         if (this.onNotesChanged) await this.onNotesChanged();
@@ -321,7 +330,8 @@ export class SyncController {
     this._notificar();
   }
 
-  async sincronizarAgora() {
+  async sincronizarAgora({ manual = false } = {}) {
+    this.rodadaManual = !!manual;
     if (!this.engine || this.state === SYNC_STATE.DISCONNECTED || this.state === SYNC_STATE.NEEDS_REAUTH) {
       return;
     }
@@ -349,6 +359,11 @@ export class SyncController {
       this.lastSyncAt = Date.now();
       this.lastSyncError = null;
       this.lastStats = resultado;
+      // Nota pulada precisa aparecer. Ela é pulada por um bom motivo (estava
+      // sendo editada), mas quem clicou em sincronizar e não viu nada acontecer
+      // conclui que o botão está quebrado -- foi o relato. Silêncio aqui é pior
+      // que o pulo.
+      this.notasPuladas = resultado.puladas ?? 0;
       this.state = SYNC_STATE.IDLE;
 
       if (Array.isArray(resultado.notasConflito) && resultado.notasConflito.length > 0) {
@@ -436,10 +451,22 @@ export class SyncController {
           detalhesErro = `<div class="sync-error-msg">${this.lastSyncError}</div>`;
         }
 
+        // Nota adiada por estar sendo editada. Sem esta linha, quem clica em
+        // sincronizar vê exatamente nada acontecer e conclui que travou.
+        let adiadas = '';
+        if (!this.isSyncing && this.notasPuladas > 0) {
+          const n = this.notasPuladas;
+          adiadas = `<div class="sync-skipped-msg">${n === 1
+            ? 'Uma nota não foi atualizada agora porque está aberta e com edição em andamento.'
+            : `${n} notas não foram atualizadas agora porque estão abertas e com edição em andamento.`
+          } Clique em <strong>Sincronizar agora</strong> para trazer mesmo assim.</div>`;
+        }
+
         statusBox.innerHTML = `
           <div class="sync-folder-label">Pasta: <strong>${this.folderName || 'Local'}</strong></div>
           <div class="sync-badge ${classeBadge}">${statusTexto}</div>
           ${detalhesErro}
+          ${adiadas}
           <div class="sync-actions-row">
             <button class="copy-opt sync-action-btn sync-btn-primary" id="sync-btn-agora" ${this.isSyncing ? 'disabled' : ''}>
               ${this.isSyncing ? '⏳ Sincronizando…' : '🔄 Sincronizar agora'}
@@ -518,7 +545,7 @@ export class SyncController {
       });
 
       menu.querySelector('#sync-btn-agora')?.addEventListener('click', async () => {
-        await this.sincronizarAgora();
+        await this.sincronizarAgora({ manual: true });
         renderConteudo();
       });
 

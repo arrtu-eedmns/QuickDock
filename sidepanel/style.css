@@ -2389,6 +2389,21 @@ body:not(.booting) .note-editor-blocks {
   border-radius: var(--radius-sm);
   word-break: break-word;
 }
+/* Aviso de nota adiada: informação, não erro — a nota não foi atualizada agora
+   porque estava sendo editada, e isso é o comportamento correto. Cor de alerta
+   em vez de vermelho para não parecer que algo quebrou. */
+.sync-skipped-msg {
+  font-size: 11px;
+  color: #b45309;
+  background: rgba(180, 83, 9, 0.08);
+  padding: 5px 8px;
+  border-radius: var(--radius-sm);
+  line-height: 1.45;
+  word-break: break-word;
+}
+@media (prefers-color-scheme: dark) {
+  .sync-skipped-msg { color: #fbbf24; background: rgba(251, 191, 36, 0.10); }
+}
 .sync-actions-row {
   display: flex;
   gap: 6px;

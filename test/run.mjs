@@ -2339,6 +2339,73 @@ for (const entrada of ['', null, undefined, '\n\n']) {
         (await pasta.ler(caminho)).texto, texto1);
 }
 
+// ── Clicar em sincronizar não pode não fazer nada ────────────────────────────
+// Relatado em uso real: editar num cliente, clicar em Sincronizar no outro com a
+// mesma nota aberta, e "fica travado naquele texto".
+//
+// A nota aberta é adiada quando há edição em andamento, e isso está certo para a
+// sincronização automática. Mas na rodada seguinte a condição é a mesma, então
+// enquanto a nota estivesse aberta ela nunca chegava -- e nada era dito. Um
+// clique é pedido explícito: recusá-lo em silêncio faz o botão parecer quebrado.
+{
+  const { SyncEngine } = await import('../sidepanel/modules/sync-engine.js');
+  const { MemorySyncAdapter } = await import('../sidepanel/modules/sync-adapter.js');
+  const { InMemoryStore } = await import('./memory-store.mjs');
+
+  const montar = async (podeRecarregar) => {
+    const ad = new MemorySyncAdapter();
+    const stA = new InMemoryStore(), stB = new InMemoryStore();
+    const A = new SyncEngine({ adapter: ad, store: stA, deviceName: 'A' });
+    let recarregou = false;
+    const B = new SyncEngine({ adapter: ad, store: stB, deviceName: 'B',
+      obterNotaAbertaUid: () => 'u1',
+      podeRecarregarNotaAberta: () => podeRecarregar,
+      recarregarNotaAberta: async () => { recarregou = true; },
+    });
+    const agora = Date.now();
+    await stA.salvarNotaLocal({ uid: 'u1', title: 'N', ordem: 'a0',
+      blocks: [{ type: 'paragraph', html: 'original' }], createdAt: agora, updatedAt: agora });
+    await A.sincronizar();
+    await B.sincronizar();            // B recebe a nota
+    const nb = await stB.obterNotaPorUid('u1');
+
+    // A edita e sobe
+    const na = await stA.obterNotaPorUid('u1');
+    await stA.salvarNotaLocal({ ...na, blocks: [{ type: 'paragraph', html: 'editado por A' }], updatedAt: Date.now() + 1 });
+    await A.sincronizar();
+
+    const r = await B.sincronizar();
+    return { r, nota: await stB.obterNotaPorUid('u1'), recarregou, tinha: nb };
+  };
+
+  // Automática, com edição em andamento: adia, e DIZ que adiou.
+  const adiado = await montar(false);
+  igual('sync manual · rodada automática adia a nota ocupada', adiado.r.puladas, 1);
+  ok('sync manual · a nota adiada não é sobrescrita',
+     adiado.nota.blocks[0].html === 'original');
+
+  // Pedido explícito: traz mesmo assim.
+  const forcado = await montar(true);
+  igual('sync manual · com recarga liberada a nota não fica para trás', forcado.r.puladas, 0);
+  igual('sync manual · o texto novo chega de verdade',
+        forcado.nota.blocks[0].html, 'editado por A');
+  ok('sync manual · o editor é avisado para recarregar', forcado.recarregou);
+}
+
+// Guardas de fonte: a parte que depende de DOM e de Dexie não roda aqui, e são
+// justamente as duas metades da correção.
+{
+  const { readFile } = await import('node:fs/promises');
+  const ctrl = await readFile(new URL('../sidepanel/modules/sync-controller.js', import.meta.url), 'utf8');
+
+  ok('sync manual · o botão pede sincronização manual',
+     /sync-btn-agora[\s\S]{0,400}?sincronizarAgora\(\s*\{\s*manual:\s*true\s*\}\s*\)/.test(ctrl));
+  ok('sync manual · rodada manual libera recarregar a nota aberta',
+     /rodadaManual/.test(ctrl) && /podeRecarregarNotaAberta:\s*\(\)\s*=>\s*this\.rodadaManual/.test(ctrl));
+  ok('sync manual · nota adiada aparece para o usuário',
+     /notasPuladas/.test(ctrl) && /sync-skipped-msg/.test(ctrl));
+}
+
 if (falhas.length) {
   console.error(`\n✗ ${falhas.length} falha(s), ${passou} ok\n`);
   for (const f of falhas) console.error(`  ✗ ${f}`);
