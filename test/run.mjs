@@ -2507,6 +2507,54 @@ for (const entrada of ['', null, undefined, '\n\n']) {
      /recarregarNotaAberta[\s\S]{0,300}?switchToNote\(\s*id\s*,\s*\{\s*descartarDom:\s*true\s*\}\s*\)/.test(appJs));
 }
 
+// ── O cursor é do adaptador, não do motor ────────────────────────────────────
+// "Cursor" significa coisa diferente em cada destino: contador no adaptador de
+// memória, revisão "mtime-tamanho" na pasta local, pageToken opaco no Drive. O
+// motor avançava com `Number(rev) > Number(cursor)`, o que dá NaN em tudo que
+// não é numérico -- o cursor nunca avançava e cada rodada reprocessava o destino
+// inteiro. Foi metade da causa do laço de conflitos em uso real, e o Drive
+// bateria nisso de cara.
+{
+  const { SyncEngine } = await import('../sidepanel/modules/sync-engine.js');
+  const { MemorySyncAdapter } = await import('../sidepanel/modules/sync-adapter.js');
+  const { InMemoryStore } = await import('./memory-store.mjs');
+
+  // Adaptador que devolve `{ mudancas, cursor }` com token opaco, como o Drive.
+  class ComToken extends MemorySyncAdapter {
+    constructor() { super(); this.token = 'tok-inicial'; this.vistos = []; }
+    async listarMudancas(desde) {
+      this.vistos.push(desde);
+      const m = await super.listarMudancas(null);
+      this.token = 'tok-' + (this.vistos.length + 1);
+      return { mudancas: m, cursor: this.token };
+    }
+  }
+
+  const ad = new ComToken(), st = new InMemoryStore();
+  const eng = new SyncEngine({ adapter: ad, store: st, deviceName: 'X' });
+  const t = Date.now();
+  await st.salvarNotaLocal({ uid: 'u1', title: 'N', ordem: 'a0',
+    blocks: [{ type: 'paragraph', html: 'a' }], createdAt: t, updatedAt: t });
+
+  await eng.sincronizar();
+  const c1 = await st.obterCursorSync();
+  ok('cursor · token opaco do adaptador é guardado', typeof c1 === 'string' && c1.startsWith('tok-'), String(c1));
+
+  await eng.sincronizar();
+  const c2 = await st.obterCursorSync();
+  ok('cursor · e avança entre rodadas', c2 !== c1, `${c1} -> ${c2}`);
+  ok('cursor · o adaptador recebe de volta o que ele mesmo disse',
+     ad.vistos[1] === c1, `recebeu ${ad.vistos[1]}, tinha dito ${c1}`);
+
+  // Adaptador antigo, que devolve só a lista: o motor continua funcionando.
+  const ad2 = new MemorySyncAdapter(), st2 = new InMemoryStore();
+  const eng2 = new SyncEngine({ adapter: ad2, store: st2, deviceName: 'Y' });
+  await st2.salvarNotaLocal({ uid: 'u2', title: 'M', ordem: 'a0',
+    blocks: [{ type: 'paragraph', html: 'b' }], createdAt: t, updatedAt: t });
+  const r = await eng2.sincronizar();
+  igual('cursor · adaptador que devolve lista simples continua funcionando', r.enviadas, 1);
+}
+
 if (falhas.length) {
   console.error(`\n✗ ${falhas.length} falha(s), ${passou} ok\n`);
   for (const f of falhas) console.error(`  ✗ ${f}`);

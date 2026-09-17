@@ -21,6 +21,7 @@ const ASSET_PATHS = [
   'lib/dexie.min.js',
   'sidepanel/app.js',
   'sidepanel/modules/platform.js',
+  'sidepanel/modules/google-config.js',
   'sidepanel/modules/storage.js',
   'sidepanel/modules/notes-tabs.js',
   'sidepanel/modules/note.js',

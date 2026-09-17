@@ -246,7 +246,22 @@ export class SyncEngine {
     const caminhosRecusadosPorVersao = new Set();
 
     // ── PASSO 1 & 2: Baixar o que mudou lá (sempre antes de subir) ─────────────
-    const mudancas = await this.adapter.listarMudancas(cursor);
+    // O adaptador pode devolver uma lista simples, ou `{ mudancas, cursor }`
+    // quando ele sabe dizer qual é o cursor seguinte.
+    //
+    // Isso existe porque "cursor" significa coisas diferentes em cada destino, e
+    // o motor não tem como adivinhar: no adaptador de memória é um contador; na
+    // pasta local é a revisão "mtime-tamanho", que nem é número; no Drive é um
+    // pageToken opaco do changes.list. O motor tentava avançar com
+    // `Number(rev) > Number(cursor)`, o que dava NaN em tudo que não fosse
+    // numérico -- o cursor nunca avançava e cada rodada reprocessava o destino
+    // inteiro. Foi metade da causa do laço de conflitos em uso real.
+    //
+    // Quem sabe o que é o cursor é o adaptador. Quando ele diz, o motor obedece
+    // e não tenta comparar nada.
+    const resposta = await this.adapter.listarMudancas(cursor);
+    const mudancas = Array.isArray(resposta) ? resposta : (resposta?.mudancas ?? []);
+    const cursorDoAdaptador = Array.isArray(resposta) ? undefined : resposta?.cursor;
 
     for (const mudanca of mudancas) {
       const { caminho, rev, apagado } = mudanca;
@@ -827,7 +842,16 @@ export class SyncEngine {
       }
     }
 
-    if (maiorCursor !== cursor) {
+    // Cursor dito pelo adaptador vence. Só se ele não disser nada é que o motor
+    // usa o palpite numérico -- que funciona no adaptador de memória e é inócuo
+    // nos outros, já que ali ele simplesmente não avança.
+    //
+    // Nada disso avança quando algo foi adiado nesta rodada (`tevePulo`): o que
+    // foi pulado precisa ser reencontrado na próxima, e um cursor à frente o
+    // esconderia para sempre.
+    if (cursorDoAdaptador !== undefined && !tevePulo) {
+      if (cursorDoAdaptador !== cursor) await this.store.salvarCursorSync(cursorDoAdaptador);
+    } else if (maiorCursor !== cursor) {
       await this.store.salvarCursorSync(maiorCursor);
     }
 
