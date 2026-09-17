@@ -1,6 +1,6 @@
 import {
   loadAllNotesMeta, createNoteRecord, updateNoteMetaById, deleteNoteRecordById,
-  reorderNoteRecords, migrateLegacyNoteIfNeeded, loadActiveNoteId, saveActiveNoteId,
+  reorderNoteRecords, moveNoteRecord, migrateLegacyNoteIfNeeded, loadActiveNoteId, saveActiveNoteId,
   getNoteById, detachFilesFromNote, updateNoteBlocksById,
   updateTemplateById, gcInlineFiles,
 } from './storage.js';
@@ -454,7 +454,21 @@ async function reorderNotes(srcId, targetId, before) {
   if (to === -1) to = notesMeta.length;
   else if (!before) to += 1;
   notesMeta.splice(to, 0, moved);
-  await reorderNoteRecords(notesMeta.map(n => n.id));
+
+  // Só a nota arrastada é regravada — os vizinhos dizem onde ela cai. É o
+  // ganho concreto da ordem fracionária: arrastar toca 1 registro, não N.
+  const anterior = notesMeta[to - 1]?.ordem ?? null;
+  const seguinte = notesMeta[to + 1]?.ordem ?? null;
+  const novaOrdem = await moveNoteRecord(moved.id, anterior, seguinte);
+
+  if (novaOrdem) {
+    moved.ordem = novaOrdem;
+  } else {
+    // Vizinhança inconsistente: renumera a lista uma vez e segue. Caro, mas é
+    // reparo — e deixa o banco são pro próximo arrasto ser barato de novo.
+    const ordens = await reorderNoteRecords(notesMeta.map(n => n.id));
+    notesMeta.forEach((n, i) => { n.ordem = ordens[i]; });
+  }
   return true;
 }
 

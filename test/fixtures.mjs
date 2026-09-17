@@ -161,3 +161,83 @@ export const HOSTIS = [
   '[clique](#javascript:alert(1))',
   '[clique](# javascript:alert(1))',
 ];
+
+// ── Blocos recentes (v1.9 e v2.0): imagem, cálculo, destaque, setext ─────────
+// Fecham o buraco da medição apontado no HANDOFF: até a v1.8 nenhum desses
+// tipos existia nas fixtures, e sem testes de round-trip neles qualquer
+// corrosão silenciosa passaria despercebida na sincronização.
+export const BLOCOS_NOVOS = [
+  {
+    nome: 'imagem com fileId e texto alternativo',
+    blocks: [
+      { id: 'img1', type: 'image', fileId: 42, alt: 'Fachada do prédio em reforma' },
+    ],
+  },
+  {
+    nome: 'imagem com dataUrl (formato de importação)',
+    blocks: [
+      { id: 'img2', type: 'image', dataUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', alt: 'print colado de fora' },
+    ],
+  },
+  {
+    nome: 'corrida de cálculo com atribuição, referência e texto puro',
+    blocks: [
+      { id: 'k1', type: 'calc', html: 'boleto = R$ 1.000,00' },
+      { id: 'k2', type: 'calc', html: 'imposto = 15%' },
+      { id: 'k3', type: 'calc', html: 'calculo = boleto - imposto' },
+      { id: 'k4', type: 'calc', html: 'conferido com o financeiro' },
+    ],
+  },
+  {
+    nome: 'destaques (callouts) de todos os tipos com corrida',
+    blocks: [
+      { id: 'c_note1', type: 'paragraph', html: 'Primeiro aviso informativo.', quoted: true, callout: 'note' },
+      { id: 'c_note2', type: 'bullet',    html: 'Segundo ponto dentro do mesmo aviso.', quoted: true, callout: 'note' },
+      { id: 'c_tip',   type: 'paragraph', html: 'Dica de produtividade.', quoted: true, callout: 'tip' },
+      { id: 'c_imp',   type: 'paragraph', html: 'Informação indispensável.', quoted: true, callout: 'important' },
+      { id: 'c_warn',  type: 'paragraph', html: 'Cuidado com a data limite.', quoted: true, callout: 'warning' },
+      { id: 'c_caut',  type: 'paragraph', html: 'Risco de exclusão de dados.', quoted: true, callout: 'caution' },
+    ],
+  },
+  {
+    nome: 'títulos sublinhados (heading1 e heading2 setext)',
+    blocks: [
+      { id: 'u1', type: 'heading1', html: 'Título 1 Sublinhado', underlined: true },
+      { id: 'u2', type: 'heading2', html: 'Título 2 Sublinhado', underlined: true },
+    ],
+  },
+  {
+    nome: 'combinação: destaque (callout) com profundidade (depth)',
+    blocks: [
+      { id: 'cd1', type: 'paragraph', html: 'Item no nível 1 do aviso', depth: 1, quoted: true, callout: 'note' },
+      { id: 'cd2', type: 'bullet',    html: 'Subitem aninhado no nível 2', depth: 2, quoted: true, callout: 'note' },
+    ],
+  },
+  {
+    nome: 'combinação: imagem dentro de citação',
+    blocks: [
+      { id: 'iq1', type: 'image', fileId: 88, alt: 'Esquema arquitetural citado', quoted: true },
+    ],
+  },
+  {
+    nome: 'combinação: folha de cálculo dentro de citação',
+    blocks: [
+      { id: 'cq1', type: 'calc', html: 'subtotal = R$ 500,00', quoted: true },
+      { id: 'cq2', type: 'calc', html: 'desconto = 10%', quoted: true },
+      { id: 'cq3', type: 'calc', html: 'total = subtotal - desconto', quoted: true },
+    ],
+  },
+  {
+    nome: 'combinação: tabela dentro de citação',
+    blocks: [
+      { id: 'tq1', type: 'table', rows: [['Chave', 'Valor'], ['token', '123']], quoted: true },
+    ],
+  },
+  {
+    nome: 'combinação: bloco de código dentro de citação',
+    blocks: [
+      { id: 'codeq1', type: 'code', html: 'const porta = 3000;<br>server.listen(porta);', quoted: true },
+    ],
+  },
+];
+

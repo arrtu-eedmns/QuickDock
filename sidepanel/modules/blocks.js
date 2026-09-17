@@ -277,7 +277,10 @@ export function parseMarkdownToBlocks(markdown) {
     const q      = QUOTE_RE.exec(semIndent);
     const quoted = !!q;
     const rest   = q ? q[3] : semIndent;
-    const recuo  = q ? q[2] : indent;
+    // Quando a linha é citada, a indentação pode estar antes do ">" (gerada por
+    // blocksToMarkdown como "  > ") ou depois do ">" (como ">   "). Priorizamos a
+    // indentação externa para não perder o depth de callouts e listas citadas.
+    const recuo  = indentWidth(indent) > 0 ? indent : (q ? q[2] : indent);
 
     // O marcador de destaque só existe dentro de uma citação, e vale dali até
     // a citação acabar. Ele mesmo não vira bloco nenhum — é só o rótulo.
@@ -311,11 +314,30 @@ export function parseMarkdownToBlocks(markdown) {
     // cálculo (uma linha por bloco). O comentário de resultado que a
     // exportação escreve à direita é descartado aqui — o valor é sempre
     // recalculado, então dentro da extensão nunca existe número desatualizado.
+    //
+    // Quando a cerca abre dentro de uma citação ou com recuo, as linhas internas
+    // e a cerca de fechamento também trazem o mesmo prefixo de citação/recuo.
+    // Sem despir o marcador de citação de cada linha, a cerca final não é
+    // reconhecida (continua consumindo até o fim do arquivo) e o ">" vira &gt;
+    // dentro do HTML do bloco a cada ciclo — corrosão clássica.
     if ((m = FENCE_RE.exec(rest))) {
       const marca = (m[2] || '').toLowerCase();
       const corpo = [];
+      const prefixoIndent = indent;
       i++;
-      while (i < lines.length && !FENCE_RE.test(lines[i].trim())) corpo.push(lines[i++]);
+      while (i < lines.length) {
+        let linha = lines[i];
+        if (prefixoIndent && linha.startsWith(prefixoIndent)) {
+          linha = linha.slice(prefixoIndent.length);
+        }
+        if (quoted) {
+          const lq = QUOTE_RE.exec(linha.trimStart());
+          if (lq) linha = lq[3];
+        }
+        if (FENCE_RE.test(linha.trim())) break;
+        corpo.push(linha);
+        i++;
+      }
 
       if (marca === 'calc') {
         for (const linha of corpo) {
@@ -329,12 +351,23 @@ export function parseMarkdownToBlocks(markdown) {
 
     // Tabela GFM: linha com pipes seguida da linha separadora (|---|---|).
     // É o único bloco que ocupa várias linhas, por isso o laço é indexado.
-    if (TABLE_ROW_RE.test(rest) && TABLE_SEP_RE.test(lines[i + 1] ?? '')) {
-      const rows = [splitTableRow(rest)];
-      i++; // consome o separador
-      while (TABLE_ROW_RE.test(lines[i + 1] ?? '')) rows.push(splitTableRow(lines[++i]));
-      add({ type: 'table', rows });
-      continue;
+    // Se estiver dentro de citação, as linhas seguintes também trazem "> ".
+    {
+      const prox = lines[i + 1] ?? '';
+      const proxRest = quoted ? (QUOTE_RE.exec(prox.trimStart())?.[3] ?? prox) : prox;
+      if (TABLE_ROW_RE.test(rest) && TABLE_SEP_RE.test(proxRest)) {
+        const rows = [splitTableRow(rest)];
+        i++; // consome o separador
+        while (i + 1 < lines.length) {
+          const proxLinha = lines[i + 1];
+          const proxLinhaRest = quoted ? (QUOTE_RE.exec(proxLinha.trimStart())?.[3] ?? proxLinha) : proxLinha;
+          if (!TABLE_ROW_RE.test(proxLinhaRest)) break;
+          rows.push(splitTableRow(proxLinhaRest));
+          i++;
+        }
+        add({ type: 'table', rows });
+        continue;
+      }
     }
 
     // Imagem sozinha na linha vira bloco de imagem. Se o endereço for remoto,
@@ -359,7 +392,11 @@ export function parseMarkdownToBlocks(markdown) {
     // Só vale depois de uma linha de texto comum. É o que separa "Texto" +
     // "---" (título sublinhado) de "---" sozinho (divisor).
     {
-      const abaixo = (lines[i + 1] ?? '').trim();
+      let abaixo = (lines[i + 1] ?? '').trim();
+      if (quoted) {
+        const aq = QUOTE_RE.exec(abaixo);
+        if (aq) abaixo = aq[3].trim();
+      }
       const eSetext = /^=+$/.test(abaixo) || /^-+$/.test(abaixo);
       const eTextoComum = rest.trim() !== '' && !/^(#{1,6} |[-*] |\d+\. |\||>|`{3,}|~{3,})/.test(rest);
       if (eSetext && eTextoComum) {

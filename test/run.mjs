@@ -8,10 +8,10 @@
 import { installDomShim } from './dom-shim.mjs';
 installDomShim();
 
-const { parseMarkdownToBlocks, blocksToMarkdown, blocksToPlainText } =
+const { parseMarkdownToBlocks, blocksToMarkdown, blocksToPlainText, normalizeBlock } =
   await import('../sidepanel/modules/blocks.js');
 
-import { BLOCOS_V18, MARKDOWN, HOSTIS, INDENTACOES, CITACAO_COM_FILHOS } from './fixtures.mjs';
+import { BLOCOS_V18, BLOCOS_NOVOS, MARKDOWN, HOSTIS, INDENTACOES, CITACAO_COM_FILHOS } from './fixtures.mjs';
 
 let passou = 0;
 const falhas = [];
@@ -37,23 +37,37 @@ function forma(blocks) {
     if (b.quoted)                f.quoted = b.quoted;
     if (b.callout)               f.callout = b.callout;
     if (b.underlined)            f.underlined = b.underlined;
+    if (b.fileId !== undefined)  f.fileId = b.fileId;
+    if (b.alt !== undefined)     f.alt = b.alt;
+    if (b.dataUrl !== undefined) f.dataUrl = b.dataUrl;
     return f;
   });
 }
 
-// ── 1. Blocos já gravados continuam abrindo e voltando iguais ────────────────
-for (const { nome, blocks } of BLOCOS_V18) {
-  const md  = blocksToMarkdown(blocks);
-  const md2 = blocksToMarkdown(parseMarkdownToBlocks(md));
-  ok(`v1.8 · ${nome} · markdown estável na segunda volta`, md === md2,
+// ── 1. Blocos já gravados e novos continuam abrindo e voltando idênticos ──────
+// A asserção central da v3.0: quando o arquivo virar a verdade, qualquer perda
+// no ciclo blocos → md → blocos corrói a nota a cada ciclo. O teste exige
+// identidade exata de forma, com blocos legados normalizados antes da volta.
+const TODAS_AS_FIXTURES = [...BLOCOS_V18, ...BLOCOS_NOVOS];
+
+for (const { nome, blocks } of TODAS_AS_FIXTURES) {
+  const bNorm = blocks.map(normalizeBlock);
+  const md    = blocksToMarkdown(bNorm);
+  const volta = parseMarkdownToBlocks(md);
+
+  // 1c: asserção explícita de identidade de blocos
+  igual(`identidade · ${nome} · blocos idênticos no round-trip`, forma(volta), forma(bNorm));
+
+  const md2 = blocksToMarkdown(volta);
+  ok(`estabilidade · ${nome} · markdown estável na segunda volta`, md === md2,
      `1ª volta:\n${md}\n2ª volta:\n${md2}`);
 
   // Texto simples não pode explodir em nenhum tipo de bloco.
-  ok(`v1.8 · ${nome} · texto simples não quebra`,
+  ok(`segurança · ${nome} · texto simples não quebra`,
      typeof blocksToPlainText(blocks) === 'string');
 
   // Nenhuma conversão pode gerar HTML executável.
-  ok(`v1.8 · ${nome} · sem <script> no caminho de volta`, !/<script/i.test(md));
+  ok(`segurança · ${nome} · sem <script> no caminho de volta`, !/<script/i.test(md));
 }
 
 // Conteúdo de cada tipo sobrevive à ida e volta.
@@ -438,6 +452,616 @@ for (const { nome, blocks } of BLOCOS_V18) {
     ok('backup · markdown comum não é confundido com backup', parseBackup(md) === null);
   }
   ok('backup · arquivo vazio não é backup', parseBackup('') === null);
+}
+
+// ── 4b. Arquivo de nota individual (notefile.js) ─────────────────────────────
+{
+  const { buildNoteFile, parseNoteFile } = await import('../sidepanel/modules/notefile.js');
+
+  // Ida e volta completa com todos os campos padrão
+  {
+    const nota = {
+      meta: {
+        quickdock: 1,
+        id: '3f9a7c21-50e2-4db1-93c4-648c6b75eb37',
+        titulo: 'Atendimento — Maria Silva',
+        cor: 'azul',
+        icone: 'folder',
+        iconePreenchido: true,
+        tituloOculto: false,
+        ordem: 'a0V',
+        criadoEm: '2026-03-12T09:14:00.000Z',
+        atualizadoEm: '2026-03-12T10:00:00.000Z',
+      },
+      md: '# Atendimento — Maria Silva\n\n- [ ] Conferir elegibilidade',
+    };
+
+    const texto = buildNoteFile(nota);
+    const parsed = parseNoteFile(texto);
+
+    ok('notefile · gera e lê arquivo completo', parsed !== null);
+    igual('notefile · metadados preservados', parsed?.meta, nota.meta);
+    igual('notefile · markdown preservado', parsed?.md, nota.md);
+  }
+
+  // Título com dois pontos (:), com aspas e com "---"
+  {
+    const notaComDoisPontos = {
+      meta: { id: 't1', titulo: 'Protocolo: Análise e Parecer' },
+      md: 'Conteúdo.',
+    };
+    const parsed1 = parseNoteFile(buildNoteFile(notaComDoisPontos));
+    igual('notefile · título com dois pontos', parsed1?.meta?.titulo, 'Protocolo: Análise e Parecer');
+
+    const notaComAspas = {
+      meta: { id: 't2', titulo: 'O "Melhor" Atendimento' },
+      md: 'Conteúdo.',
+    };
+    const parsed2 = parseNoteFile(buildNoteFile(notaComAspas));
+    igual('notefile · título com aspas', parsed2?.meta?.titulo, 'O "Melhor" Atendimento');
+
+    const notaComTracos = {
+      meta: { id: 't3', titulo: 'Divisor --- no título' },
+      md: 'Conteúdo.',
+    };
+    const parsed3 = parseNoteFile(buildNoteFile(notaComTracos));
+    igual('notefile · título com "---"', parsed3?.meta?.titulo, 'Divisor --- no título');
+  }
+
+  // Corpo que começa com "---" (divisor no início da nota)
+  {
+    const notaDivisor = {
+      meta: { id: 'd1', titulo: 'Nota Divisória' },
+      md: '---\n\nTexto após o divisor horizontal inicial.',
+    };
+    const texto = buildNoteFile(notaDivisor);
+    const parsed = parseNoteFile(texto);
+    igual('notefile · corpo iniciando com "---" não confunde delimitador', parsed?.md, notaDivisor.md);
+  }
+
+  // Preservação de campos desconhecidos (extensibilidade para versões futuras)
+  {
+    const notaComExtras = {
+      meta: {
+        id: 'fut1',
+        titulo: 'Nota do Futuro',
+        tagPersonalizada: 'urgente',
+        revisaoRemota: 42,
+        sincronizado: true,
+      },
+      md: 'Texto da nota futura.',
+    };
+    const parsed = parseNoteFile(buildNoteFile(notaComExtras));
+    igual('notefile · campos desconhecidos preservados na ida e volta',
+      parsed?.meta,
+      { quickdock: 1, ...notaComExtras.meta });
+  }
+
+  // O campo `content` não vai para o arquivo
+  {
+    const notaComContent = {
+      meta: {
+        id: 'c1',
+        titulo: 'Nota com Content',
+        content: 'Isto é a segunda verdade que não deve subir',
+      },
+      md: '# Markdown real',
+    };
+    const texto = buildNoteFile(notaComContent);
+    ok('notefile · content não entra no texto do arquivo', !texto.includes('segunda verdade'));
+    const parsed = parseNoteFile(texto);
+    ok('notefile · content ausente no meta lido', parsed?.meta?.content === undefined);
+  }
+
+  // Valores vazios e nulos
+  {
+    const notaVazia = {
+      meta: { id: 'v1', titulo: '', cor: null, icone: null },
+      md: '',
+    };
+    const parsed = parseNoteFile(buildNoteFile(notaVazia));
+    igual('notefile · título vazio preservado como string vazia', parsed?.meta?.titulo, '');
+    igual('notefile · cor nula preservada como null', parsed?.meta?.cor, null);
+    igual('notefile · ícone nulo preservado como null', parsed?.meta?.icone, null);
+    igual('notefile · markdown vazio tratado sem erro', parsed?.md, '');
+  }
+
+  // Arquivo sem frontmatter devolve null e não explode
+  {
+    ok('notefile · string vazia devolve null', parseNoteFile('') === null);
+    ok('notefile · null devolve null', parseNoteFile(null) === null);
+    ok('notefile · undefined devolve null', parseNoteFile(undefined) === null);
+    ok('notefile · markdown comum sem frontmatter devolve null',
+       parseNoteFile('# Apenas um título markdown\n\nSem frontmatter.') === null);
+  }
+
+  // Frontmatter malformado não explode
+  {
+    // Cerca aberta mas nunca fechada
+    ok('notefile · frontmatter não fechado devolve null',
+       parseNoteFile('---\nquickdock: 1\nid: 123\n') === null);
+
+    // Linha sem dois pontos no meio do frontmatter é ignorada
+    const fmComLinhaTorta = [
+      '---',
+      'quickdock: 1',
+      'esta linha nao tem separador',
+      'titulo: Nota Válida',
+      '---',
+      '',
+      'Texto.',
+    ].join('\n');
+    const parsed = parseNoteFile(fmComLinhaTorta);
+    ok('notefile · tolera linha sem separador', parsed !== null);
+    igual('notefile · extrai campos válidos mesmo com linha torta', parsed?.meta?.titulo, 'Nota Válida');
+
+    // Bloco --- vazio sem campos
+    ok('notefile · frontmatter sem chaves devolve null',
+       parseNoteFile('---\n---\n\nTexto') === null);
+  }
+}
+
+// ── 4c. Dexie v6: uid, migração e ordem fracionária (storage.js) ────────────
+{
+  const { ordemEntre, ordemDeIndice, migrarRegistroV5ParaV6 } =
+    await import('../sidepanel/modules/storage.js');
+
+  // Teste de propriedade de ordemEntre: para quaisquer a < b, vale a < ordemEntre(a, b) < b
+  {
+    const pares = [
+      [null, null],
+      [null, 'a0'],
+      [null, 'a1'],
+      ['a0', null],
+      ['a1', null],
+      ['a0', 'a1'],
+      ['a0', 'a0V'],
+      ['a0V', 'a1'],
+      ['a0', 'a0F'],
+      ['Zz', 'a0'],
+      ['Zy', 'Zz'],
+    ];
+
+    for (const [a, b] of pares) {
+      const mid = ordemEntre(a, b);
+      if (a !== null) {
+        ok(`ordemEntre · ${a} < ordemEntre(${a}, ${b})`, a < mid, `a: ${a}, mid: ${mid}`);
+      }
+      if (b !== null) {
+        ok(`ordemEntre · ordemEntre(${a}, ${b}) < ${b}`, mid < b, `mid: ${mid}, b: ${b}`);
+      }
+    }
+
+    // Cadeia de 50 inserções sucessivas pela esquerda
+    let x = 'a0', y = 'a1';
+    let cadeiaEsqOk = true;
+    for (let step = 0; step < 50; step++) {
+      const m = ordemEntre(x, y);
+      if (!(x < m && m < y)) { cadeiaEsqOk = false; break; }
+      y = m;
+    }
+    ok('ordemEntre · propriedade mantida em cadeia pela esquerda (50 passos)', cadeiaEsqOk);
+
+    // Cadeia de 50 inserções sucessivas pela direita
+    x = 'a0'; y = 'a1';
+    let cadeiaDirOk = true;
+    for (let step = 0; step < 50; step++) {
+      const m = ordemEntre(x, y);
+      if (!(x < m && m < y)) { cadeiaDirOk = false; break; }
+      x = m;
+    }
+    ok('ordemEntre · propriedade mantida em cadeia pela direita (50 passos)', cadeiaDirOk);
+  }
+
+  // ── Regressões da ordem fracionária ────────────────────────────────────────
+  // As três abaixo passavam despercebidas porque as cadeias acima param no 50º
+  // passo. Cada uma cobre um bug que existiu de verdade.
+  {
+    // 1. Arrastar sempre pro topo. Quebrava no 63º: ao passar da faixa 'Z' pra
+    //    faixa de estouro 'Y', a chave gerada ordenava DEPOIS da que deveria
+    //    anteceder. 200 passos entram bem fundo nessa faixa.
+    let topo = 'a0', topoOk = true, topoFalha = '';
+    for (let step = 0; step < 200; step++) {
+      const m = ordemEntre(null, topo);
+      if (!(m < topo)) { topoOk = false; topoFalha = `passo ${step}: "${m}" não é < "${topo}"`; break; }
+      topo = m;
+    }
+    ok('ordemEntre · inserir no topo 200x mantém a ordem', topoOk, topoFalha);
+
+    // 2. Criar nota (sempre no fim) é a operação mais frequente do app. A
+    //    versão antiga acrescentava um caractere por nota: a 300ª chegava a
+    //    240 caracteres. O limite abaixo é generoso e ainda assim pegaria a
+    //    volta do crescimento linear.
+    let fim = null, maiorFim = 0, fimOk = true, fimFalha = '';
+    for (let step = 0; step < 500; step++) {
+      const m = ordemEntre(fim, null);
+      if (fim !== null && !(m > fim)) { fimOk = false; fimFalha = `passo ${step}: "${m}" não é > "${fim}"`; break; }
+      fim = m;
+      maiorFim = Math.max(maiorFim, m.length);
+    }
+    ok('ordemEntre · criar 500 notas mantém a ordem', fimOk, fimFalha);
+    ok('ordemEntre · criar 500 notas não faz a chave crescer sem limite',
+       maiorFim <= 20, `maior chave: ${maiorFim} caracteres`);
+
+    // 3. Lista viva: inserções em posições arbitrárias têm que manter a lista
+    //    ordenada e sem chave repetida — chave repetida embaralharia a ordem
+    //    das notas em silêncio.
+    const proximo = (n => () => (n = (n * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff)(42);
+    const lista = [ordemDeIndice(0)];
+    let vivaOk = true, vivaFalha = '';
+    for (let step = 0; step < 400; step++) {
+      const i = Math.floor(proximo() * (lista.length + 1));
+      const esq = i > 0 ? lista[i - 1] : null;
+      const dir = i < lista.length ? lista[i] : null;
+      let m;
+      try { m = ordemEntre(esq, dir); }
+      catch (e) { vivaOk = false; vivaFalha = `passo ${step} lançou: ${e.message}`; break; }
+      if (!((esq === null || esq < m) && (dir === null || m < dir))) {
+        vivaOk = false; vivaFalha = `passo ${step}: "${esq}" < "${m}" < "${dir}" falhou`; break;
+      }
+      lista.splice(i, 0, m);
+    }
+    ok('ordemEntre · 400 inserções em posições arbitrárias respeitam os vizinhos', vivaOk, vivaFalha);
+    ok('ordemEntre · lista viva termina ordenada',
+       lista.every((v, i) => i === 0 || lista[i - 1] < v));
+    ok('ordemEntre · lista viva não gera chave repetida',
+       new Set(lista).size === lista.length);
+  }
+
+  // ── Guarda de fonte: arrastar nota escreve 1 registro, não N ───────────────
+  // Não dá pra exercitar o banco aqui, e esta é uma propriedade de DESENHO,
+  // fácil de perder sem ninguém notar: a ordem fracionária só se paga se mover
+  // uma nota tocar apenas nela. Renumerar a lista inteira a cada arrasto
+  // sujaria os N arquivos na sincronização e transformaria um arrasto em N
+  // conflitos em potencial — que é exatamente o que ela existe pra evitar.
+  {
+    const { readFile } = await import('node:fs/promises');
+
+    const abas = await readFile(new URL('../sidepanel/modules/notes-tabs.js', import.meta.url), 'utf8');
+    const arrasto = abas.slice(abas.indexOf('async function reorderNotes'));
+    ok('arrastar nota · usa moveNoteRecord em vez de renumerar a lista',
+       /moveNoteRecord\s*\(/.test(arrasto.slice(0, arrasto.indexOf('\n}\n'))));
+
+    const armazem = await readFile(new URL('../sidepanel/modules/storage.js', import.meta.url), 'utf8');
+    const mover = armazem.slice(armazem.indexOf('export async function moveNoteRecord'));
+    const corpoMover = mover.slice(0, mover.indexOf('\n}\n'));
+    ok('moveNoteRecord · grava exatamente um registro',
+       (corpoMover.match(/db\.notes\.update/g) ?? []).length === 1,
+       `encontrou ${(corpoMover.match(/db\.notes\.update/g) ?? []).length} gravações`);
+  }
+
+  // Conversão de índice inteiro em ordem fracionária
+  igual('ordemDeIndice · 0 vira a0', ordemDeIndice(0), 'a0');
+  igual('ordemDeIndice · 1 vira a1', ordemDeIndice(1), 'a1');
+  igual('ordemDeIndice · preserva ordenação de índices crescentes',
+    ordemDeIndice(0) < ordemDeIndice(1) && ordemDeIndice(1) < ordemDeIndice(2), true);
+
+  // Teste do caminho de migração: registro v5 entra, sai com uid e ordem válidos, sem perder nenhum outro campo
+  {
+    const registroV5 = {
+      id: 7,
+      title: 'Atendimento Especial',
+      content: 'Conteúdo derivado de teste',
+      blocks: [{ id: 'b1', type: 'paragraph', html: 'Linha de texto' }],
+      color: 'verde',
+      icon: 'star',
+      iconFilled: true,
+      titleHidden: false,
+      order: 3,
+      createdAt: 1773306840000,
+      updatedAt: 1773306850000,
+    };
+
+    const registroV6 = migrarRegistroV5ParaV6(registroV5);
+
+    // Campos novos exigidos
+    ok('migração v5→v6 · uid gerado e preenchido',
+       typeof registroV6.uid === 'string' && registroV6.uid.length > 8,
+       registroV6.uid);
+    igual('migração v5→v6 · ordem fracionária calculada a partir de order',
+      registroV6.ordem, 'a3');
+
+    // NENHUM campo existente foi perdido ou alterado
+    igual('migração v5→v6 · id preservado', registroV6.id, 7);
+    igual('migração v5→v6 · title preservado', registroV6.title, 'Atendimento Especial');
+    igual('migração v5→v6 · content preservado', registroV6.content, 'Conteúdo derivado de teste');
+    igual('migração v5→v6 · blocks preservado', registroV6.blocks, registroV5.blocks);
+    igual('migração v5→v6 · color preservado', registroV6.color, 'verde');
+    igual('migração v5→v6 · icon preservado', registroV6.icon, 'star');
+    igual('migração v5→v6 · iconFilled preservado', registroV6.iconFilled, true);
+    igual('migração v5→v6 · titleHidden preservado', registroV6.titleHidden, false);
+    igual('migração v5→v6 · order original mantido', registroV6.order, 3);
+    igual('migração v5→v6 · createdAt preservado', registroV6.createdAt, 1773306840000);
+    igual('migração v5→v6 · updatedAt preservado', registroV6.updatedAt, 1773306850000);
+
+    // Registro que já tinha uid ou ordem não é sobrescrito
+    const jaComUid = { id: 8, uid: 'meu-uuid-fixo', ordem: 'a0V', order: 1 };
+    const mantido = migrarRegistroV5ParaV6(jaComUid);
+    igual('migração v5→v6 · uid existente não é sobrescrito', mantido.uid, 'meu-uuid-fixo');
+    igual('migração v5→v6 · ordem existente não é sobrescrita', mantido.ordem, 'a0V');
+  }
+}
+
+// ── 4d. Adaptador de sincronização em memória (sync-adapter.js) ──────────────
+{
+  const { MemorySyncAdapter } = await import('../sidepanel/modules/sync-adapter.js');
+
+  const adaptador = new MemorySyncAdapter();
+
+  // Autenticação
+  const auth = await adaptador.autenticar();
+  ok('adaptador memória · autenticar devolve ok', auth.ok === true);
+
+  // Escrita de arquivo novo com revBase nulo
+  const res1 = await adaptador.escrever('notas/ideias.md', '# Ideias\n', null);
+  ok('adaptador memória · escrita inicial devolve revisão', typeof res1.rev === 'string');
+  igual('adaptador memória · primeira revisão é "1"', res1.rev, '1');
+
+  // Leitura do arquivo escrito
+  const lido1 = await adaptador.ler('notas/ideias.md');
+  igual('adaptador memória · lê conteúdo exato', lido1?.texto, '# Ideias\n');
+  igual('adaptador memória · lê revisão correspondente', lido1?.rev, '1');
+
+  // Conflito: tentativa de escrita com revBase desatualizado (null ou revisão antiga)
+  const conflito1 = await adaptador.escrever('notas/ideias.md', '# Conflito\n', null);
+  ok('adaptador memória · revBase null em arquivo existente gera conflito', conflito1?.conflito === true);
+  igual('adaptador memória · conflito informa revisão atual', conflito1?.revAtual, '1');
+
+  const conflito2 = await adaptador.escrever('notas/ideias.md', '# Conflito\n', '999');
+  ok('adaptador memória · revBase incorreto gera conflito', conflito2?.conflito === true);
+
+  // Escrita bem-sucedida com revBase correto
+  const res2 = await adaptador.escrever('notas/ideias.md', '# Ideias v2\n', '1');
+  ok('adaptador memória · atualização com revBase correto avança revisão', res2.rev === '2');
+
+  // Listar mudanças desde o início
+  const mudancas1 = await adaptador.listarMudancas(null);
+  igual('adaptador memória · lista mudanças desde o início', mudancas1.length, 1);
+  igual('adaptador memória · caminho da mudança', mudancas1[0].caminho, 'notas/ideias.md');
+  igual('adaptador memória · revisão mais recente na mudança', mudancas1[0].rev, '2');
+  ok('adaptador memória · não consta como apagado', mudancas1[0].apagado === false);
+
+  // Listar mudanças a partir do cursor 2 (não deve trazer nada novo)
+  const mudancasVazias = await adaptador.listarMudancas('2');
+  igual('adaptador memória · cursor atualizado não lista mudanças passadas', mudancasVazias.length, 0);
+
+  // Exclusão do arquivo
+  const apagou = await adaptador.apagar('notas/ideias.md');
+  ok('adaptador memória · apagar devolve true', apagou === true);
+  const lidoAposApagar = await adaptador.ler('notas/ideias.md');
+  ok('adaptador memória · ler arquivo apagado devolve null', lidoAposApagar === null);
+
+  // Listagem de mudanças após exclusão reporta apagado: true
+  const mudancasAposApagar = await adaptador.listarMudancas('2');
+  igual('adaptador memória · exclusão gera evento de mudança', mudancasAposApagar.length, 1);
+  ok('adaptador memória · evento de exclusão tem apagado = true', mudancasAposApagar[0].apagado === true);
+}
+
+// ── 4e. Motor de sincronização (sync-engine.js) ──────────────────────────────
+{
+  const { SyncEngine } = await import('../sidepanel/modules/sync-engine.js');
+  const { MemorySyncAdapter } = await import('../sidepanel/modules/sync-adapter.js');
+  const { buildNoteFile } = await import('../sidepanel/modules/notefile.js');
+
+  // O store falso mora em test/memory-store.mjs — o banco de provas do
+  // navegador usa o mesmo, pra que o contrato do SyncEngine não divirja.
+  const { InMemoryStore } = await import('./memory-store.mjs');
+
+  // 1. Nota nova aqui sobe
+  {
+    const adapter = new MemorySyncAdapter();
+    const store = new InMemoryStore();
+    const engine = new SyncEngine({ adapter, store, deviceName: 'Notebook' });
+
+    await store.salvarNotaLocal({
+      uid: 'u_nova_1',
+      title: 'Ideias Iniciais',
+      blocks: [{ id: 'b1', type: 'paragraph', html: 'Lançamento v3.0' }],
+      ordem: 'a0',
+    });
+
+    const res = await engine.sincronizar();
+    igual('sync · nota nova aqui sobe · contagem de enviadas', res.enviadas, 1);
+
+    const arquivoRemoto = await adapter.ler('notas/ideias-iniciais.md');
+    ok('sync · nota nova aqui sobe · arquivo criado no destino', arquivoRemoto !== null);
+    ok('sync · nota nova aqui sobe · texto contém título', arquivoRemoto?.texto.includes('Ideias Iniciais'));
+    ok('sync · nota nova aqui sobe · texto contém markdown do bloco', arquivoRemoto?.texto.includes('Lançamento v3.0'));
+
+    const estado = await store.obterEstadoSync('u_nova_1');
+    ok('sync · nota nova aqui sobe · estado local registrado', estado !== null && estado.rev === arquivoRemoto?.rev);
+  }
+
+  // 2. Nota nova lá desce
+  {
+    const adapter = new MemorySyncAdapter();
+    const store = new InMemoryStore();
+    const engine = new SyncEngine({ adapter, store, deviceName: 'Notebook' });
+
+    const arquivoRemotoTexto = buildNoteFile({
+      meta: {
+        quickdock: 1,
+        id: 'u_remota_2',
+        titulo: 'Protocolo Externo',
+        cor: 'amarelo',
+        ordem: 'a1',
+      },
+      md: 'Documento recebido via nuvem.',
+    });
+
+    await adapter.escrever('notas/protocolo-externo.md', arquivoRemotoTexto, null);
+
+    const res = await engine.sincronizar();
+    igual('sync · nota nova lá desce · contagem de baixadas', res.baixadas, 1);
+
+    const notaLocal = await store.obterNotaPorUid('u_remota_2');
+    ok('sync · nota nova lá desce · nota salva localmente', notaLocal !== null);
+    igual('sync · nota nova lá desce · título exato', notaLocal?.title, 'Protocolo Externo');
+    igual('sync · nota nova lá desce · cor exata', notaLocal?.color, 'amarelo');
+    ok('sync · nota nova lá desce · blocos criados', notaLocal?.blocks?.length === 1);
+    igual('sync · nota nova lá desce · conteúdo do bloco', notaLocal?.blocks[0].html, 'Documento recebido via nuvem.');
+  }
+
+  // 3. Edição dos dois lados → cópia de conflito, nenhum dos dois conteúdos perdido
+  {
+    const adapter = new MemorySyncAdapter();
+    const store = new InMemoryStore();
+    const engine = new SyncEngine({ adapter, store, deviceName: 'Celular' });
+
+    // Estado inicial sincronizado em ambos os lados
+    await store.salvarNotaLocal({
+      uid: 'u_compartilhada_3',
+      title: 'Lista de Compras',
+      blocks: [{ id: 'b1', type: 'paragraph', html: 'Café' }],
+      ordem: 'a0',
+    });
+    await engine.sincronizar();
+
+    // Edição remota (simula outro aparelho sincronizando com o destino)
+    const arquivoRemotoModificado = buildNoteFile({
+      meta: { quickdock: 1, id: 'u_compartilhada_3', titulo: 'Lista de Compras' },
+      md: 'Café\nLeite (adição remota)',
+    });
+    const est = await store.obterEstadoSync('u_compartilhada_3');
+    await adapter.escrever(est.caminho, arquivoRemotoModificado, est.rev);
+
+    // Edição local concorrente feita pelo usuário
+    await store.salvarNotaLocal({
+      uid: 'u_compartilhada_3',
+      title: 'Lista de Compras',
+      blocks: [
+        { id: 'b1', type: 'paragraph', html: 'Café' },
+        { id: 'b2', type: 'paragraph', html: 'Açúcar (adição local)' },
+      ],
+      ordem: 'a0',
+    });
+
+    const res = await engine.sincronizar();
+    igual('sync · conflito detectado e tratado', res.conflitos, 1);
+
+    // Ambas as notas devem existir localmente (nenhum dado perdido!)
+    const todasNotas = await store.listarNotasLocais();
+    igual('sync · conflito · preserva ambos (2 notas no banco)', todasNotas.length, 2);
+
+    const notaPrincipal = await store.obterNotaPorUid('u_compartilhada_3');
+    const notaConflito = todasNotas.find(n => n.uid !== 'u_compartilhada_3');
+
+    ok('sync · conflito · nota principal atualizada com dados remotos',
+       notaPrincipal?.blocks?.some(b => b.html.includes('Leite (adição remota)')));
+
+    ok('sync · conflito · cópia criada traz identificador e etiqueta',
+       notaConflito?.title.includes('conflito') && notaConflito?.title.includes('Celular'));
+    ok('sync · conflito · cópia preserva integralmente o conteúdo local',
+       notaConflito?.blocks?.some(b => b.html.includes('Açúcar (adição local)')));
+  }
+
+  // 4. Exclusão lá propaga para cá
+  {
+    const adapter = new MemorySyncAdapter();
+    const store = new InMemoryStore();
+    const engine = new SyncEngine({ adapter, store, deviceName: 'Notebook' });
+
+    // Inicializa nota e sincroniza
+    await store.salvarNotaLocal({
+      uid: 'u_apagar_4',
+      title: 'Nota Descartável',
+      blocks: [{ id: 'b1', type: 'paragraph', html: 'Será excluída' }],
+      ordem: 'a0',
+    });
+    await engine.sincronizar();
+
+    // Remoto exclui o arquivo
+    const est = await store.obterEstadoSync('u_apagar_4');
+    await adapter.apagar(est.caminho);
+
+    // Sincronização deve remover localmente
+    const res = await engine.sincronizar();
+    igual('sync · exclusão lá propaga para cá · contagem apagadas', res.apagadas, 1);
+
+    const notaLocal = await store.obterNotaPorUid('u_apagar_4');
+    ok('sync · exclusão lá propaga para cá · nota removida do banco local', notaLocal === null);
+  }
+
+  // 5. Exclusão lá + edição aqui → a nota ressuscita
+  {
+    const adapter = new MemorySyncAdapter();
+    const store = new InMemoryStore();
+    const engine = new SyncEngine({ adapter, store, deviceName: 'Notebook' });
+
+    // Inicializa nota e sincroniza
+    await store.salvarNotaLocal({
+      uid: 'u_ressuscita_5',
+      title: 'Nota Vital',
+      blocks: [{ id: 'b1', type: 'paragraph', html: 'Texto original' }],
+      ordem: 'a0',
+    });
+    await engine.sincronizar();
+
+    // Remoto exclui o arquivo
+    const est = await store.obterEstadoSync('u_ressuscita_5');
+    await adapter.apagar(est.caminho);
+
+    // Usuário edita localmente antes de sincronizar
+    await store.salvarNotaLocal({
+      uid: 'u_ressuscita_5',
+      title: 'Nota Vital',
+      blocks: [{ id: 'b1', type: 'paragraph', html: 'Texto editado criticamente pelo usuário' }],
+      ordem: 'a0',
+    });
+
+    // Sincroniza: a nota não pode sumir e deve ressuscitar no remoto
+    await engine.sincronizar();
+
+    const notaLocal = await store.obterNotaPorUid('u_ressuscita_5');
+    ok('sync · exclusão lá + edição aqui · nota permanece viva localmente', notaLocal !== null);
+    ok('sync · exclusão lá + edição aqui · preserva o conteúdo editado',
+       notaLocal?.blocks[0].html.includes('Texto editado criticamente'));
+
+    const arquivoNoAdapter = await adapter.ler(est.caminho);
+    ok('sync · exclusão lá + edição aqui · arquivo sobe novamente para o destino', arquivoNoAdapter !== null);
+    ok('sync · exclusão lá + edição aqui · conteúdo do arquivo no destino atualizado',
+       arquivoNoAdapter?.texto.includes('Texto editado criticamente'));
+  }
+
+  // 6. Aparelho sem estado local reconcilia tudo como novo, sem duplicar nota
+  {
+    const adapter = new MemorySyncAdapter();
+    const storeA = new InMemoryStore();
+    const storeB = new InMemoryStore();
+    const engineA = new SyncEngine({ adapter, store: storeA, deviceName: 'AparelhoA' });
+    const engineB = new SyncEngine({ adapter, store: storeB, deviceName: 'AparelhoB' });
+
+    // Aparelho A cria e sobe a nota
+    await storeA.salvarNotaLocal({
+      uid: 'u_sem_estado_6',
+      title: 'Nota Compartilhada Sem Estado',
+      blocks: [{ id: 'b1', type: 'paragraph', html: 'Mesmo conteúdo' }],
+      ordem: 'a0',
+    });
+    await engineA.sincronizar();
+
+    // Aparelho B já tem a mesma nota em seu banco (ex.: perfil clonado ou backup anterior),
+    // porém sem nenhum estado local de sincronização (estados vazio e cursor nulo)
+    await storeB.salvarNotaLocal({
+      uid: 'u_sem_estado_6',
+      title: 'Nota Compartilhada Sem Estado',
+      blocks: [{ id: 'b1', type: 'paragraph', html: 'Mesmo conteúdo' }],
+      ordem: 'a0',
+    });
+
+    igual('sync · sem estado local · pré-condição: B tem 1 nota', (await storeB.listarNotasLocais()).length, 1);
+    igual('sync · sem estado local · pré-condição: B não tem estado sync', (await storeB.listarTodosEstadosSync()).length, 0);
+
+    // Aparelho B sincroniza do zero
+    await engineB.sincronizar();
+
+    const notasB = await storeB.listarNotasLocais();
+    igual('sync · sem estado local · não duplica nota (continua exatamente 1 nota)', notasB.length, 1);
+    igual('sync · sem estado local · nota mantém uid correto', notasB[0].uid, 'u_sem_estado_6');
+
+    const estadoB = await storeB.obterEstadoSync('u_sem_estado_6');
+    ok('sync · sem estado local · estado de sincronização criado com sucesso', estadoB !== null);
+  }
 }
 
 // ── 5. Guarda de código: criar bloco a partir de dado serializado ────────────
