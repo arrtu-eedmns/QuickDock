@@ -13,3 +13,12 @@ brand/quickdock-logo.html
 # Chave privada da extensão: define o ID e NUNCA pode ir pro repositório
 # (que é público). A metade pública vai no manifest.json, essa não.
 *.pem
+
+# Projeto bruto do Affinity Designer: fonte de trabalho, não fonte versionada.
+# Os exports (.svg, .dc.html) é que ficam no repositório.
+*.af
+
+# Notas internas de passagem de sessão e planejamento: úteis localmente,
+# não fazem parte do histórico público do projeto.
+docs/HANDOFF*.md
+docs/PLANEJAMENTO.md
