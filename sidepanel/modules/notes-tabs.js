@@ -30,7 +30,7 @@ const noteSection   = document.querySelector('.note-section');
 // vertical por padrão (só vira horizontal segurando Shift) — aqui a gente
 // já converte deltaY em scrollLeft direto, sem precisar da tecla.
 tabsEl.addEventListener('wheel', e => {
-  if (window.innerWidth >= 768) return; // Na aside vertical do desktop o scroll já é vertical naturalmente
+  if (document.documentElement.dataset.platform === 'desktop') return; // Na aside vertical do desktop o scroll já é vertical naturalmente
   if (e.deltaY === 0) return;
   e.preventDefault();
   tabsEl.scrollLeft += e.deltaY;
@@ -511,15 +511,8 @@ function scrollTabIntoView(id) {
 function buildTabIndicator(meta) {
   if (meta.icon) {
     const ico = createIcon(meta.icon, 'note-tab-icon' + (meta.iconFilled ? ' icon-filled' : ''));
-    if (ico) {
-      ico.style.color = meta.color || 'var(--text-muted)';
-      return ico;
-    }
-    const span = document.createElement('span');
-    span.className = 'note-tab-icon material-symbols-rounded' + (meta.iconFilled ? ' icon-filled' : '');
-    span.textContent = meta.icon;
-    span.style.color = meta.color || 'var(--text-muted)';
-    return span;
+    ico.style.color = meta.color || 'var(--text-muted)';
+    return ico;
   }
 
   if (meta.color) {
@@ -578,7 +571,7 @@ function buildTab(meta) {
     if (noteDragSrcId == null || noteDragSrcId === meta.id || !tabDropIndicatorEl) return;
     e.preventDefault();
     const rect = tab.getBoundingClientRect();
-    const isVertical = window.innerWidth >= 768;
+    const isVertical = document.documentElement.dataset.platform === 'desktop';
     const before = isVertical ? (e.clientY < rect.top + rect.height / 2) : (e.clientX < rect.left + rect.width / 2);
     tab[before ? 'before' : 'after'](tabDropIndicatorEl);
   });
@@ -586,7 +579,7 @@ function buildTab(meta) {
     e.preventDefault();
     if (noteDragSrcId == null) return;
     const rect = tab.getBoundingClientRect();
-    const isVertical = window.innerWidth >= 768;
+    const isVertical = document.documentElement.dataset.platform === 'desktop';
     const before = isVertical ? (e.clientY < rect.top + rect.height / 2) : (e.clientX < rect.left + rect.width / 2);
     const srcId = noteDragSrcId;
     cleanupTabDrag();
@@ -678,7 +671,8 @@ function renderAppearanceContent(pop, meta) {
 
   const syncApply = () => {
     const name = iconInput.value.trim();
-    iconApply.innerHTML = iconSvg(name || 'add');
+    iconApply.innerHTML = '';
+    iconApply.appendChild(createIcon(name || 'add'));
     iconApply.disabled = !name || name === meta.icon;
     iconApply.classList.toggle('is-empty', !name);
   };

@@ -5,9 +5,12 @@ import { loadTheme, saveTheme } from './modules/storage.js';
 import { initResizer } from './modules/resizer.js';
 import { SyncController, SYNC_STATE } from './modules/sync-controller.js';
 import { canSafelyReloadCurrentNote, switchToNote, flushSave, isEditingTemplate, setImageResolver } from './modules/note.js';
-import { conectarPainel } from './modules/platform.js';
+import { conectarPainel, applyPlatform } from './modules/platform.js';
 
 import { iconSvg } from './modules/icons.js';
+
+// Aplica a identificação de plataforma (extension, mobile, desktop) imediatamente
+applyPlatform();
 
 const btnAppMenu = document.getElementById('btn-app-menu');
 const btnSync    = document.getElementById('btn-sync');

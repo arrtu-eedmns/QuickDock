@@ -21,7 +21,38 @@ export function setPlatformDb(db) {
 }
 
 // Detecta se estamos rodando dentro do contexto de extensão com permissão de storage
-export const isExtension = typeof chrome !== 'undefined' && !!chrome?.storage?.local;
+export const isExtension = (
+  typeof chrome !== 'undefined' &&
+  !!chrome?.storage?.local
+) || (typeof location !== 'undefined' && location.protocol === 'chrome-extension:');
+
+/**
+ * Detecta a plataforma de forma inteligente e imune a redimensionamentos:
+ * - 'extension': contexto de extensão do Chrome (independente da largura da janela).
+ * - 'mobile': fora da extensão, em dispositivos móveis/toque.
+ * - 'desktop': fora da extensão, em ambiente web para computadores.
+ */
+export function detectPlatform() {
+  if (isExtension) return 'extension';
+  if (typeof window !== 'undefined') {
+    const isTouch = window.matchMedia?.('(pointer: coarse)').matches ||
+      (typeof navigator !== 'undefined' && (
+        navigator.maxTouchPoints > 0 ||
+        /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || '')
+      ));
+    if (isTouch) return 'mobile';
+  }
+  return 'desktop';
+}
+
+export function applyPlatform() {
+  if (typeof document === 'undefined') return 'desktop';
+  const platform = detectPlatform();
+  document.documentElement.dataset.platform = platform;
+  document.documentElement.classList.remove('platform-extension', 'platform-mobile', 'platform-desktop');
+  document.documentElement.classList.add(`platform-${platform}`);
+  return platform;
+}
 
 /**
  * Armazenamento assíncrono de chave-valor para preferências (tema, layout, notas ativas, histórico).

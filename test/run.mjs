@@ -2037,10 +2037,11 @@ for (const entrada of ['', null, undefined, '\n\n']) {
   ok('plataforma · storage.js não menciona a palavra chrome', !/chrome/i.test(storageSource));
 
   // 14.2: platform.js opera transparentemente no ambiente fora da extensão
-  const { platformStorage, podeInserirNaPagina, conectarPainel, isExtension } =
+  const { platformStorage, podeInserirNaPagina, conectarPainel, isExtension, detectPlatform } =
     await import('../sidepanel/modules/platform.js');
 
   igual('plataforma · isExtension é falso no ambiente de teste Node.js', isExtension, false);
+  igual('plataforma · detectPlatform retorna desktop no ambiente padrão fora da extensão', detectPlatform(), 'desktop');
   igual('plataforma · podeInserirNaPagina é falso fora da extensão', podeInserirNaPagina(), false);
   igual('plataforma · conectarPainel não lança erro e retorna null', conectarPainel(), null);
 
@@ -2756,40 +2757,34 @@ for (const entrada of ['', null, undefined, '\n\n']) {
   }
 }
 
-// ── 16. Interface: ícones locais, busca de notas, colapso de documentos e offline ──
+// ── 16. Interface: ícones via fonte, busca de notas, colapso de documentos e offline ──
 {
-  const { ICONS, iconSvg } = await import('../sidepanel/modules/icons.js');
+  const { iconSvg } = await import('../sidepanel/modules/icons.js');
 
-  // 16.1: Biblioteca de ícones SVG locais
-  ok('icons · ICONS contém pelo menos 30 ícones mapeados', Object.keys(ICONS).length >= 30);
-  ok('icons · menu existe e tem path', typeof ICONS.menu === 'string' && ICONS.menu.includes('<path'));
-  ok('icons · add existe e tem path', typeof ICONS.add === 'string' && ICONS.add.includes('<path'));
-  ok('icons · search existe e tem path', typeof ICONS.search === 'string' && ICONS.search.includes('<path'));
-  ok('icons · touch_app existe e tem path', typeof ICONS.touch_app === 'string' && ICONS.touch_app.includes('<path'));
-  ok('icons · drag_indicator existe e tem path', typeof ICONS.drag_indicator === 'string' && ICONS.drag_indicator.includes('<path'));
+  // 16.1: Ícones via fonte Material Symbols Rounded — sem tabela local de SVGs,
+  // qualquer nome do catálogo do Google funciona.
+  igual('icons · iconSvg gera <span> com classe e nome do ícone',
+     iconSvg('search'), '<span class="qd-icon material-symbols-rounded" aria-hidden="true">search</span>');
+  ok('icons · iconSvg funciona pra qualquer nome do catálogo, não só uma lista fixa',
+     iconSvg('rocket_launch').includes('rocket_launch') && iconSvg('sailing').includes('sailing'));
+  igual('icons · iconSvg sem nome devolve string vazia', iconSvg(''), '');
 
-  const svgStr = iconSvg('search');
-  ok('icons · iconSvg gera SVG válido com classe e viewBox',
-     svgStr.includes('class="qd-icon') && svgStr.includes('viewBox="0 0 24 24"') && svgStr.endsWith('</svg>'));
-  ok('icons · iconSvg para ícone inexistente faz fallback gracioso para description',
-     iconSvg('icone_inexistente_xyz').includes('viewBox="0 0 24 24"'));
-
-  // 16.2: Ícones comuns usados nas abas existem no dicionário local
+  // 16.2: Ícones comuns usados nas abas renderizam normalmente
   const abasIcons = ['note', 'edit_note', 'checklist', 'star', 'flag', 'bookmark', 'folder', 'lightbulb', 'push_pin', 'label', 'event'];
   for (const nome of abasIcons) {
-    ok(`icons · ícone comum de aba "${nome}" existe em ICONS`, typeof ICONS[nome] === 'string');
+    ok(`icons · ícone comum de aba "${nome}" renderiza via iconSvg`, iconSvg(nome).includes(`>${nome}<`));
   }
 
-  // 16.3: Sem dependência remota de fontes ou CDN (MV3 e PWA offline)
+  // 16.3: Fonte de ícones carregada via Google Fonts, sem depender de CDN de script
   const { readFile } = await import('node:fs/promises');
   const indexHtml = await readFile(new URL('../index.html', import.meta.url), 'utf8');
   const sidepanelHtml = await readFile(new URL('../sidepanel/index.html', import.meta.url), 'utf8');
   const notFoundHtml = await readFile(new URL('../404.html', import.meta.url), 'utf8');
 
-  ok('offline · index.html não carrega fonts.googleapis.com', !indexHtml.includes('fonts.googleapis.com'));
-  ok('offline · sidepanel/index.html não carrega fonts.googleapis.com', !sidepanelHtml.includes('fonts.googleapis.com'));
-  ok('offline · 404.html não carrega fonts.googleapis.com', !notFoundHtml.includes('fonts.googleapis.com'));
-  ok('offline · index.html não tem CDN externa', !indexHtml.includes('https://cdnjs.') && !indexHtml.includes('https://cdn.'));
+  ok('fonte · index.html carrega Material Symbols Rounded', indexHtml.includes('fonts.googleapis.com') && indexHtml.includes('Material+Symbols+Rounded'));
+  ok('fonte · sidepanel/index.html carrega Material Symbols Rounded', sidepanelHtml.includes('fonts.googleapis.com') && sidepanelHtml.includes('Material+Symbols+Rounded'));
+  ok('fonte · 404.html carrega Material Symbols Rounded', notFoundHtml.includes('fonts.googleapis.com') && notFoundHtml.includes('Material+Symbols+Rounded'));
+  ok('offline · index.html não tem CDN externa de script', !indexHtml.includes('https://cdnjs.') && !indexHtml.includes('https://cdn.'));
 
   // 16.4: Busca de notas por título e conteúdo
   const notasExemplo = [

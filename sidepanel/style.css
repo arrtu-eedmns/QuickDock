@@ -25,13 +25,10 @@
 /* ===== RESET ===== */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-/* ===== ÍCONES (SVG local embutido via icons.js e fallback Material Symbols) ===== */
+/* ===== ÍCONES (fonte Material Symbols Rounded, via icons.js) ===== */
 .qd-icon {
-  width: 1.15em;
-  height: 1.15em;
-  fill: currentColor;
+  font-size: 1.15em;
   vertical-align: middle;
-  display: inline-flex;
   flex-shrink: 0;
 }
 
@@ -876,13 +873,13 @@ body:not(.booting) .note-editor-blocks {
 .note-tab {
   display: flex;
   align-items: center;
-  gap: 5px;
-  height: 26px;
-  padding: 0 8px;
-  border-radius: 6px;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
   cursor: pointer;
   flex-shrink: 0;
-  max-width: 130px;
+  max-width: 140px;
   border: 1px solid transparent;
   user-select: none;
   transition: background 0.12s, border-color 0.12s;
@@ -2542,9 +2539,8 @@ body:not(.booting) .note-editor-blocks {
     -webkit-tap-highlight-color: transparent;
   }
 
-  .btn-touch-select svg.qd-icon {
-    width: 24px;
-    height: 24px;
+  .btn-touch-select .qd-icon {
+    font-size: 24px;
   }
 
   .btn-touch-select.is-active,
@@ -2626,7 +2622,7 @@ body:not(.booting) .note-editor-blocks {
   justify-content: center;
 }
 
-.docs-section.is-collapsed .docs-toggle-btn svg {
+.docs-section.is-collapsed .docs-toggle-btn .qd-icon {
   transform: rotate(-90deg);
 }
 
@@ -2706,7 +2702,7 @@ body:not(.booting) .note-editor-blocks {
   overflow-y: auto;
 }
 
-/* ===== ESTRUTURA BASE PARA ASIDE E FLUXO (DESKTOP E MOBILE) ===== */
+/* ===== ESTRUTURA BASE PARA ASIDE E FLUXO ===== */
 .app-aside {
   display: contents;
 }
@@ -2737,6 +2733,313 @@ body:not(.booting) .note-editor-blocks {
 
 .docs-section {
   order: 4;
+}
+
+/* ===== EXTENSÃO: CABEÇALHO E ABAS BASEADOS NO REDESIGN.HTML ===== */
+html[data-platform="extension"] #app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+}
+
+html[data-platform="extension"] .app-aside {
+  display: contents;
+}
+
+html[data-platform="extension"] .aside-brand {
+  display: none;
+}
+
+html[data-platform="extension"] .aside-actions {
+  display: contents;
+}
+
+html[data-platform="extension"] .aside-search-label {
+  display: none;
+}
+
+/* Cabeçalho da extensão em Grid: [Menu/H] [Novo/+] [Abas centrais] [Sync/S] [Mais/M] */
+html[data-platform="extension"] .notes-tabbar {
+  order: 1;
+  display: grid;
+  grid-template-columns: auto auto 1fr auto auto;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 8px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  user-select: none;
+  min-height: 48px;
+  position: relative;
+}
+
+/* Degradê fade esquerdo (atrás do botão +, projetando profundidade sobre as abas) */
+html[data-platform="extension"] .notes-tabbar::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 69px;
+  width: 46px;
+  background: linear-gradient(to right, var(--bg-secondary) 35%, transparent 100%);
+  pointer-events: none;
+  z-index: 2;
+}
+
+/* Degradê fade direito (atrás do botão S, projetando profundidade sobre as abas) */
+html[data-platform="extension"] .notes-tabbar::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 60px;
+  width: 42px;
+  background: linear-gradient(to left, var(--bg-secondary) 35%, transparent 100%);
+  pointer-events: none;
+  z-index: 2;
+}
+
+/* Ordem e visual dos controles do cabeçalho */
+html[data-platform="extension"] #btn-notes-list {
+  order: 1;
+  position: relative;
+  z-index: 10;
+  width: 34px;
+  height: 34px;
+  min-width: 34px;
+  min-height: 34px;
+  padding: 0;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+html[data-platform="extension"] #btn-notes-list:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+  border-color: var(--border);
+}
+
+html[data-platform="extension"] #btn-notes-list .qd-icon {
+  font-size: 18px;
+}
+
+/* Botão de Adicionar (+) em formato de pílula (sempre em primeiro plano) */
+html[data-platform="extension"] #btn-new-note {
+  order: 2;
+  position: relative;
+  z-index: 10;
+  width: 44px;
+  height: 34px;
+  min-width: 44px;
+  min-height: 34px;
+  padding: 0;
+  border-radius: 17px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  transition: background 0.15s, border-color 0.15s, color 0.15s, transform 0.1s;
+}
+
+html[data-platform="extension"] #btn-new-note:hover {
+  background: var(--bg-hover);
+  border-color: var(--text-muted);
+}
+
+html[data-platform="extension"] #btn-new-note:active {
+  transform: scale(0.96);
+}
+
+html[data-platform="extension"] #btn-new-note .qd-icon {
+  font-size: 18px;
+}
+
+/* Área central de abas com scroll horizontal que entra até a metade dos botões + e S com dissolução em fade */
+html[data-platform="extension"] .notes-tabs {
+  order: 3;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  min-width: 0;
+  height: 36px;
+  margin-left: -27px;
+  margin-right: -22px;
+  padding-left: 27px;
+  padding-right: 22px;
+  position: relative;
+  z-index: 1;
+  -webkit-mask-image: linear-gradient(
+    to right,
+    transparent 0px,
+    black 27px,
+    black calc(100% - 22px),
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to right,
+    transparent 0px,
+    black 27px,
+    black calc(100% - 22px),
+    transparent 100%
+  );
+}
+
+html[data-platform="extension"] .notes-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+/* Abas em formato de pílula (Pill Tabs) */
+html[data-platform="extension"] .note-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  cursor: pointer;
+  flex-shrink: 0;
+  max-width: 140px;
+  user-select: none;
+  white-space: nowrap;
+  transition: background 0.12s, border-color 0.12s, color 0.12s, box-shadow 0.12s;
+}
+
+html[data-platform="extension"] .note-tab:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+html[data-platform="extension"] .note-tab.active {
+  background: var(--bg);
+  border-color: var(--accent);
+  color: var(--text);
+  font-weight: 500;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+}
+
+html[data-platform="extension"] .note-tab-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+html[data-platform="extension"] .note-tab-title {
+  font-size: 11.5px;
+  line-height: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Botão de Sincronização (S) sempre em primeiro plano sobre o degradê */
+html[data-platform="extension"] #btn-sync {
+  order: 4;
+  position: relative;
+  z-index: 10;
+  width: 34px;
+  height: 34px;
+  min-width: 34px;
+  min-height: 34px;
+  padding: 0;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+html[data-platform="extension"] #btn-sync:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+  border-color: var(--text-muted);
+}
+
+html[data-platform="extension"] #btn-app-menu {
+  order: 5;
+  position: relative;
+  z-index: 10;
+  width: 30px;
+  height: 34px;
+  min-width: 30px;
+  min-height: 34px;
+  padding: 0;
+  border-radius: calc(34px / 2);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+html[data-platform="extension"] #btn-app-menu:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+  border-color: var(--border);
+}
+
+/* Seções principais da extensão empilhadas com divisor vertical funcional */
+html[data-platform="extension"] .note-section {
+  order: 2;
+  flex: 1 1 auto;
+  min-height: 120px;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+html[data-platform="extension"] #resize-handle {
+  order: 3;
+  display: flex !important;
+  height: 6px;
+  background: var(--border);
+  cursor: row-resize;
+  flex-shrink: 0;
+  opacity: 0.7;
+  transition: opacity 0.15s, background 0.15s;
+}
+
+html[data-platform="extension"] #resize-handle:hover {
+  opacity: 1;
+  background: var(--accent);
+}
+
+html[data-platform="extension"] .docs-section {
+  order: 4;
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 38px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-secondary);
 }
 
 /* ===== BOTTOM SHEETS (MOBILE: BLOCOS E DOCUMENTOS) ===== */
@@ -2820,72 +3123,70 @@ body:not(.booting) .note-editor-blocks {
   font-size: 14px;
 }
 
-/* Documentos como Bottom Sheet no mobile */
-@media (max-width: 767px) {
-  #resize-handle {
-    display: none !important;
-  }
-
-  .note-section {
-    height: 100vh !important;
-    padding-bottom: 46px;
-  }
-
-  .docs-section {
-    position: fixed;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    z-index: 900;
-    border-radius: 16px 16px 0 0;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-bottom: none;
-    box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.12);
-    overflow: hidden;
-    transition: height 0.28s cubic-bezier(0.16, 1, 0.3, 1), transform 0.28s cubic-bezier(0.16, 1, 0.3, 1);
-  }
-
-  /* Pílula de arrasto para o bottom sheet de documentos */
-  .docs-section::before {
-    content: '';
-    display: block;
-    width: 36px;
-    height: 4px;
-    background: var(--text-muted);
-    opacity: 0.35;
-    border-radius: 99px;
-    margin: 6px auto 2px;
-    flex-shrink: 0;
-  }
-
-  .docs-header {
-    padding: 4px 12px 6px;
-  }
-
-  /* Estado recolhido (peek bar fixa no rodapé) */
-  .docs-section.is-collapsed {
-    height: 44px !important;
-    min-height: 44px !important;
-    max-height: 44px !important;
-    flex: 0 0 44px !important;
-    transform: translateY(0);
-  }
-
-  /* Estado expandido (slide-up para 75vh) */
-  .docs-section:not(.is-collapsed) {
-    height: 75vh !important;
-    min-height: 75vh !important;
-    max-height: 78vh !important;
-    flex: 0 0 75vh !important;
-    background: var(--bg);
-    animation: sheet-slide-up 0.24s cubic-bezier(0.16, 1, 0.3, 1);
-  }
+/* Documentos como Bottom Sheet exclusivamente no MOBILE */
+html[data-platform="mobile"] #resize-handle {
+  display: none !important;
 }
 
-/* ===== DESKTOP: ASIDE À DIREITA ESTILO NOTION ===== */
+html[data-platform="mobile"] .note-section {
+  height: 100vh !important;
+  padding-bottom: 46px;
+}
+
+html[data-platform="mobile"] .docs-section {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 900;
+  border-radius: 16px 16px 0 0;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-bottom: none;
+  box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.12);
+  overflow: hidden;
+  transition: height 0.28s cubic-bezier(0.16, 1, 0.3, 1), transform 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Pílula de arrasto para o bottom sheet de documentos */
+html[data-platform="mobile"] .docs-section::before {
+  content: '';
+  display: block;
+  width: 36px;
+  height: 4px;
+  background: var(--text-muted);
+  opacity: 0.35;
+  border-radius: 99px;
+  margin: 6px auto 2px;
+  flex-shrink: 0;
+}
+
+html[data-platform="mobile"] .docs-header {
+  padding: 4px 12px 6px;
+}
+
+/* Estado recolhido (peek bar fixa no rodapé) */
+html[data-platform="mobile"] .docs-section.is-collapsed {
+  height: 44px !important;
+  min-height: 44px !important;
+  max-height: 44px !important;
+  flex: 0 0 44px !important;
+  transform: translateY(0);
+}
+
+/* Estado expandido (slide-up para 75vh) */
+html[data-platform="mobile"] .docs-section:not(.is-collapsed) {
+  height: 75vh !important;
+  min-height: 75vh !important;
+  max-height: 78vh !important;
+  flex: 0 0 75vh !important;
+  background: var(--bg);
+  animation: sheet-slide-up 0.24s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* ===== DESKTOP: ASIDE À DIREITA ESTILO NOTION (APENAS PWA DESKTOP) ===== */
 @media (min-width: 768px) {
-  #app {
+  html[data-platform="desktop"] #app {
     display: flex;
     flex-direction: row;
     height: 100vh;
@@ -2893,7 +3194,7 @@ body:not(.booting) .note-editor-blocks {
   }
 
   /* Editor ocupa a área principal (à esquerda/centro) com visual Notion */
-  .note-section {
+  html[data-platform="desktop"] .note-section {
     order: 1;
     flex: 1 1 auto;
     width: 0;
@@ -2905,7 +3206,7 @@ body:not(.booting) .note-editor-blocks {
     overflow: hidden;
   }
 
-  .note-editor {
+  html[data-platform="desktop"] .note-editor {
     flex: 1;
     display: flex;
     flex-direction: column;
@@ -2916,7 +3217,7 @@ body:not(.booting) .note-editor-blocks {
     border-top: none;
   }
 
-  .note-editor-blocks {
+  html[data-platform="desktop"] .note-editor-blocks {
     max-width: 760px;
     width: 100%;
     margin: 0 auto;
@@ -2925,12 +3226,12 @@ body:not(.booting) .note-editor-blocks {
     overflow-y: auto;
   }
 
-  #resize-handle {
+  html[data-platform="desktop"] #resize-handle {
     display: none !important;
   }
 
   /* Aside à direita (estilo Notion) */
-  .app-aside {
+  html[data-platform="desktop"] .app-aside {
     order: 2;
     display: flex;
     flex-direction: column;
@@ -2945,7 +3246,7 @@ body:not(.booting) .note-editor-blocks {
     user-select: none;
   }
 
-  .notes-tabbar {
+  html[data-platform="desktop"] .notes-tabbar {
     order: 1;
     display: flex;
     flex-direction: column;
@@ -2957,7 +3258,7 @@ body:not(.booting) .note-editor-blocks {
     background: var(--bg-secondary);
   }
 
-  .aside-brand {
+  html[data-platform="desktop"] .aside-brand {
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -2965,21 +3266,21 @@ body:not(.booting) .note-editor-blocks {
     padding: 2px 2px 4px;
   }
 
-  .aside-brand-title {
+  html[data-platform="desktop"] .aside-brand-title {
     font-weight: 700;
     font-size: 14px;
     letter-spacing: -0.2px;
     color: var(--text);
   }
 
-  .aside-actions {
+  html[data-platform="desktop"] .aside-actions {
     display: flex;
     align-items: center;
     gap: 2px;
   }
 
   /* Botão "Todas as notas" vira barra de busca rápida Notion */
-  #btn-notes-list {
+  html[data-platform="desktop"] #btn-notes-list {
     display: flex;
     align-items: center;
     gap: 8px;
@@ -2995,19 +3296,19 @@ body:not(.booting) .note-editor-blocks {
     transition: background 0.15s, border-color 0.15s;
   }
 
-  #btn-notes-list:hover {
+  html[data-platform="desktop"] #btn-notes-list:hover {
     background: var(--bg-hover);
     color: var(--text);
   }
 
-  .aside-search-label {
+  html[data-platform="desktop"] .aside-search-label {
     display: inline;
     flex: 1;
     font-size: 12px;
   }
 
   /* Lista vertical de notas estilo Notion */
-  .notes-tabs {
+  html[data-platform="desktop"] .notes-tabs {
     display: flex;
     flex-direction: column;
     align-items: stretch;
@@ -3020,7 +3321,7 @@ body:not(.booting) .note-editor-blocks {
     scrollbar-width: thin;
   }
 
-  .note-tab {
+  html[data-platform="desktop"] .note-tab {
     display: flex;
     align-items: center;
     width: 100%;
@@ -3035,24 +3336,24 @@ body:not(.booting) .note-editor-blocks {
     justify-content: flex-start;
   }
 
-  .note-tab:hover {
+  html[data-platform="desktop"] .note-tab:hover {
     background: var(--bg-hover);
   }
 
-  .note-tab.active {
+  html[data-platform="desktop"] .note-tab.active {
     background: var(--bg);
     border-color: var(--border);
     font-weight: 500;
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
   }
 
-  .note-tab-title {
+  html[data-platform="desktop"] .note-tab-title {
     max-width: none;
     font-size: 12.5px;
     flex: 1;
   }
 
-  .tab-drop-indicator {
+  html[data-platform="desktop"] .tab-drop-indicator {
     width: 100%;
     height: 2px;
     background: var(--accent);
@@ -3061,7 +3362,7 @@ body:not(.booting) .note-editor-blocks {
   }
 
   /* Seção de documentos na aside à direita */
-  .docs-section {
+  html[data-platform="desktop"] .docs-section {
     order: 2;
     border-top: 1px solid var(--border);
     flex: 0 0 auto;
@@ -3071,14 +3372,14 @@ body:not(.booting) .note-editor-blocks {
     background: var(--bg-secondary);
   }
 
-  .docs-section.is-collapsed {
+  html[data-platform="desktop"] .docs-section.is-collapsed {
     height: 38px !important;
     min-height: 38px !important;
     max-height: 38px !important;
     flex: 0 0 38px !important;
   }
 
-  .docs-section:not(.is-collapsed) {
+  html[data-platform="desktop"] .docs-section:not(.is-collapsed) {
     max-height: 45vh;
     overflow-y: auto;
   }

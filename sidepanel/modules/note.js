@@ -2167,12 +2167,7 @@ function buildTypeGrid(itens, aoEscolher) {
     const btn = document.createElement('button');
     btn.className = 'type-cell';
     btn.title = it.hint ? `${it.label} · ${it.hint}` : it.label;
-    const ico = createIcon(it.icon, 'type-cell-icon') || (() => {
-      const s = document.createElement('span');
-      s.className = 'material-symbols-rounded';
-      s.textContent = it.icon;
-      return s;
-    })();
+    const ico = createIcon(it.icon, 'type-cell-icon');
     const nome = document.createElement('span');
     nome.className = 'type-cell-label';
     nome.textContent = it.short;   // textContent: nome de modelo é texto do usuário
@@ -2263,7 +2258,7 @@ function renderSlashMenu(block) {
   const menu = document.createElement('div');
   menu.className = 'copy-menu slash-menu';
 
-  const isMobile = window.innerWidth < 768;
+  const isMobile = document.documentElement.dataset.platform === 'mobile';
   if (isMobile) {
     menu.classList.add('is-bottom-sheet');
     slashBackdropEl = document.createElement('div');
@@ -3672,7 +3667,7 @@ function openBlockMenu(block, anchorEl) {
   const menu = document.createElement('div');
   menu.className = 'copy-menu block-menu';
 
-  const isMobile = window.innerWidth < 768;
+  const isMobile = document.documentElement.dataset.platform === 'mobile';
   if (isMobile) {
     menu.classList.add('is-bottom-sheet');
     blockMenuBackdropEl = document.createElement('div');

@@ -10,7 +10,21 @@
   <link rel="icon" type="image/png" sizes="128x128" href="icons/128.png" />
   <link rel="apple-touch-icon" href="icons/128.png" />
   <meta name="theme-color" content="#1e1e1e" />
-  <!-- Ícones SVG locais embutidos via icons.js — sem requisição remota (MV3) e 100% offline -->
+  <!-- Ícones da interface: fonte variável Material Symbols Rounded do Google,
+       carregada abaixo. Cobre o catálogo inteiro — não tem mais SVG local pra
+       manter em dia. sw.js cacheia a resposta no primeiro carregamento online,
+       então funciona offline depois disso (ver nota em sw.js). -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=block" />
+  <script>
+    (function() {
+      var isExt = (typeof chrome !== 'undefined' && !!chrome?.storage?.local) || (typeof location !== 'undefined' && location.protocol === 'chrome-extension:');
+      var p = isExt ? 'extension' : (window.matchMedia && window.matchMedia('(pointer: coarse)').matches ? 'mobile' : 'desktop');
+      document.documentElement.dataset.platform = p;
+      document.documentElement.classList.add('platform-' + p);
+    })();
+  </script>
   <link rel="stylesheet" href="sidepanel/style.css" />
 </head>
 <body class="booting">
@@ -45,7 +59,7 @@
         <div id="note-editor-blocks" class="note-editor-blocks" contenteditable="true" spellcheck="false"></div>
       </div>
       <span id="save-indicator" class="save-indicator">
-        salvo <svg class="qd-icon" viewBox="0 0 24 24"><path d="M9.55 18q-.2 0-.387-.075T8.825 17.6l-4.25-4.25q-.275-.275-.275-.687t.275-.713q.3-.3.713-.3t.712.3L9.55 15.5l9.9-9.9q.275-.275.688-.275t.712.275q.3.3.3.713t-.3.712l-10.625 10.6q-.15.15-.337.225T9.55 18"/></svg>
+        salvo <span class="qd-icon material-symbols-rounded" aria-hidden="true">check</span>
       </span>
     </section>
 
@@ -57,20 +71,20 @@
           <span class="aside-brand-title">QuickDock</span>
         </div>
         <button id="btn-notes-list" class="icon-btn" title="Todas as notas" aria-label="Todas as notas">
-          <svg class="qd-icon" viewBox="0 0 24 24"><path d="M4 18q-.425 0-.712-.288T3 17t.288-.712T4 16h16q.425 0 .713.288T21 17t-.288.713T20 18zm0-5q-.425 0-.712-.288T3 12t.288-.712T4 11h16q.425 0 .713.288T21 12t-.288.713T20 13zm0-5q-.425 0-.712-.288T3 7t.288-.712T4 6h16q.425 0 .713.288T21 7t-.288.713T20 8z"/></svg>
+          <span class="qd-icon material-symbols-rounded" aria-hidden="true">menu</span>
           <span class="aside-search-label">Todas as notas</span>
         </button>
         <div id="notes-tabs" class="notes-tabs"></div>
         <input type="file" id="note-import-input" accept=".md,.txt,text/markdown,text/plain" hidden />
         <div class="aside-actions">
           <button id="btn-new-note" class="icon-btn" title="Nova nota / Importar" aria-label="Nova nota ou importar">
-            <svg class="qd-icon" viewBox="0 0 24 24"><path d="M11 13H6q-.425 0-.712-.288T5 12t.288-.712T6 11h5V6q0-.425.288-.712T12 5t.713.288T13 6v5h5q.425 0 .713.288T19 12t-.288.713T18 13h-5v5q0 .425-.288.713T12 19t-.712-.288T11 18z"/></svg>
+            <span class="qd-icon material-symbols-rounded" aria-hidden="true">add</span>
           </button>
           <button id="btn-sync" class="icon-btn" title="Sincronização" aria-label="Sincronização">
-            <svg class="qd-icon" viewBox="0 0 24 24"><path d="M12 20q-3.35 0-5.675-2.325T4 12q0-1.725.688-3.237T6.6 6.15l-1.3-1.3q-.3-.3-.187-.725T5.625 3.7h4.8q.425 0 .713.288T11.425 4.7v4.8q0 .4-.413.513t-.712-.188l-1.4-1.4q-.975.875-1.537 2.088T6.8 12q0 2.15 1.525 3.675T12 17.2q1.55 0 2.875-.825T16.7 14.2q.15-.375.475-.537t.725-.013q.425.125.613.525t-.013.825q-1.075 2.225-3.037 3.613T12 20m5.55-10.85q-.425-.125-.612-.525t.012-.825q1.075-2.225 3.038-3.613T25.55 4q.025 0 .05 0t.05 0l-.65.65zm-2.075-.025q0-.4.413-.512t.712.187l1.4 1.4q.975-.875 1.538-2.087T19.7 7.1q0-2.15-1.525-3.675T14.5 1.9q-1.55 0-2.875.825T9.8 4.9q-.15.375-.475.538T8.6 5.45q-.425-.125-.612-.525T8 4.1q1.075-2.225 3.038-3.613T14.5.4q3.35 0 5.675 2.325T22.5 9.1q0 1.725-.687 3.238T19.9 15.05l1.3 1.3q.3.3.188.725t-.513.425h-4.8q-.425 0-.712-.288t-.288-.712v-4.8q0-.4.413-.512t.712.187l1.4 1.4q-.975.875-1.537 2.088t-.538 2.087z"/></svg>
+            <span class="qd-icon material-symbols-rounded" aria-hidden="true">sync</span>
           </button>
           <button id="btn-app-menu" class="icon-btn" title="Mais opções" aria-label="Mais opções">
-            <svg class="qd-icon" viewBox="0 0 24 24"><path d="M6 14q-.825 0-1.412-.587T4 12t.588-1.412T6 10t1.413.588T8 12t-.587 1.413T6 14m6 0q-.825 0-1.412-.587T10 12t.588-1.412T12 10t1.413.588T14 12t-.587 1.413T12 14m6 0q-.825 0-1.412-.587T16 12t.588-1.412T18 10t1.413.588T20 12t-.587 1.413T18 14"/></svg>
+            <span class="qd-icon material-symbols-rounded" aria-hidden="true">more_vert</span>
           </button>
         </div>
       </div>
@@ -78,7 +92,7 @@
       <section class="docs-section">
         <div class="docs-header" id="docs-header">
           <button id="btn-docs-toggle" class="icon-btn docs-toggle-btn" title="Recolher / expandir documentos" aria-label="Recolher ou expandir documentos">
-            <svg class="qd-icon" viewBox="0 0 24 24"><path d="m12 15.4-4.9-4.9q-.275-.275-.275-.7t.275-.7q.275-.275.7-.275t.7.275l3.5 3.5 3.5-3.5q.275-.275.7-.275t.7.275q.275.275.275.7t-.275.7z"/></svg>
+            <span class="qd-icon material-symbols-rounded" aria-hidden="true">expand_more</span>
           </button>
           <span class="docs-title" id="docs-title">Documentos</span>
           <div class="docs-view-switch">
@@ -86,25 +100,25 @@
             <button id="btn-view-all" class="docs-view-opt" title="Todos os documentos, de todas as notas">Todos</button>
           </div>
           <button id="btn-upload" class="icon-btn" title="Adicionar arquivo" aria-label="Adicionar arquivo">
-            <svg class="qd-icon" viewBox="0 0 24 24"><path d="M11 13H6q-.425 0-.712-.288T5 12t.288-.712T6 11h5V6q0-.425.288-.712T12 5t.713.288T13 6v5h5q.425 0 .713.288T19 12t-.288.713T18 13h-5v5q0 .425-.288.713T12 19t-.712-.288T11 18z"/></svg>
+            <span class="qd-icon material-symbols-rounded" aria-hidden="true">add</span>
           </button>
           <input type="file" id="file-input" accept="image/*,.pdf,.txt" multiple hidden />
         </div>
         <div id="group-bar" class="group-bar hidden">
           <span id="group-count"></span>
           <button id="btn-inject-selected" class="group-action-btn" title="Injetar selecionados na página">
-            <svg class="qd-icon" viewBox="0 0 24 24"><path d="M5 21q-.825 0-1.412-.587T3 19V5q0-.825.588-1.412T5 3h7q.425 0 .713.288T13 4t-.288.713T12 5H5v14h14v-7q0-.425.288-.712T20 11t.713.288T21 12v7q0 .825-.587 1.413T19 21zm5-7.6-1.4-1.4L17.6 3H14q-.425 0-.712-.288T13 2t.288-.712T14 1h7q.425 0 .713.288T22 2v7q0 .425-.288.713T21 10t-.712-.288T20 9V5.4z"/></svg>
+            <span class="qd-icon material-symbols-rounded" aria-hidden="true">open_in_new</span>
             Injetar
           </button>
           <button id="btn-scope-selected" class="group-action-btn" title="Vincular à nota aberta">
-            <svg class="qd-icon" viewBox="0 0 24 24"><path d="m16 12 2 2v2h-5v6l-1 1-1-1v-6H6v-2l2-2V5H7V3h10v2h-1z"/></svg>
+            <span class="qd-icon material-symbols-rounded" aria-hidden="true">push_pin</span>
             Vincular
           </button>
           <button id="btn-delete-selected" class="group-action-btn group-action-danger" title="Remover selecionados" aria-label="Remover selecionados">
-            <svg class="qd-icon" viewBox="0 0 24 24"><path d="M7 21q-.825 0-1.412-.587T5 19V6q-.425 0-.712-.288T4 5t.288-.712T5 4h4q0-.425.288-.712T10 3h4q.425 0 .713.288T15 4h4q.425 0 .713.288T20 5t-.288.713T19 6v13q0 .825-.587 1.413T17 21zM17 6H7v13h10zM9 17h2V8H9zm4 0h2V8h-2z"/></svg>
+            <span class="qd-icon material-symbols-rounded" aria-hidden="true">delete</span>
           </button>
           <button id="btn-clear-selection" class="group-action-close" title="Cancelar seleção" aria-label="Cancelar seleção">
-            <svg class="qd-icon" viewBox="0 0 24 24"><path d="m12 13.4-4.9 4.9q-.275.275-.7.275t-.7-.275q-.275-.275-.275-.7t.275-.7l4.9-4.9-4.9-4.9q-.275-.275-.275-.7t.275-.7q.275-.275.7-.275t.7.275l4.9 4.9 4.9-4.9q.275-.275.7-.275t.7.275q.275.275.275.7t-.275.7L13.4 12l4.9 4.9q.275.275.275.7t-.275.7q-.275.275-.7.275t-.7-.275z"/></svg>
+            <span class="qd-icon material-symbols-rounded" aria-hidden="true">close</span>
           </button>
         </div>
 
@@ -126,36 +140,36 @@
         <span id="modal-title" class="modal-title"></span>
         <div id="gallery-nav" class="gallery-nav hidden">
           <button id="gallery-prev" class="icon-btn" title="Imagem anterior (←)" aria-label="Imagem anterior">
-            <svg class="qd-icon" viewBox="0 0 24 24"><path d="m14 18-6-6 6-6q.275-.275.7-.275t.7.275q.275.275.275.7t-.275.7L10.15 12l4.975 4.975q.275.275.275.7t-.275.7q-.275.275-.7.275t-.7-.275"/></svg>
+            <span class="qd-icon material-symbols-rounded" aria-hidden="true">chevron_left</span>
           </button>
           <span id="gallery-counter" class="gallery-counter" title="Ver todas as imagens"></span>
           <button id="gallery-next" class="icon-btn" title="Próxima imagem (→)" aria-label="Próxima imagem">
-            <svg class="qd-icon" viewBox="0 0 24 24"><path d="M10 6 8.6 7.4l4.6 4.6-4.6 4.6L10 18l6-6z"/></svg>
+            <span class="qd-icon material-symbols-rounded" aria-hidden="true">chevron_right</span>
           </button>
         </div>
         <button id="modal-close" class="icon-btn" title="Fechar" aria-label="Fechar">
-          <svg class="qd-icon" viewBox="0 0 24 24"><path d="m12 13.4-4.9 4.9q-.275.275-.7.275t-.7-.275q-.275-.275-.275-.7t.275-.7l4.9-4.9-4.9-4.9q-.275-.275-.275-.7t.275-.7q.275-.275.7-.275t.7.275l4.9 4.9 4.9-4.9q.275-.275.7-.275t.7.275q.275.275.275.7t-.275.7L13.4 12l4.9 4.9q.275.275.275.7t-.275.7q-.275.275-.7.275t-.7-.275z"/></svg>
+          <span class="qd-icon material-symbols-rounded" aria-hidden="true">close</span>
         </button>
       </div>
 
       <div id="img-toolbar" class="img-toolbar hidden">
         <button id="btn-rot-left"  class="viewer-btn" title="Girar esquerda ([)" aria-label="Girar à esquerda">
-          <svg class="qd-icon" viewBox="0 0 24 24"><path d="M12 21q-3.75 0-6.375-2.625T3 12q0-1.85.738-3.487T5.8 5.8L4.35 4.35q-.3-.3-.188-.725t.513-.425H9.5q.425 0 .713.288T10.5 4.2v4.825q0 .4-.425.513t-.725-.188L7.9 7.9q-1.125 1-1.762 2.388T5.5 12q0 2.7 1.9 4.6T12 18.5q2.45 0 4.3-1.575t2.35-3.975q.075-.4.413-.625t.737-.125q.425.1.613.488t-.013.787q-.675 3.025-2.987 4.988T12 21"/></svg>
+          <span class="qd-icon material-symbols-rounded" aria-hidden="true">rotate_left</span>
         </button>
         <button id="btn-rot-right" class="viewer-btn" title="Girar direita (])" aria-label="Girar à direita">
-          <svg class="qd-icon" viewBox="0 0 24 24"><path d="M12 21q-3.15 0-5.462-1.962T3.55 14.05q-.1-.4.075-.788t.625-.487q.425-.1.763.125t.437.625q.5 2.4 2.35 3.975T12 18.5q2.7 0 4.6-1.9t1.9-4.6q0-1.325-.638-2.562T16.1 7.9l-1.45 1.45q-.3.3-.725.188t-.425-.513V4.2q0-.425.288-.712T14.5 3.2h4.825q.4 0 .513.425t-.188.725L18.2 5.8q1.325 1.075 2.063 2.713T21 12q0 3.75-2.625 6.375T12 21"/></svg>
+          <span class="qd-icon material-symbols-rounded" aria-hidden="true">rotate_right</span>
         </button>
         <div class="toolbar-sep"></div>
         <button id="btn-zoom-out" class="viewer-btn" title="Afastar (−)" aria-label="Afastar">
-          <svg class="qd-icon" viewBox="0 0 24 24"><path d="M10 13h4q.425 0 .713-.288T15 12t-.288-.712T14 11h-4q-.425 0-.712.288T9 12t.288.713T10 13m2 7q-3.35 0-5.675-2.325T4 12q0-3.35 2.325-5.675T12 4q3.35 0 5.675 2.325T20 12q0 3.35-2.325 5.675T12 20"/></svg>
+          <span class="qd-icon material-symbols-rounded" aria-hidden="true">zoom_out</span>
         </button>
         <span   id="zoom-label"   class="zoom-label">100%</span>
         <button id="btn-zoom-in"  class="viewer-btn" title="Aproximar (+)" aria-label="Aproximar">
-          <svg class="qd-icon" viewBox="0 0 24 24"><path d="M10 13h1v1q0 .425.288.713T12 15t.713-.288T13 14v-1h1q.425 0 .713-.288T15 12t-.288-.712T14 11h-1v-1q0-.425-.288-.712T12 9t-.712.288T11 10v1h-1q-.425 0-.712.288T9 12t.288.713T10 13m2 7q-3.35 0-5.675-2.325T4 12q0-3.35 2.325-5.675T12 4q3.35 0 5.675 2.325T20 12q0 3.35-2.325 5.675T12 20"/></svg>
+          <span class="qd-icon material-symbols-rounded" aria-hidden="true">zoom_in</span>
         </button>
         <div class="toolbar-sep"></div>
         <button id="btn-zoom-fit" class="viewer-btn" title="Ajustar à tela (0)" aria-label="Ajustar à tela">
-          <svg class="qd-icon" viewBox="0 0 24 24"><path d="M4 8q-.425 0-.712-.288T3 7V4q0-.425.288-.712T4 3h3q.425 0 .713.288T8 4t-.288.713T7 5H5v2q0 .425-.288.713T4 8m16 0q-.425 0-.712-.288T19 7V5h-2q-.425 0-.712-.288T16 4t.288-.712T17 3h3q.425 0 .713.288T21 4v3q0 .425-.288.713T20 8M4 21q-.425 0-.712-.288T3 20v-3q0-.425.288-.712T4 16t.713.288T5 17v2h2q.425 0 .713.288T8 20t-.288.713T7 21zm16 0h-3q-.425 0-.712-.288T16 20t.288-.712T17 19h2v-2q0-.425.288-.712T20 16t.713.288T21 17v3q0 .425-.288.713T20 21"/></svg>
+          <span class="qd-icon material-symbols-rounded" aria-hidden="true">fit_screen</span>
         </button>
       </div>
 
@@ -164,7 +178,7 @@
 
     <!-- Botão flutuante para modo de seleção por toque (visível apenas em telas com toque, pointer: coarse) -->
     <button id="btn-touch-select" class="btn-touch-select" title="Alternar modo de seleção por toque" aria-label="Alternar modo de seleção por toque" aria-pressed="false">
-      <svg class="qd-icon" viewBox="0 0 24 24"><path d="M10.05 21q-.85 0-1.45-.6t-.6-1.45V9.45q0-.625.438-1.037T9.475 8q.625 0 1.05.413t.425 1.037v4.65h1.2v-7.6q0-.625.438-1.037t1.037-.413q.6 0 1.038.413t.437 1.037v7.6h1.2v-6.1q0-.625.438-1.038t1.037-.412q.6 0 1.038.412t.437 1.038v6.1h1.2v-3.6q0-.625.438-1.038t1.037-.412q.6 0 1.038.412t.437 1.038v5.5q0 2.525-1.737 4.263T16.5 21zm-1.025-15q-.425 0-.712-.288T8.025 5q0-1.65 1.175-2.825T12.025 1q1.65 0 2.825 1.175t1.175 2.825q0 .425-.288.713t-.712.287q-.425 0-.712-.287t-.288-.713q0-.825-.587-1.412t-1.413-.588q-.825 0-1.412.588t-.588 1.412q0 .425-.287.713t-.713.287"/></svg>
+      <span class="qd-icon material-symbols-rounded" aria-hidden="true">touch_app</span>
     </button>
 
   </div>

@@ -88,10 +88,12 @@ self.addEventListener('fetch', event => {
 
   // Network-First: tenta a rede primeiro para garantir que a versão mais nova
   // do código seja sempre servida. Em caso de falha (offline), usa o cache.
+  // 'cors' entra na lista pra cachear a fonte Material Symbols do Google
+  // (fonts.gstatic.com libera CORS) e ela funcionar offline após o 1º carregamento.
   event.respondWith(
     fetch(req)
       .then(response => {
-        if (response && response.status === 200 && response.type === 'basic') {
+        if (response && response.status === 200 && (response.type === 'basic' || response.type === 'cors')) {
           const clone = response.clone();
           caches.open(CACHE_NAME).then(cache => cache.put(req, clone));
         }
