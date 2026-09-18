@@ -52,6 +52,22 @@ export function updateDocsHeader() {
   }
 }
 
+let docsBackdropEl = null;
+
+function updateDocsBackdrop(open) {
+  if (open && window.innerWidth < 768) {
+    if (!docsBackdropEl) {
+      docsBackdropEl = document.createElement('div');
+      docsBackdropEl.className = 'docs-sheet-backdrop';
+      docsBackdropEl.addEventListener('click', () => toggleDocsCollapsed());
+      document.body.appendChild(docsBackdropEl);
+    }
+  } else {
+    docsBackdropEl?.remove();
+    docsBackdropEl = null;
+  }
+}
+
 export function setDocsCollapsed(collapsed) {
   isDocsCollapsed = collapsed;
   docsSection.classList.toggle('is-collapsed', collapsed);
@@ -59,6 +75,7 @@ export function setDocsCollapsed(collapsed) {
   if (noteSec) noteSec.classList.toggle('docs-collapsed', collapsed);
   const resizer = document.getElementById('resize-handle');
   if (resizer) resizer.classList.toggle('docs-collapsed', collapsed);
+  updateDocsBackdrop(!collapsed);
   updateDocsHeader();
 }
 

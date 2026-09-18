@@ -30,6 +30,7 @@ const noteSection   = document.querySelector('.note-section');
 // vertical por padrão (só vira horizontal segurando Shift) — aqui a gente
 // já converte deltaY em scrollLeft direto, sem precisar da tecla.
 tabsEl.addEventListener('wheel', e => {
+  if (window.innerWidth >= 768) return; // Na aside vertical do desktop o scroll já é vertical naturalmente
   if (e.deltaY === 0) return;
   e.preventDefault();
   tabsEl.scrollLeft += e.deltaY;
@@ -577,14 +578,16 @@ function buildTab(meta) {
     if (noteDragSrcId == null || noteDragSrcId === meta.id || !tabDropIndicatorEl) return;
     e.preventDefault();
     const rect = tab.getBoundingClientRect();
-    const before = e.clientX < rect.left + rect.width / 2;
+    const isVertical = window.innerWidth >= 768;
+    const before = isVertical ? (e.clientY < rect.top + rect.height / 2) : (e.clientX < rect.left + rect.width / 2);
     tab[before ? 'before' : 'after'](tabDropIndicatorEl);
   });
   tab.addEventListener('drop', async e => {
     e.preventDefault();
     if (noteDragSrcId == null) return;
     const rect = tab.getBoundingClientRect();
-    const before = e.clientX < rect.left + rect.width / 2;
+    const isVertical = window.innerWidth >= 768;
+    const before = isVertical ? (e.clientY < rect.top + rect.height / 2) : (e.clientX < rect.left + rect.width / 2);
     const srcId = noteDragSrcId;
     cleanupTabDrag();
     const moved = await reorderNotes(srcId, meta.id, before);

@@ -21,23 +21,6 @@
   <div id="app">
 
     <section class="note-section">
-      <div class="notes-tabbar">
-        <button id="btn-notes-list" class="icon-btn" title="Todas as notas" aria-label="Todas as notas">
-          <svg class="qd-icon" viewBox="0 0 24 24"><path d="M4 18q-.425 0-.712-.288T3 17t.288-.712T4 16h16q.425 0 .713.288T21 17t-.288.713T20 18zm0-5q-.425 0-.712-.288T3 12t.288-.712T4 11h16q.425 0 .713.288T21 12t-.288.713T20 13zm0-5q-.425 0-.712-.288T3 7t.288-.712T4 6h16q.425 0 .713.288T21 7t-.288.713T20 8z"/></svg>
-        </button>
-        <div id="notes-tabs" class="notes-tabs"></div>
-        <input type="file" id="note-import-input" accept=".md,.txt,text/markdown,text/plain" hidden />
-        <button id="btn-new-note" class="icon-btn" title="Nova nota / Importar" aria-label="Nova nota ou importar">
-          <svg class="qd-icon" viewBox="0 0 24 24"><path d="M11 13H6q-.425 0-.712-.288T5 12t.288-.712T6 11h5V6q0-.425.288-.712T12 5t.713.288T13 6v5h5q.425 0 .713.288T19 12t-.288.713T18 13h-5v5q0 .425-.288.713T12 19t-.712-.288T11 18z"/></svg>
-        </button>
-        <button id="btn-sync" class="icon-btn" title="Sincronização" aria-label="Sincronização">
-          <svg class="qd-icon" viewBox="0 0 24 24"><path d="M12 20q-3.35 0-5.675-2.325T4 12q0-1.725.688-3.237T6.6 6.15l-1.3-1.3q-.3-.3-.187-.725T5.625 3.7h4.8q.425 0 .713.288T11.425 4.7v4.8q0 .4-.413.513t-.712-.188l-1.4-1.4q-.975.875-1.537 2.088T6.8 12q0 2.15 1.525 3.675T12 17.2q1.55 0 2.875-.825T16.7 14.2q.15-.375.475-.537t.725-.013q.425.125.613.525t-.013.825q-1.075 2.225-3.037 3.613T12 20m5.55-10.85q-.425-.125-.612-.525t.012-.825q1.075-2.225 3.038-3.613T25.55 4q.025 0 .05 0t.05 0l-.65.65zm-2.075-.025q0-.4.413-.512t.712.187l1.4 1.4q.975-.875 1.538-2.087T19.7 7.1q0-2.15-1.525-3.675T14.5 1.9q-1.55 0-2.875.825T9.8 4.9q-.15.375-.475.538T8.6 5.45q-.425-.125-.612-.525T8 4.1q1.075-2.225 3.038-3.613T14.5.4q3.35 0 5.675 2.325T22.5 9.1q0 1.725-.687 3.238T19.9 15.05l1.3 1.3q.3.3.188.725t-.513.425h-4.8q-.425 0-.712-.288t-.288-.712v-4.8q0-.4.413-.512t.712.187l1.4 1.4q-.975.875-1.537 2.088t-.538 2.087z"/></svg>
-        </button>
-        <button id="btn-app-menu" class="icon-btn" title="Mais opções" aria-label="Mais opções">
-          <svg class="qd-icon" viewBox="0 0 24 24"><path d="M6 14q-.825 0-1.412-.587T4 12t.588-1.412T6 10t1.413.588T8 12t-.587 1.413T6 14m6 0q-.825 0-1.412-.587T10 12t.588-1.412T12 10t1.413.588T14 12t-.587 1.413T12 14m6 0q-.825 0-1.412-.587T16 12t.588-1.412T18 10t1.413.588T20 12t-.587 1.413T18 14"/></svg>
-        </button>
-      </div>
-
       <!-- Barra de modo modelo -->
       <div id="template-bar" class="template-bar" hidden>
         <span class="template-bar-tag">Modelo</span>
@@ -54,7 +37,7 @@
         <svg viewBox="22.5 22.5 512 512">
           <path d="M153.03 153.03 A150 150 0 1 1 358.97 358.97 A150 150 0 0 0 153.03 153.03 Z" />
           <path d="M153.03 153.03 A150 150 0 1 0 358.97 358.97 A150 150 0 0 1 153.03 153.03 Z" />
-          <path d="M241.59 241.59 L476.35 431.09 L431.09 476.35 Z" />
+          <path d="M241.59 241.59 L476.35 431.09 L386.18 431.44 Z" />
           <path d="M0 -58 C0 -10.4 10.4 0 58 0 C10.4 0 0 10.4 0 58 C0 10.4 -10.4 0 -58 0 C-10.4 0 0 -10.4 0 -58 Z" transform="translate(251.23 251.23) rotate(45)" />
         </svg>
       </div>
@@ -68,45 +51,70 @@
 
     <div id="resize-handle" class="resize-handle" title="Arraste para redimensionar"></div>
 
-    <section class="docs-section">
-      <div class="docs-header" id="docs-header">
-        <button id="btn-docs-toggle" class="icon-btn docs-toggle-btn" title="Recolher / expandir documentos" aria-label="Recolher ou expandir documentos">
-          <svg class="qd-icon" viewBox="0 0 24 24"><path d="m12 15.4-4.9-4.9q-.275-.275-.275-.7t.275-.7q.275-.275.7-.275t.7.275l3.5 3.5 3.5-3.5q.275-.275.7-.275t.7.275q.275.275.275.7t-.275.7z"/></svg>
-        </button>
-        <span class="docs-title" id="docs-title">Documentos</span>
-        <div class="docs-view-switch">
-          <button id="btn-view-note" class="docs-view-opt" title="Só os desta nota (mais os gerais)">Nesta nota</button>
-          <button id="btn-view-all" class="docs-view-opt" title="Todos os documentos, de todas as notas">Todos</button>
+    <aside class="app-aside" id="app-aside">
+      <div class="notes-tabbar">
+        <div class="aside-brand" id="aside-brand">
+          <span class="aside-brand-title">QuickDock</span>
         </div>
-        <button id="btn-upload" class="icon-btn" title="Adicionar arquivo" aria-label="Adicionar arquivo">
-          <svg class="qd-icon" viewBox="0 0 24 24"><path d="M11 13H6q-.425 0-.712-.288T5 12t.288-.712T6 11h5V6q0-.425.288-.712T12 5t.713.288T13 6v5h5q.425 0 .713.288T19 12t-.288.713T18 13h-5v5q0 .425-.288.713T12 19t-.712-.288T11 18z"/></svg>
+        <button id="btn-notes-list" class="icon-btn" title="Todas as notas" aria-label="Todas as notas">
+          <svg class="qd-icon" viewBox="0 0 24 24"><path d="M4 18q-.425 0-.712-.288T3 17t.288-.712T4 16h16q.425 0 .713.288T21 17t-.288.713T20 18zm0-5q-.425 0-.712-.288T3 12t.288-.712T4 11h16q.425 0 .713.288T21 12t-.288.713T20 13zm0-5q-.425 0-.712-.288T3 7t.288-.712T4 6h16q.425 0 .713.288T21 7t-.288.713T20 8z"/></svg>
+          <span class="aside-search-label">Todas as notas</span>
         </button>
-        <input type="file" id="file-input" accept="image/*,.pdf,.txt" multiple hidden />
-      </div>
-      <div id="group-bar" class="group-bar hidden">
-        <span id="group-count"></span>
-        <button id="btn-inject-selected" class="group-action-btn" title="Injetar selecionados na página">
-          <svg class="qd-icon" viewBox="0 0 24 24"><path d="M5 21q-.825 0-1.412-.587T3 19V5q0-.825.588-1.412T5 3h7q.425 0 .713.288T13 4t-.288.713T12 5H5v14h14v-7q0-.425.288-.712T20 11t.713.288T21 12v7q0 .825-.587 1.413T19 21zm5-7.6-1.4-1.4L17.6 3H14q-.425 0-.712-.288T13 2t.288-.712T14 1h7q.425 0 .713.288T22 2v7q0 .425-.288.713T21 10t-.712-.288T20 9V5.4z"/></svg>
-          Injetar
-        </button>
-        <button id="btn-scope-selected" class="group-action-btn" title="Vincular à nota aberta">
-          <svg class="qd-icon" viewBox="0 0 24 24"><path d="m16 12 2 2v2h-5v6l-1 1-1-1v-6H6v-2l2-2V5H7V3h10v2h-1z"/></svg>
-          Vincular
-        </button>
-        <button id="btn-delete-selected" class="group-action-btn group-action-danger" title="Remover selecionados" aria-label="Remover selecionados">
-          <svg class="qd-icon" viewBox="0 0 24 24"><path d="M7 21q-.825 0-1.412-.587T5 19V6q-.425 0-.712-.288T4 5t.288-.712T5 4h4q0-.425.288-.712T10 3h4q.425 0 .713.288T15 4h4q.425 0 .713.288T20 5t-.288.713T19 6v13q0 .825-.587 1.413T17 21zM17 6H7v13h10zM9 17h2V8H9zm4 0h2V8h-2z"/></svg>
-        </button>
-        <button id="btn-clear-selection" class="group-action-close" title="Cancelar seleção" aria-label="Cancelar seleção">
-          <svg class="qd-icon" viewBox="0 0 24 24"><path d="m12 13.4-4.9 4.9q-.275.275-.7.275t-.7-.275q-.275-.275-.275-.7t.275-.7l4.9-4.9-4.9-4.9q-.275-.275-.275-.7t.275-.7q.275-.275.7-.275t.7.275l4.9 4.9 4.9-4.9q.275-.275.7-.275t.7.275q.275.275.275.7t-.275.7L13.4 12l4.9 4.9q.275.275.275.7t-.275.7q-.275.275-.7.275t-.7-.275z"/></svg>
-        </button>
+        <div id="notes-tabs" class="notes-tabs"></div>
+        <input type="file" id="note-import-input" accept=".md,.txt,text/markdown,text/plain" hidden />
+        <div class="aside-actions">
+          <button id="btn-new-note" class="icon-btn" title="Nova nota / Importar" aria-label="Nova nota ou importar">
+            <svg class="qd-icon" viewBox="0 0 24 24"><path d="M11 13H6q-.425 0-.712-.288T5 12t.288-.712T6 11h5V6q0-.425.288-.712T12 5t.713.288T13 6v5h5q.425 0 .713.288T19 12t-.288.713T18 13h-5v5q0 .425-.288.713T12 19t-.712-.288T11 18z"/></svg>
+          </button>
+          <button id="btn-sync" class="icon-btn" title="Sincronização" aria-label="Sincronização">
+            <svg class="qd-icon" viewBox="0 0 24 24"><path d="M12 20q-3.35 0-5.675-2.325T4 12q0-1.725.688-3.237T6.6 6.15l-1.3-1.3q-.3-.3-.187-.725T5.625 3.7h4.8q.425 0 .713.288T11.425 4.7v4.8q0 .4-.413.513t-.712-.188l-1.4-1.4q-.975.875-1.537 2.088T6.8 12q0 2.15 1.525 3.675T12 17.2q1.55 0 2.875-.825T16.7 14.2q.15-.375.475-.537t.725-.013q.425.125.613.525t-.013.825q-1.075 2.225-3.037 3.613T12 20m5.55-10.85q-.425-.125-.612-.525t.012-.825q1.075-2.225 3.038-3.613T25.55 4q.025 0 .05 0t.05 0l-.65.65zm-2.075-.025q0-.4.413-.512t.712.187l1.4 1.4q.975-.875 1.538-2.087T19.7 7.1q0-2.15-1.525-3.675T14.5 1.9q-1.55 0-2.875.825T9.8 4.9q-.15.375-.475.538T8.6 5.45q-.425-.125-.612-.525T8 4.1q1.075-2.225 3.038-3.613T14.5.4q3.35 0 5.675 2.325T22.5 9.1q0 1.725-.687 3.238T19.9 15.05l1.3 1.3q.3.3.188.725t-.513.425h-4.8q-.425 0-.712-.288t-.288-.712v-4.8q0-.4.413-.512t.712.187l1.4 1.4q-.975.875-1.537 2.088t-.538 2.087z"/></svg>
+          </button>
+          <button id="btn-app-menu" class="icon-btn" title="Mais opções" aria-label="Mais opções">
+            <svg class="qd-icon" viewBox="0 0 24 24"><path d="M6 14q-.825 0-1.412-.587T4 12t.588-1.412T6 10t1.413.588T8 12t-.587 1.413T6 14m6 0q-.825 0-1.412-.587T10 12t.588-1.412T12 10t1.413.588T14 12t-.587 1.413T12 14m6 0q-.825 0-1.412-.587T16 12t.588-1.412T18 10t1.413.588T20 12t-.587 1.413T18 14"/></svg>
+          </button>
+        </div>
       </div>
 
-      <div id="drop-zone" class="drop-zone">
-        <div id="doc-grid" class="doc-grid"></div>
-        <button id="docs-hidden-hint" class="docs-hidden-hint" hidden></button>
-        <div id="drop-hint" class="drop-hint">Arraste arquivos aqui, clique no botão de adicionar<br>ou cole uma imagem com Ctrl+V</div>
-      </div>
-    </section>
+      <section class="docs-section">
+        <div class="docs-header" id="docs-header">
+          <button id="btn-docs-toggle" class="icon-btn docs-toggle-btn" title="Recolher / expandir documentos" aria-label="Recolher ou expandir documentos">
+            <svg class="qd-icon" viewBox="0 0 24 24"><path d="m12 15.4-4.9-4.9q-.275-.275-.275-.7t.275-.7q.275-.275.7-.275t.7.275l3.5 3.5 3.5-3.5q.275-.275.7-.275t.7.275q.275.275.275.7t-.275.7z"/></svg>
+          </button>
+          <span class="docs-title" id="docs-title">Documentos</span>
+          <div class="docs-view-switch">
+            <button id="btn-view-note" class="docs-view-opt" title="Só os desta nota (mais os gerais)">Nesta nota</button>
+            <button id="btn-view-all" class="docs-view-opt" title="Todos os documentos, de todas as notas">Todos</button>
+          </div>
+          <button id="btn-upload" class="icon-btn" title="Adicionar arquivo" aria-label="Adicionar arquivo">
+            <svg class="qd-icon" viewBox="0 0 24 24"><path d="M11 13H6q-.425 0-.712-.288T5 12t.288-.712T6 11h5V6q0-.425.288-.712T12 5t.713.288T13 6v5h5q.425 0 .713.288T19 12t-.288.713T18 13h-5v5q0 .425-.288.713T12 19t-.712-.288T11 18z"/></svg>
+          </button>
+          <input type="file" id="file-input" accept="image/*,.pdf,.txt" multiple hidden />
+        </div>
+        <div id="group-bar" class="group-bar hidden">
+          <span id="group-count"></span>
+          <button id="btn-inject-selected" class="group-action-btn" title="Injetar selecionados na página">
+            <svg class="qd-icon" viewBox="0 0 24 24"><path d="M5 21q-.825 0-1.412-.587T3 19V5q0-.825.588-1.412T5 3h7q.425 0 .713.288T13 4t-.288.713T12 5H5v14h14v-7q0-.425.288-.712T20 11t.713.288T21 12v7q0 .825-.587 1.413T19 21zm5-7.6-1.4-1.4L17.6 3H14q-.425 0-.712-.288T13 2t.288-.712T14 1h7q.425 0 .713.288T22 2v7q0 .425-.288.713T21 10t-.712-.288T20 9V5.4z"/></svg>
+            Injetar
+          </button>
+          <button id="btn-scope-selected" class="group-action-btn" title="Vincular à nota aberta">
+            <svg class="qd-icon" viewBox="0 0 24 24"><path d="m16 12 2 2v2h-5v6l-1 1-1-1v-6H6v-2l2-2V5H7V3h10v2h-1z"/></svg>
+            Vincular
+          </button>
+          <button id="btn-delete-selected" class="group-action-btn group-action-danger" title="Remover selecionados" aria-label="Remover selecionados">
+            <svg class="qd-icon" viewBox="0 0 24 24"><path d="M7 21q-.825 0-1.412-.587T5 19V6q-.425 0-.712-.288T4 5t.288-.712T5 4h4q0-.425.288-.712T10 3h4q.425 0 .713.288T15 4h4q.425 0 .713.288T20 5t-.288.713T19 6v13q0 .825-.587 1.413T17 21zM17 6H7v13h10zM9 17h2V8H9zm4 0h2V8h-2z"/></svg>
+          </button>
+          <button id="btn-clear-selection" class="group-action-close" title="Cancelar seleção" aria-label="Cancelar seleção">
+            <svg class="qd-icon" viewBox="0 0 24 24"><path d="m12 13.4-4.9 4.9q-.275.275-.7.275t-.7-.275q-.275-.275-.275-.7t.275-.7l4.9-4.9-4.9-4.9q-.275-.275-.275-.7t.275-.7q.275-.275.7-.275t.7.275l4.9 4.9 4.9-4.9q.275-.275.7-.275t.7.275q.275.275.275.7t-.275.7L13.4 12l4.9 4.9q.275.275.275.7t-.275.7q-.275.275-.7.275t-.7-.275z"/></svg>
+          </button>
+        </div>
+
+        <div id="drop-zone" class="drop-zone">
+          <div id="doc-grid" class="doc-grid"></div>
+          <button id="docs-hidden-hint" class="docs-hidden-hint" hidden></button>
+          <div id="drop-hint" class="drop-hint">Arraste arquivos aqui, clique no botão de adicionar<br>ou cole uma imagem com Ctrl+V</div>
+        </div>
+      </section>
+    </aside>
 
     <div id="inject-toast" class="inject-toast hidden">
       <span id="inject-toast-msg"></span>

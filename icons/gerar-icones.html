@@ -20,8 +20,8 @@
 <body>
   <h2>Ícones — QuickDock</h2>
   <p>
-    Desenha a marca a partir dos mesmos paths de <code>quickdock-mark.svg</code>.
-    Clique em "Baixar todos" e salve os 3 PNGs aqui na pasta <code>icons/</code>.
+    Desenha a marca a partir dos mesmos paths de <code>quickdock-mark.svg</code> (atualizada conforme <code>QD-atualizado.svg</code>).
+    Clique em "Baixar todos" e salve os 5 PNGs aqui na pasta <code>icons/</code>.
   </p>
   <div class="previews" id="previews"></div>
   <button onclick="downloadAll()">Baixar todos</button>
@@ -32,17 +32,17 @@
     const LUNE_A_C = 'M155.51 155.51 A150 150 0 1 1 356.49 356.49 A150 150 0 0 0 155.51 155.51 Z';
     const LUNE_B_C = 'M155.51 155.51 A150 150 0 1 0 356.49 356.49 A150 150 0 0 1 155.51 155.51 Z';
 
-    // Marca cheia e marca compacta: a compacta engrossa tudo ~33% para sobreviver a 16px.
+    // Marca cheia e marca compacta (com a nova cauda de base reta de QD-atualizado.svg)
     const MARKS = {
       full: {
-        paths: [LUNE_A, LUNE_B, 'M241.59 241.59 L476.35 431.09 L431.09 476.35 Z'],
+        paths: [LUNE_A, LUNE_B, 'M241.59 241.59 L476.35 431.09 L386.18 431.44 Z'],
         star: 'M0 -58 C0 -10.4 10.4 0 58 0 C10.4 0 0 10.4 0 58 C0 10.4 -10.4 0 -58 0 C-10.4 0 0 -10.4 0 -58 Z',
-        lo: 80.544, hi: 476.35
+        minX: 80.56, maxX: 476.35, minY: 80.56, maxY: 431.44
       },
       compact: {
-        paths: [LUNE_A_C, LUNE_B_C, 'M241.59 241.59 L484.83 422.61 L422.61 484.83 Z'],
+        paths: [LUNE_A_C, LUNE_B_C, 'M241.59 241.59 L476.35 431.09 L386.18 431.44 Z'],
         star: 'M0 -64 C0 -11.52 11.52 0 64 0 C11.52 0 0 11.52 0 64 C0 11.52 -11.52 0 -64 0 C-11.52 0 0 -11.52 0 -64 Z',
-        lo: 72.06, hi: 484.83
+        minX: 72.06, maxX: 476.35, minY: 72.06, maxY: 431.44
       }
     };
 
@@ -54,7 +54,8 @@
     function fillFraction(size) {
       if (size <= 16) return 0.80;
       if (size <= 48) return 0.72;
-      return 0.70;
+      if (size <= 128) return 0.70;
+      return 0.65;
     }
 
     function drawIcon(size) {
@@ -64,16 +65,23 @@
       const mark = size <= 32 ? MARKS.compact : MARKS.full;
 
       ctx.beginPath();
-      ctx.roundRect(0, 0, size, size, size * 0.22);
+      if (size <= 128) {
+        ctx.roundRect(0, 0, size, size, size * 0.22);
+      } else {
+        ctx.rect(0, 0, size, size);
+      }
       ctx.fillStyle = BG;
       ctx.fill();
 
-      const span = (mark.hi - mark.lo) / fillFraction(size);
-      const off = (mark.lo + mark.hi) / 2 - span / 2;
+      const spanX = (mark.maxX - mark.minX) / fillFraction(size);
+      const spanY = (mark.maxY - mark.minY) / fillFraction(size);
+      const span = Math.max(spanX, spanY);
+      const offX = (mark.minX + mark.maxX) / 2 - span / 2;
+      const offY = (mark.minY + mark.maxY) / 2 - span / 2;
       const k = size / span;
 
       ctx.save();
-      ctx.setTransform(k, 0, 0, k, -off * k, -off * k);
+      ctx.setTransform(k, 0, 0, k, -offX * k, -offY * k);
       ctx.fillStyle = INK;
       mark.paths.forEach(d => ctx.fill(new Path2D(d)));
 
@@ -85,7 +93,7 @@
       return c;
     }
 
-    const sizes = [128, 48, 16];
+    const sizes = [512, 192, 128, 48, 16];
     const previews = document.getElementById('previews');
     sizes.forEach(size => {
       const wrap = document.createElement('div');

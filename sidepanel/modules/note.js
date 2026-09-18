@@ -1515,6 +1515,7 @@ export async function switchToNote(id, { descartarDom = false } = {}) {
 // borda da janela e as últimas opções ficam inalcançáveis — o max-height fixo
 // do CSS não resolve, porque o que falta é espaço, não altura de conteúdo.
 function positionMenu(menu, anchorRect) {
+  if (menu.classList.contains('is-bottom-sheet')) return;
   const gap = 6;
   const margin = 8;
   const below = window.innerHeight - anchorRect.bottom - gap - margin;
@@ -2239,7 +2240,17 @@ let slashItems  = [];
 let slashIndex  = 0;
 let slashBlock  = null;
 
-function closeSlashMenuEl() { slashMenuEl?.remove(); slashMenuEl = null; }
+let slashBackdropEl = null;
+function closeSlashBackdrop() {
+  slashBackdropEl?.remove();
+  slashBackdropEl = null;
+}
+
+function closeSlashMenuEl() {
+  closeSlashBackdrop();
+  slashMenuEl?.remove();
+  slashMenuEl = null;
+}
 function closeSlashMenu() { closeSlashMenuEl(); slashItems = []; slashBlock = null; }
 
 function cancelSlashMenu() {
@@ -2251,11 +2262,37 @@ function renderSlashMenu(block) {
   closeSlashMenuEl();
   const menu = document.createElement('div');
   menu.className = 'copy-menu slash-menu';
+
+  const isMobile = window.innerWidth < 768;
+  if (isMobile) {
+    menu.classList.add('is-bottom-sheet');
+    slashBackdropEl = document.createElement('div');
+    slashBackdropEl.className = 'bottom-sheet-backdrop';
+    slashBackdropEl.addEventListener('click', cancelSlashMenu);
+    document.body.appendChild(slashBackdropEl);
+
+    const pill = document.createElement('div');
+    pill.className = 'bottom-sheet-drag-pill';
+    const head = document.createElement('div');
+    head.className = 'bottom-sheet-header';
+    head.innerHTML = `<span class="bottom-sheet-title">Inserir bloco</span>`;
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'icon-btn bottom-sheet-close';
+    closeBtn.innerHTML = '✕';
+    closeBtn.title = 'Fechar';
+    closeBtn.setAttribute('aria-label', 'Fechar menu de blocos');
+    closeBtn.addEventListener('click', cancelSlashMenu);
+    head.appendChild(closeBtn);
+    menu.prepend(pill, head);
+  }
+
   menu.appendChild(buildTypeGrid(slashItems, i => { slashIndex = i; confirmSlashSelection(); }));
 
   document.body.appendChild(menu);
   slashMenuEl = menu;
-  positionMenu(menu, block.getBoundingClientRect());
+  if (!isMobile) {
+    positionMenu(menu, block.getBoundingClientRect());
+  }
   highlightSlashItem();
 }
 
@@ -3549,6 +3586,13 @@ blockAddBtn.addEventListener('click', e => {
   renumberLists();
   focusBlockStart(newBlock);
   scheduleSave();
+
+  if (window.innerWidth < 768) {
+    slashItems = slashItemsWithTemplates();
+    slashBlock = newBlock;
+    slashIndex = 0;
+    renderSlashMenu(newBlock);
+  }
 });
 
 // ── Seleção múltipla de blocos (Shift+clique na alça) ─────────────────────────
@@ -3606,9 +3650,18 @@ document.addEventListener('mousedown', e => {
   clearBlockSelection();
 });
 
-// ── Menu do bloco (alça): Transformar em / Duplicar / Excluir ────────────────
 let blockMenuEl = null;
-function closeBlockMenu() { blockMenuEl?.remove(); blockMenuEl = null; }
+let blockMenuBackdropEl = null;
+function closeBlockMenuBackdrop() {
+  blockMenuBackdropEl?.remove();
+  blockMenuBackdropEl = null;
+}
+
+function closeBlockMenu() {
+  closeBlockMenuBackdrop();
+  blockMenuEl?.remove();
+  blockMenuEl = null;
+}
 
 function getTransformTypes() {
   return SLASH_ITEMS.filter(it => !INSERTED_TYPES.has(it.type));
@@ -3618,6 +3671,29 @@ function openBlockMenu(block, anchorEl) {
   closeBlockMenu();
   const menu = document.createElement('div');
   menu.className = 'copy-menu block-menu';
+
+  const isMobile = window.innerWidth < 768;
+  if (isMobile) {
+    menu.classList.add('is-bottom-sheet');
+    blockMenuBackdropEl = document.createElement('div');
+    blockMenuBackdropEl.className = 'bottom-sheet-backdrop';
+    blockMenuBackdropEl.addEventListener('click', closeBlockMenu);
+    document.body.appendChild(blockMenuBackdropEl);
+
+    const pill = document.createElement('div');
+    pill.className = 'bottom-sheet-drag-pill';
+    const head = document.createElement('div');
+    head.className = 'bottom-sheet-header';
+    head.innerHTML = `<span class="bottom-sheet-title">Opções do bloco</span>`;
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'icon-btn bottom-sheet-close';
+    closeBtn.innerHTML = '✕';
+    closeBtn.title = 'Fechar';
+    closeBtn.setAttribute('aria-label', 'Fechar opções do bloco');
+    closeBtn.addEventListener('click', closeBlockMenu);
+    head.appendChild(closeBtn);
+    menu.prepend(pill, head);
+  }
 
   const scopeCount = (selectedBlockIds.size > 1 && selectedBlockIds.has(block.dataset.id))
     ? selectedBlockIds.size : 1;
@@ -3748,7 +3824,9 @@ function openBlockMenu(block, anchorEl) {
 
   document.body.appendChild(menu);
   blockMenuEl = menu;
-  positionMenu(menu, anchorEl.getBoundingClientRect());
+  if (!isMobile) {
+    positionMenu(menu, anchorEl.getBoundingClientRect());
+  }
 }
 
 // Copia o(s) bloco(s)-alvo (o clicado, ou toda a seleção múltipla se ele
