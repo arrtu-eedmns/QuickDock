@@ -24,9 +24,10 @@
             header {
                 display: grid;
                 grid-auto-flow: column;
-                background: #eee;
+                background: #fff;
                 padding: 4px;
                 gap: 4px;
+                border-bottom: 1px solid #e5e5e5;
                 grid-template-columns: auto auto 1fr auto auto;
                 #mMenu, #mSync {
                     width: 56px;
@@ -37,6 +38,7 @@
                     width: 48px;
                     height: 56px;
                     border-radius: calc(56px / 2);
+                }
                 #mMenu, #mMore {
                     position: relative;
                     z-index: 4;
@@ -55,7 +57,7 @@
                     bottom: -4px;
                     left: 50%;
                     right: -36px;
-                    background: linear-gradient(to right, #eee 20%, transparent 100%);
+                    background: linear-gradient(to right, #fff 20%, transparent 100%);
                     pointer-events: none;
                     z-index: -1;
                 }
@@ -70,7 +72,7 @@
                     bottom: -4px;
                     right: 50%;
                     left: -36px;
-                    background: linear-gradient(to left, #eee 20%, transparent 100%);
+                    background: linear-gradient(to left, #fff 20%, transparent 100%);
                     pointer-events: none;
                     z-index: -1;
                 }
@@ -95,20 +97,27 @@
                         display: grid;
                         grid-auto-flow: column;
                         align-items: center;
-                        background: #aaa;
+                        background: #fff;
+                        border: 1px solid #e5e5e5;
+                        color: #333;
                         height: 40px;
                         gap: 6px;
                         padding: 8px 12px;
                         border-radius: 20px;
                         text-wrap: nowrap;
                         span:first-child {
-                            background: #888;
-                            width: 24px;
-                            height: 24px;
-                            border-radius: 12px;
+                            background: #2383e2;
+                            width: 14px;
+                            height: 14px;
+                            border-radius: 50%;
                             display: block;
                         }
                     }
+                }
+                button {
+                    background: #fff;
+                    border: 1px solid #e5e5e5;
+                    color: #333;
                 }
             }
             main {

@@ -1507,6 +1507,7 @@ export async function switchToNote(id, { descartarDom = false } = {}) {
   const note = await getNoteById(id);
   const blocks = (note?.blocks?.length) ? note.blocks : parseMarkdownToBlocks(note?.content ?? '');
   renderBlocks(blocks);
+  updateMobileToolbarState();
 }
 
 // ── Posicionamento de menus ───────────────────────────────────────────────────
@@ -2395,7 +2396,10 @@ function checkSlashMenu(block) {
 // ── Atalhos de Markdown → tipo de bloco ───────────────────────────────────────
 const BLOCK_SHORTCUTS = [
   { re: /^(#{1,6}) $/, type: m => `heading${m[1].length}` },
-  { re: /^([-*]) \[([ xX])\] $/, type: () => 'checklist', checked: m => /[xX]/.test(m[2]) },
+  // Sem hífen na frente de propósito: "- [ ] " nunca dispara, porque "- "
+  // sozinho já vira lista de marcador antes de "[ ] " terminar de ser digitado
+  // (o atalho roda a cada tecla). "[]"/"[ ]"/"[x] " direto evita a corrida.
+  { re: /^\[([ xX]?)\] $/, type: () => 'checklist', checked: m => /[xX]/.test(m[1]) },
   { re: /^[-*] $/, type: () => 'bullet' },
   { re: /^\d+\. $/, type: () => 'number' },
   { re: /^> $/, type: () => 'quote' },
@@ -3079,27 +3083,7 @@ const TRANSFORMS = [
   { label: '⎵',  title: 'Limpar espaços duplicados',      fn: ttCleanSpaces        },
 ];
 
-const ttBar = document.createElement('div');
-ttBar.className = 'note-toolbar';
-noteSection.appendChild(ttBar);
-
-for (const t of TRANSFORMS) {
-  if (t === null) {
-    const sep = document.createElement('div');
-    sep.className = 'tt-sep';
-    ttBar.appendChild(sep);
-    continue;
-  }
-  const btn = document.createElement('button');
-  btn.className   = 'tt-btn';
-  btn.title       = t.title;
-  btn.textContent = t.label;
-  btn.addEventListener('mousedown', e => e.preventDefault());
-  btn.addEventListener('click', () => applyTransformToSelection(t.fn));
-  ttBar.appendChild(btn);
-}
-
-// ── Formatação Markdown / troca de tipo de bloco (segunda barra) ─────────────
+// ── Formatação Markdown / troca de tipo de bloco ─────────────────────────────
 function execFormat(command) {
   captureUndoPoint();
   document.execCommand(command, false, null);
@@ -3362,49 +3346,498 @@ function insertDividerAtCursor() {
   scheduleSave();
 }
 
-const MD_BUTTONS = [
-  { label: 'B',   title: 'Negrito (selecione o texto)',   action: () => execFormat('bold') },
-  { label: 'I',   title: 'Itálico (selecione o texto)',   action: () => execFormat('italic') },
-  { label: 'S',   title: 'Riscado (selecione o texto)',   action: () => execFormat('strikeThrough') },
-  { label: '</>', title: 'Código (selecione o texto)',     action: () => wrapSelectionInTag('code') },
-  { label: '🔗', iconName: 'link', title: 'Link (Ctrl+K)', action: () => applyLink() },
-  null,
-  { label: 'T',   title: 'Texto normal (remove a formatação do bloco)', action: () => convertSelectedBlocks('paragraph') },
-  { label: 'H1',  title: 'Título 1',                       action: () => convertSelectedBlocks('heading1') },
-  { label: 'H2',  title: 'Título 2',                       action: () => convertSelectedBlocks('heading2') },
-  { label: 'H3',  title: 'Título 3',                       action: () => convertSelectedBlocks('heading3') },
-  null,
-  { label: '•',   title: 'Lista com marcadores',           action: () => convertSelectedBlocks('bullet') },
-  { label: '1.',  title: 'Lista numerada',                 action: () => convertSelectedBlocks('number') },
-  { label: '☐',   title: 'Checklist',                      action: () => convertSelectedBlocks('checklist') },
-  null,
-  { label: '"',   title: 'Citação (clique de novo pra tirar)', action: toggleQuotedOnSelection },
-  { label: '—',   title: 'Linha horizontal',                action: () => insertDividerAtCursor() },
+// ── Barra Contextual Estilo Notion (Dual-State & No-Scrim Sheets) ────────────
+let lastFocusedBlock = null;
+
+const mobileNotionToolbar = document.createElement('div');
+mobileNotionToolbar.className = 'mobile-notion-toolbar';
+mobileNotionToolbar.id = 'mobile-notion-toolbar';
+
+// Estado 1: Formatação de Texto (quando texto estiver selecionado)
+const mobileFormatBar = document.createElement('div');
+mobileFormatBar.className = 'mobile-toolbar-inner mobile-format-bar';
+mobileFormatBar.hidden = true;
+mobileFormatBar.style.display = 'none';
+
+// Estado 2: Ações de Bloco (quando NÃO houver texto selecionado)
+const mobileBlockBar = document.createElement('div');
+mobileBlockBar.className = 'mobile-toolbar-inner mobile-block-bar';
+mobileBlockBar.style.display = 'flex';
+
+// Popover: Adicionar bloco (Acima ou Abaixo)
+const mobileAddPopover = document.createElement('div');
+mobileAddPopover.className = 'mobile-add-popover';
+mobileAddPopover.hidden = true;
+mobileAddPopover.innerHTML = `
+  <button class="mob-popover-item" data-pos="above">
+    <span class="qd-icon material-symbols-rounded">arrow_upward</span>
+    <span>Adicionar acima</span>
+  </button>
+  <button class="mob-popover-item" data-pos="below">
+    <span class="qd-icon material-symbols-rounded">arrow_downward</span>
+    <span>Adicionar abaixo</span>
+  </button>
+`;
+
+// Popover: Cores / Destaque
+const mobileColorPopover = document.createElement('div');
+mobileColorPopover.className = 'mobile-color-popover';
+mobileColorPopover.hidden = true;
+const HIGHLIGHT_COLORS = [
+  { name: 'Sem cor', color: 'transparent', border: true },
+  { name: 'Amarelo', color: '#fef08a' },
+  { name: 'Verde', color: '#bbf7d0' },
+  { name: 'Azul', color: '#bfdbfe' },
+  { name: 'Rosa', color: '#fbcfe8' },
+  { name: 'Laranja', color: '#fed7aa' },
+  { name: 'Roxo', color: '#e9d5ff' },
+];
+mobileColorPopover.innerHTML = HIGHLIGHT_COLORS.map(c =>
+  `<button class="mob-color-dot" data-color="${c.color}" title="${c.name}" style="background-color: ${c.color}; ${c.border ? 'border: 1px dashed var(--border);' : ''}"></button>`
+).join('');
+
+// Sheet: Formatar texto (transformações de texto QuickDock)
+const mobileTextFormatSheet = document.createElement('div');
+mobileTextFormatSheet.className = 'mobile-text-format-sheet';
+mobileTextFormatSheet.hidden = true;
+mobileTextFormatSheet.innerHTML = `
+  <div class="mob-tf-header">
+    <span class="mob-tf-title">Formatar texto</span>
+    <button class="mob-tf-close" id="mob-tf-close" aria-label="Fechar">✕</button>
+  </div>
+  <div class="mob-tf-grid">
+    <button class="mob-tf-btn" data-act="upper"><b>AA</b><span>MAIÚSCULAS</span></button>
+    <button class="mob-tf-btn" data-act="lower"><b>aa</b><span>minúsculas</span></button>
+    <button class="mob-tf-btn" data-act="title"><b>Aa</b><span>Cada palavra</span></button>
+    <button class="mob-tf-btn" data-act="sentence"><b>A.</b><span>Frase</span></button>
+    <button class="mob-tf-btn" data-act="para"><b>¶A</b><span>Parágrafo</span></button>
+    <button class="mob-tf-btn" data-act="invert"><b>aA</b><span>Inverter</span></button>
+    <button class="mob-tf-btn" data-act="no-accents"><b>Á</b><span>Sem acentos</span></button>
+    <button class="mob-tf-btn" data-act="clean-spaces"><b>⎵</b><span>Espaços</span></button>
+  </div>
+`;
+
+// Bottom Sheet: Trocar Tipo de Bloco (Sem modal e SEM scrim)
+const mobileTypeSheet = document.createElement('div');
+mobileTypeSheet.className = 'mobile-type-sheet-no-scrim';
+mobileTypeSheet.hidden = true;
+mobileTypeSheet.innerHTML = `
+  <div class="mob-sheet-handle"></div>
+  <div class="mob-sheet-header">
+    <span class="mob-sheet-title">Trocar tipo de bloco</span>
+    <button class="mob-sheet-close" id="mob-type-close" aria-label="Fechar">✕</button>
+  </div>
+  <div class="mob-sheet-grid" id="mob-sheet-grid"></div>
+`;
+
+const MOBILE_BLOCK_TYPES = [
+  { type: 'paragraph',         label: 'Texto',       icon: 'notes' },
+  { type: 'heading1',          label: 'Título 1',    icon: 'format_h1' },
+  { type: 'heading2',          label: 'Título 2',    icon: 'format_h2' },
+  { type: 'heading3',          label: 'Título 3',    icon: 'format_h3' },
+  { type: 'bullet',            label: 'Marcadores',  icon: 'format_list_bulleted' },
+  { type: 'number',            label: 'Numerada',    icon: 'format_list_numbered' },
+  { type: 'checklist',         label: 'Checklist',   icon: 'checklist' },
+  { type: 'quote',             label: 'Citação',     icon: 'format_quote' },
+  { type: 'callout:note',      label: 'Nota',        icon: 'info' },
+  { type: 'callout:tip',       label: 'Dica',        icon: 'lightbulb' },
+  { type: 'callout:important', label: 'Importante',  icon: 'priority_high' },
+  { type: 'callout:warning',   label: 'Alerta',      icon: 'warning' },
+  { type: 'code',              label: 'Código',      icon: 'code' },
+  { type: 'table',             label: 'Tabela',      icon: 'table' },
+  { type: 'divider',           label: 'Divisor',     icon: 'horizontal_rule' },
 ];
 
-const mdBar = document.createElement('div');
-mdBar.className = 'note-toolbar';
-noteSection.appendChild(mdBar);
-
-for (const b of MD_BUTTONS) {
-  if (b === null) {
-    const sep = document.createElement('div');
-    sep.className = 'tt-sep';
-    mdBar.appendChild(sep);
-    continue;
-  }
-  const btn = document.createElement('button');
-  btn.className   = 'tt-btn';
-  btn.title       = b.title;
-  if (b.iconName) {
-    btn.innerHTML = iconSvg(b.iconName);
-  } else {
-    btn.textContent = b.label;
-  }
-  btn.addEventListener('mousedown', e => e.preventDefault());
-  btn.addEventListener('click', b.action);
-  mdBar.appendChild(btn);
+const mobSheetGrid = mobileTypeSheet.querySelector('#mob-sheet-grid');
+for (const it of MOBILE_BLOCK_TYPES) {
+  const itemBtn = document.createElement('button');
+  itemBtn.className = 'mob-sheet-item';
+  itemBtn.innerHTML = `<span class="qd-icon material-symbols-rounded">${it.icon}</span><span>${escHtml(it.label)}</span>`;
+  itemBtn.addEventListener('mousedown', e => e.preventDefault());
+  itemBtn.addEventListener('click', e => {
+    e.stopPropagation();
+    applyMobileBlockType(it.type);
+  });
+  mobSheetGrid.appendChild(itemBtn);
 }
+
+function applyMobileBlockType(type) {
+  const block = currentBlock() || lastFocusedBlock || root.querySelector('.block');
+  closeMobileTypeSheet();
+  if (!block || !root.contains(block)) return;
+
+  if (type === 'divider') {
+    insertDividerAtCursor();
+  } else if (type === 'table') {
+    const inserted = createBlockEl('table');
+    block.after(inserted);
+    if (!inserted.nextElementSibling) inserted.after(createBlockEl('paragraph'));
+    focusCell(inserted.querySelector('.table-cell'));
+    renumberLists();
+    scheduleSave();
+  } else {
+    transformBlocks(block, type);
+  }
+}
+
+// ── Botões do Estado 1: Formatação de Texto ──────────────────────────────────
+function createMobToolbarBtn(act, html, title, clickFn) {
+  const btn = document.createElement('button');
+  btn.className = 'mob-btn';
+  btn.dataset.act = act;
+  btn.title = title;
+  btn.innerHTML = html;
+  btn.addEventListener('mousedown', e => e.preventDefault());
+  btn.addEventListener('click', e => {
+    e.stopPropagation();
+    clickFn(e);
+  });
+  return btn;
+}
+
+const mobBtnBold = createMobToolbarBtn('bold', '<b>B</b>', 'Negrito', () => execFormat('bold'));
+const mobBtnItalic = createMobToolbarBtn('italic', '<i>I</i>', 'Itálico', () => execFormat('italic'));
+const mobBtnUnderline = createMobToolbarBtn('underline', '<u>U</u>', 'Sublinhado', () => execFormat('underline'));
+const mobBtnStrike = createMobToolbarBtn('strike', '<s>S</s>', 'Tachado', () => execFormat('strikeThrough'));
+const mobBtnCode = createMobToolbarBtn('code', '&lt;/&gt;', 'Código em linha', () => wrapSelectionInTag('code'));
+const mobBtnLink = createMobToolbarBtn('link', '<span class="qd-icon material-symbols-rounded">link</span>', 'Link', () => applyLink());
+const mobBtnColor = createMobToolbarBtn('color', '<span class="qd-icon material-symbols-rounded">palette</span>', 'Cor e destaque', () => {
+  toggleMobileColorPopover();
+});
+
+const mobBtnTextFormat = createMobToolbarBtn(
+  'text-format',
+  '<span class="qd-icon material-symbols-rounded">text_format</span><span class="mob-btn-label">Formatar</span>',
+  'Formatar texto',
+  () => {
+    toggleMobileTextFormatSheet();
+  }
+);
+
+mobileFormatBar.append(
+  mobBtnBold,
+  mobBtnItalic,
+  mobBtnUnderline,
+  mobBtnStrike,
+  mobBtnCode,
+  mobBtnLink,
+  mobBtnColor,
+  Object.assign(document.createElement('div'), { className: 'mob-sep' }),
+  mobBtnTextFormat
+);
+
+// ── Botões do Estado 2: Ações de Bloco ───────────────────────────────────────
+const mobBtnAdd = createMobToolbarBtn(
+  'add-menu',
+  '<span class="qd-icon material-symbols-rounded">add</span>',
+  'Adicionar bloco (acima ou abaixo)',
+  () => {
+    toggleMobileAddPopover();
+  }
+);
+mobBtnAdd.classList.add('mob-btn-add');
+
+const mobUndoBtn = createMobToolbarBtn(
+  'undo',
+  '<span class="qd-icon material-symbols-rounded">undo</span>',
+  'Desfazer',
+  () => {
+    performUndo();
+    updateMobileToolbarState();
+  }
+);
+
+const mobRedoBtn = createMobToolbarBtn(
+  'redo',
+  '<span class="qd-icon material-symbols-rounded">redo</span>',
+  'Refazer',
+  () => {
+    performRedo();
+    updateMobileToolbarState();
+  }
+);
+
+const mobMoveUpBtn = createMobToolbarBtn(
+  'move-up',
+  '<span class="qd-icon material-symbols-rounded">arrow_upward</span>',
+  'Mover bloco para cima',
+  () => {
+    moveActiveBlock(-1);
+  }
+);
+
+const mobMoveDownBtn = createMobToolbarBtn(
+  'move-down',
+  '<span class="qd-icon material-symbols-rounded">arrow_downward</span>',
+  'Mover bloco para baixo',
+  () => {
+    moveActiveBlock(1);
+  }
+);
+
+const mobOutdentBtn = createMobToolbarBtn(
+  'outdent',
+  '<span class="qd-icon material-symbols-rounded">format_indent_decrease</span>',
+  'Desindentar',
+  () => {
+    indentActiveBlock(-1);
+  }
+);
+
+const mobIndentBtn = createMobToolbarBtn(
+  'indent',
+  '<span class="qd-icon material-symbols-rounded">format_indent_increase</span>',
+  'Indentar',
+  () => {
+    indentActiveBlock(1);
+  }
+);
+
+const mobBtnType = createMobToolbarBtn(
+  'change-type',
+  '<span class="qd-icon material-symbols-rounded">interests</span><span class="mob-btn-label">Tipo</span>',
+  'Trocar tipo de bloco',
+  () => {
+    toggleMobileTypeSheet();
+  }
+);
+
+mobileBlockBar.append(
+  mobBtnAdd,
+  Object.assign(document.createElement('div'), { className: 'mob-sep' }),
+  mobUndoBtn,
+  mobRedoBtn,
+  Object.assign(document.createElement('div'), { className: 'mob-sep' }),
+  mobMoveUpBtn,
+  mobMoveDownBtn,
+  Object.assign(document.createElement('div'), { className: 'mob-sep' }),
+  mobOutdentBtn,
+  mobIndentBtn,
+  Object.assign(document.createElement('div'), { className: 'mob-sep' }),
+  mobBtnType
+);
+
+// ── Handlers das Ações de Bloco ─────────────────────────────────────────────
+function moveActiveBlock(direction) {
+  const block = currentBlock() || lastFocusedBlock;
+  if (!block || !root.contains(block)) return;
+  captureUndoPoint();
+  if (direction === -1) {
+    const prev = block.previousElementSibling;
+    if (prev && prev.classList?.contains('block')) {
+      prev.before(block);
+      renumberLists();
+      scheduleSave();
+      block.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }
+  } else if (direction === 1) {
+    const next = block.nextElementSibling;
+    if (next && next.classList?.contains('block')) {
+      next.after(block);
+      renumberLists();
+      scheduleSave();
+      block.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }
+  }
+}
+
+function indentActiveBlock(delta) {
+  const block = currentBlock() || lastFocusedBlock;
+  if (!block || !root.contains(block)) return;
+  const antes = snapshotState();
+  const alvos = targetBlocksFor(block);
+  if (indentBlocks(alvos, delta)) {
+    captureUndoPoint(antes);
+    renumberLists();
+    scheduleSave();
+  }
+}
+
+function addBlockRelative(position) {
+  const block = currentBlock() || lastFocusedBlock || root.lastElementChild;
+  captureUndoPoint();
+  const newBlock = createBlockEl('paragraph');
+  if (position === 'above') {
+    if (block) block.before(newBlock);
+    else root.prepend(newBlock);
+  } else {
+    if (block) block.after(newBlock);
+    else root.appendChild(newBlock);
+  }
+  renumberLists();
+  focusBlockStart(newBlock);
+  scheduleSave();
+  lastFocusedBlock = newBlock;
+}
+
+// Handlers do Popover Adicionar
+mobileAddPopover.querySelectorAll('.mob-popover-item').forEach(btn => {
+  btn.addEventListener('mousedown', e => e.preventDefault());
+  btn.addEventListener('click', e => {
+    e.stopPropagation();
+    const pos = btn.dataset.pos;
+    addBlockRelative(pos);
+    closeMobileAddPopover();
+  });
+});
+
+// Handlers do Popover Cores
+mobileColorPopover.querySelectorAll('.mob-color-dot').forEach(dot => {
+  dot.addEventListener('mousedown', e => e.preventDefault());
+  dot.addEventListener('click', e => {
+    e.stopPropagation();
+    const color = dot.dataset.color;
+    if (color === 'transparent') {
+      document.execCommand('removeFormat', false, null);
+    } else {
+      document.execCommand('hiliteColor', false, color);
+    }
+    closeMobileColorPopover();
+    scheduleSave();
+  });
+});
+
+// Handlers do Painel Formatar Texto
+mobileTextFormatSheet.querySelectorAll('.mob-tf-btn').forEach(btn => {
+  btn.addEventListener('mousedown', e => e.preventDefault());
+  btn.addEventListener('click', e => {
+    e.stopPropagation();
+    const act = btn.dataset.act;
+    if (act === 'upper') applyTransformToSelection(s => s.toUpperCase());
+    else if (act === 'lower') applyTransformToSelection(s => s.toLowerCase());
+    else if (act === 'title') applyTransformToSelection(ttTitleCase);
+    else if (act === 'sentence') applyTransformToSelection(ttSentenceCase);
+    else if (act === 'para') applyTransformToSelection(ttParaCase);
+    else if (act === 'invert') applyTransformToSelection(ttInvertCase);
+    else if (act === 'no-accents') applyTransformToSelection(ttNoAccents);
+    else if (act === 'clean-spaces') applyTransformToSelection(ttCleanSpaces);
+    closeMobileTextFormatSheet();
+  });
+});
+
+mobileTextFormatSheet.querySelector('#mob-tf-close')?.addEventListener('click', e => {
+  e.stopPropagation();
+  closeMobileTextFormatSheet();
+});
+
+mobileTypeSheet.querySelector('#mob-type-close')?.addEventListener('click', e => {
+  e.stopPropagation();
+  closeMobileTypeSheet();
+});
+
+function closeMobileAddPopover() {
+  mobileAddPopover.hidden = true;
+}
+function toggleMobileAddPopover() {
+  mobileAddPopover.hidden = !mobileAddPopover.hidden;
+  if (!mobileAddPopover.hidden) {
+    closeMobileTypeSheet();
+    closeMobileTextFormatSheet();
+    closeMobileColorPopover();
+  }
+}
+
+function closeMobileTextFormatSheet() {
+  mobileTextFormatSheet.hidden = true;
+}
+function toggleMobileTextFormatSheet() {
+  mobileTextFormatSheet.hidden = !mobileTextFormatSheet.hidden;
+  if (!mobileTextFormatSheet.hidden) {
+    closeMobileColorPopover();
+  }
+}
+
+function closeMobileColorPopover() {
+  mobileColorPopover.hidden = true;
+}
+function toggleMobileColorPopover() {
+  mobileColorPopover.hidden = !mobileColorPopover.hidden;
+  if (!mobileColorPopover.hidden) {
+    closeMobileTextFormatSheet();
+  }
+}
+
+function closeMobileTypeSheet() {
+  mobileTypeSheet.hidden = true;
+}
+function toggleMobileTypeSheet() {
+  if (mobileTypeSheet.hidden) {
+    const block = currentBlock();
+    if (block) lastFocusedBlock = block;
+    mobileTypeSheet.hidden = false;
+    closeMobileAddPopover();
+    closeMobileTextFormatSheet();
+    closeMobileColorPopover();
+  } else {
+    mobileTypeSheet.hidden = true;
+  }
+}
+
+// Fecha popovers ao tocar fora
+document.addEventListener('pointerdown', e => {
+  if (typeof document === 'undefined') return;
+  if (!mobileAddPopover.hidden && !mobileAddPopover.contains(e.target) && !mobBtnAdd.contains(e.target)) {
+    closeMobileAddPopover();
+  }
+  if (!mobileTextFormatSheet.hidden && !mobileTextFormatSheet.contains(e.target) && !mobBtnTextFormat.contains(e.target)) {
+    closeMobileTextFormatSheet();
+  }
+  if (!mobileColorPopover.hidden && !mobileColorPopover.contains(e.target) && !mobBtnColor.contains(e.target)) {
+    closeMobileColorPopover();
+  }
+  if (!mobileTypeSheet.hidden && !mobileTypeSheet.contains(e.target) && !mobBtnType.contains(e.target)) {
+    closeMobileTypeSheet();
+  }
+});
+
+// Atualiza o estado da barra contextual (Texto Selecionado vs Ações de Bloco)
+function updateMobileToolbarState() {
+  if (typeof document === 'undefined') return;
+  const sel = document.getSelection();
+  const hasSelection = sel && !sel.isCollapsed && sel.rangeCount > 0 && root.contains(sel.anchorNode);
+
+  if (hasSelection) {
+    mobileBlockBar.hidden = true;
+    mobileBlockBar.style.display = 'none';
+    mobileFormatBar.hidden = false;
+    mobileFormatBar.style.display = 'flex';
+    closeMobileAddPopover();
+    closeMobileTypeSheet();
+  } else {
+    mobileFormatBar.hidden = true;
+    mobileFormatBar.style.display = 'none';
+    mobileBlockBar.hidden = false;
+    mobileBlockBar.style.display = 'flex';
+    closeMobileTextFormatSheet();
+    closeMobileColorPopover();
+
+    const blk = currentBlock();
+    if (blk) lastFocusedBlock = blk;
+
+    mobUndoBtn.disabled = undoStack.length === 0;
+    mobRedoBtn.disabled = redoStack.length === 0;
+  }
+}
+
+document.addEventListener('selectionchange', updateMobileToolbarState);
+
+root.addEventListener('scroll', () => {
+  closeMobileAddPopover();
+  closeMobileTextFormatSheet();
+  closeMobileColorPopover();
+}, { passive: true });
+
+// Monta os elementos no DOM
+mobileNotionToolbar.append(
+  mobileAddPopover,
+  mobileColorPopover,
+  mobileTextFormatSheet,
+  mobileFormatBar,
+  mobileBlockBar
+);
+noteSection.appendChild(mobileNotionToolbar);
+document.body.appendChild(mobileTypeSheet);
+updateMobileToolbarState();
 
 // ── Menu de cálculo ───────────────────────────────────────────────────────────
 function showMathMenu(parsed, anchorRect) {
@@ -3500,6 +3933,10 @@ noteEditorEl.appendChild(blockControls);
 let hoveredBlock = null;
 
 function positionBlockControls(block) {
+  if (typeof document !== 'undefined' && document?.documentElement?.dataset?.platform === 'mobile') {
+    blockControls.hidden = true;
+    return;
+  }
   hoveredBlock = block;
 
   const blockRect     = block.getBoundingClientRect();
@@ -3641,7 +4078,10 @@ function targetBlocksFor(block) {
 document.addEventListener('mousedown', e => {
   if (selectedBlockIds.size === 0) return;
   if (blockMenuEl && blockMenuEl.contains(e.target)) return;
-  if (e.target === blockHandleBtn || e.target === blockAddBtn) return;
+  // .contains(), não === : o alvo real do clique é o <span> do ícone dentro
+  // do botão, nunca o próprio <button>. Com === isso nunca batia, e clicar na
+  // alça sempre limpava o grupo antes de handleHandleClick chegar a lê-lo.
+  if (blockHandleBtn.contains(e.target) || blockAddBtn.contains(e.target)) return;
   clearBlockSelection();
 });
 

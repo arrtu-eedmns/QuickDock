@@ -34,6 +34,13 @@ export const isExtension = (
  */
 export function detectPlatform() {
   if (isExtension) return 'extension';
+  if (typeof location !== 'undefined' && location.search) {
+    const params = new URLSearchParams(location.search);
+    const override = params.get('platform');
+    if (override === 'extension' || override === 'mobile' || override === 'desktop') {
+      return override;
+    }
+  }
   if (typeof window !== 'undefined') {
     const isTouch = window.matchMedia?.('(pointer: coarse)').matches ||
       (typeof navigator !== 'undefined' && (

@@ -9,6 +9,7 @@ import { setActiveArea } from './active-area.js';
 import { podeInserirNaPagina, isExtension, platformStorage } from './platform.js';
 import { isTouchSelectionMode } from './note.js';
 import { iconSvg } from './icons.js';
+import { toggleDocsExtension } from './resizer.js';
 
 const grid           = document.getElementById('doc-grid');
 const dropZone       = document.getElementById('drop-zone');
@@ -55,7 +56,8 @@ export function updateDocsHeader() {
 let docsBackdropEl = null;
 
 function updateDocsBackdrop(open) {
-  if (open && window.innerWidth < 768) {
+  const isMobile = typeof document !== 'undefined' && document.documentElement.dataset.platform === 'mobile';
+  if (open && isMobile) {
     if (!docsBackdropEl) {
       docsBackdropEl = document.createElement('div');
       docsBackdropEl.className = 'docs-sheet-backdrop';
@@ -69,6 +71,20 @@ function updateDocsBackdrop(open) {
 }
 
 export function setDocsCollapsed(collapsed) {
+  const isExt = (typeof document !== 'undefined' && document.documentElement.dataset.platform === 'extension') || isExtension;
+  if (isExt) {
+    // Na extensão, documentos nunca fica em modo recolhido/bottom sheet:
+    // a proporção é sempre controlada pela alça de redimensionamento (drag & drop)
+    isDocsCollapsed = false;
+    docsSection.classList.remove('is-collapsed');
+    const noteSec = document.querySelector('.note-section');
+    if (noteSec) noteSec.classList.remove('docs-collapsed');
+    const resizer = document.getElementById('resize-handle');
+    if (resizer) resizer.classList.remove('docs-collapsed');
+    updateDocsBackdrop(false);
+    updateDocsHeader();
+    return;
+  }
   isDocsCollapsed = collapsed;
   docsSection.classList.toggle('is-collapsed', collapsed);
   const noteSec = document.querySelector('.note-section');
@@ -80,6 +96,8 @@ export function setDocsCollapsed(collapsed) {
 }
 
 export async function toggleDocsCollapsed() {
+  const isExt = (typeof document !== 'undefined' && document.documentElement.dataset.platform === 'extension') || isExtension;
+  if (isExt) return;
   const next = !docsSection.classList.contains('is-collapsed');
   setDocsCollapsed(next);
   await platformStorage.set('docs_collapsed', next);
@@ -367,23 +385,41 @@ export async function initDocuments() {
     openModal(Number(card.dataset.id), card.dataset.name, type, gallery);
   });
 
-  // Estado colapsável da seção de documentos (Tarefa 6)
-  // Padrão: recolhido no PWA (!isExtension), aberto na extensão (isExtension)
+  // Estado colapsável da seção de documentos:
+  // Na extensão: sempre aberta com divisão por resize-handle
+  // No PWA (mobile/desktop): respeita preferência salva ou começa recolhido
+  const isExt = (typeof document !== 'undefined' && document.documentElement.dataset.platform === 'extension') || isExtension;
   const savedCollapsed = await platformStorage.get('docs_collapsed');
-  const initialCollapsed = savedCollapsed !== undefined ? !!savedCollapsed : !isExtension;
+  const initialCollapsed = isExt ? false : (savedCollapsed !== undefined ? !!savedCollapsed : true);
   setDocsCollapsed(initialCollapsed);
 
   if (btnDocsToggle) {
     btnDocsToggle.addEventListener('click', e => {
       e.stopPropagation();
-      toggleDocsCollapsed();
+      const isExt = (typeof document !== 'undefined' && document.documentElement.dataset.platform === 'extension') || isExtension;
+      if (isExt) {
+        toggleDocsExtension();
+      } else {
+        toggleDocsCollapsed();
+      }
     });
   }
 
   if (docsHeader) {
     docsHeader.addEventListener('click', e => {
-      if (e.target.closest('#btn-upload, .docs-view-opt, #file-input, .icon-btn:not(.docs-toggle-btn)')) return;
-      toggleDocsCollapsed();
+      if (e.target.closest('#btn-upload, .docs-view-opt, #file-input, .icon-btn')) return;
+      const isExt = (typeof document !== 'undefined' && document.documentElement.dataset.platform === 'extension') || isExtension;
+      if (isExt) {
+        const docsSection = document.querySelector('.docs-section');
+        if (docsSection?.classList.contains('is-minimized')) {
+          toggleDocsExtension();
+        }
+      } else {
+        const isMobile = typeof document !== 'undefined' && document.documentElement.dataset.platform === 'mobile';
+        if (isMobile) {
+          toggleDocsCollapsed();
+        }
+      }
     });
   }
 

@@ -4,8 +4,8 @@
     {
       "name": "quickdock-static",
       "runtimeExecutable": "python",
-      "runtimeArgs": ["-m", "http.server", "8756"],
-      "port": 8756
+      "runtimeArgs": ["-m", "http.server", "8801"],
+      "port": 8801
     }
   ]
 }

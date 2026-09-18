@@ -125,7 +125,7 @@ Digite uma barra "/" no começo de uma linha vazia pra abrir o menu e escolher o
 - Cerquilha (#), repetida até seis vezes, + espaço → Título 1 a Título 6
 - Hífen ou asterisco + espaço → lista com marcadores
 - "1." + espaço → lista numerada
-- Hífen, espaço e colchetes "[ ]" → checklist
+- Colchetes "[]" (sem hífen na frente) + espaço → checklist
 - Maior-que (>) + espaço → citação
 - Colchete, exclamação, o tipo e colchete + espaço → destaque colorido
 - Três hífens sozinhos na linha → divisor

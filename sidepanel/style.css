@@ -1506,7 +1506,7 @@ body:not(.booting) .note-editor-blocks {
 .docs-header {
   display: flex;
   align-items: center;
-  padding: 10px 14px 6px;
+  padding: 10px 14px;
   gap: 4px;
   flex-shrink: 0;
 }
@@ -2767,7 +2767,7 @@ html[data-platform="extension"] .notes-tabbar {
   align-items: center;
   gap: 5px;
   padding: 6px 8px;
-  background: var(--bg-secondary);
+  background: var(--bg);
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
   user-select: none;
@@ -2783,7 +2783,7 @@ html[data-platform="extension"] .notes-tabbar::before {
   bottom: 0;
   left: 69px;
   width: 46px;
-  background: linear-gradient(to right, var(--bg-secondary) 35%, transparent 100%);
+  background: linear-gradient(to right, var(--bg) 35%, transparent 100%);
   pointer-events: none;
   z-index: 2;
 }
@@ -2796,7 +2796,7 @@ html[data-platform="extension"] .notes-tabbar::after {
   bottom: 0;
   right: 60px;
   width: 42px;
-  background: linear-gradient(to left, var(--bg-secondary) 35%, transparent 100%);
+  background: linear-gradient(to left, var(--bg) 35%, transparent 100%);
   pointer-events: none;
   z-index: 2;
 }
@@ -3006,40 +3006,119 @@ html[data-platform="extension"] #btn-app-menu:hover {
   border-color: var(--border);
 }
 
-/* Seções principais da extensão empilhadas com divisor vertical funcional */
+/* Seções principais da extensão empilhadas com divisor vertical funcional (drag & drop) */
 html[data-platform="extension"] .note-section {
   order: 2;
-  flex: 1 1 auto;
-  min-height: 120px;
+  flex: 0 0 auto !important;
+  min-height: 80px;
+  max-height: calc(100vh - 80px);
   display: flex;
   flex-direction: column;
   position: relative;
+  overflow: hidden;
+}
+
+/* Transição suave durante expansão/recolhimento programático (sem piscar) */
+.note-section.is-animating {
+  transition: height 0.28s cubic-bezier(0.16, 1, 0.3, 1) !important;
+  will-change: height;
+}
+
+.docs-section.is-animating {
+  overflow: hidden !important;
+}
+
+.docs-section.is-animating .drop-zone {
+  overflow-y: hidden !important;
 }
 
 html[data-platform="extension"] #resize-handle {
   order: 3;
-  display: flex !important;
-  height: 6px;
-  background: var(--border);
-  cursor: row-resize;
+  display: block !important;
+  height: 7px;
   flex-shrink: 0;
-  opacity: 0.7;
-  transition: opacity 0.15s, background 0.15s;
+  cursor: row-resize;
+  position: relative;
+  background: var(--bg);
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  z-index: 5;
 }
 
-html[data-platform="extension"] #resize-handle:hover {
-  opacity: 1;
+html[data-platform="extension"] #resize-handle::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 28px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--border);
+  transition: background 0.15s;
+}
+
+html[data-platform="extension"] #resize-handle:hover::after,
+html[data-platform="extension"] #resize-handle.dragging::after {
   background: var(--accent);
 }
 
 html[data-platform="extension"] .docs-section {
   order: 4;
-  flex: 0 0 auto;
-  display: flex;
-  flex-direction: column;
-  min-height: 38px;
-  border-top: 1px solid var(--border);
+  flex: 1 1 0px !important;
+  min-height: 0 !important;
+  max-height: none !important;
+  height: auto !important;
+  position: static !important;
+  display: flex !important;
+  flex-direction: column !important;
+  overflow: hidden !important;
   background: var(--bg-secondary);
+  border-top: none !important;
+  box-shadow: none !important;
+  border-radius: 0 !important;
+  transform: none !important;
+}
+
+html[data-platform="extension"] .docs-section::before {
+  display: none !important;
+}
+
+/* Botão de recolher/expandir na extensão */
+html[data-platform="extension"] #btn-docs-toggle {
+  display: inline-flex !important;
+  cursor: pointer;
+}
+
+html[data-platform="extension"] #btn-docs-toggle .qd-icon {
+  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  display: inline-flex;
+}
+
+/* Quando na altura mínima (header), a seta aponta para CIMA (^) */
+html[data-platform="extension"] .docs-section.is-minimized #btn-docs-toggle .qd-icon {
+  transform: rotate(180deg);
+}
+
+/* Quando aberto, a seta aponta para BAIXO (v) */
+html[data-platform="extension"] .docs-section:not(.is-minimized) #btn-docs-toggle .qd-icon {
+  transform: rotate(0deg);
+}
+
+/* Header com cursor pointer quando minimizado para facilitar clique */
+html[data-platform="extension"] .docs-section.is-minimized .docs-header {
+  cursor: pointer;
+}
+
+html[data-platform="extension"] .docs-section:not(.is-minimized) .docs-header {
+  cursor: default;
+}
+
+/* Oculta o conteúdo interno quando minimizado para evitar qualquer scrollbar/salto */
+html[data-platform="extension"] .docs-section.is-minimized .drop-zone,
+html[data-platform="extension"] .docs-section.is-minimized #group-bar,
+html[data-platform="extension"] .docs-section.is-minimized #docs-hidden-hint {
+  display: none !important;
 }
 
 /* ===== BOTTOM SHEETS (MOBILE: BLOCOS E DOCUMENTOS) ===== */
@@ -3182,6 +3261,430 @@ html[data-platform="mobile"] .docs-section:not(.is-collapsed) {
   flex: 0 0 75vh !important;
   background: var(--bg);
   animation: sheet-slide-up 0.24s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* ===== BARRA CONTEXTUAL ESTILO NOTION (DUAL-STATE & NO-SCRIM SHEETS) ===== */
+
+/* As antigas barras estáticas não existem mais */
+.note-toolbar {
+  display: none !important;
+}
+
+/* Ocultação dos controles de hover no mobile (na extensão e desktop eles permanecem!) */
+html[data-platform="mobile"] .block-controls {
+  display: none !important;
+}
+
+html[data-platform="mobile"] .btn-touch-select {
+  display: none !important;
+}
+
+.mobile-notion-toolbar {
+  display: flex !important;
+  align-items: center;
+  position: relative;
+  height: 38px;
+  min-height: 38px;
+  background: var(--bg-secondary);
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+  z-index: 850;
+  user-select: none;
+}
+
+html[data-platform="mobile"] .mobile-notion-toolbar {
+  height: 44px;
+  min-height: 44px;
+}
+
+.mobile-toolbar-inner {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 6px;
+  width: 100%;
+  height: 100%;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.mobile-toolbar-inner[hidden] {
+  display: none !important;
+}
+
+.mobile-toolbar-inner::-webkit-scrollbar {
+  display: none;
+}
+
+.mob-btn {
+  height: 30px;
+  min-width: 30px;
+  padding: 0 6px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.mob-btn .qd-icon {
+  font-size: 18px;
+}
+
+html[data-platform="mobile"] .mob-btn {
+  height: 36px;
+  min-width: 36px;
+  padding: 0 8px;
+  border-radius: 8px;
+  font-size: 14px;
+}
+
+html[data-platform="mobile"] .mob-btn .qd-icon {
+  font-size: 20px;
+}
+
+.mob-btn:active,
+.mob-btn.is-active {
+  background: var(--bg-hover);
+  color: var(--text);
+  border-color: var(--border);
+}
+
+.mob-btn:disabled {
+  opacity: 0.3;
+  cursor: default;
+  pointer-events: none;
+}
+
+.mob-btn .qd-icon {
+  font-size: 20px;
+}
+
+.mob-btn-add {
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+  color: var(--accent);
+}
+
+.mob-btn-add:active {
+  background: color-mix(in srgb, var(--accent) 25%, transparent);
+  color: var(--accent);
+}
+
+.mob-btn-label {
+  font-size: 12px;
+  font-weight: 600;
+  margin-left: 4px;
+}
+
+.mob-sep {
+  width: 1px;
+  height: 20px;
+  background: var(--border);
+  margin: 0 4px;
+  flex-shrink: 0;
+}
+
+/* Popover de Adicionar Bloco (Acima / Abaixo) */
+.mobile-add-popover {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 8px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.18);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  z-index: 960;
+  min-width: 168px;
+  animation: popover-fade-in 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.mobile-add-popover[hidden] {
+  display: none !important;
+}
+
+.mob-popover-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+  transition: background 0.1s;
+}
+
+.mob-popover-item:active {
+  background: var(--bg-hover);
+}
+
+.mob-popover-item .qd-icon {
+  font-size: 18px;
+  color: var(--text-muted);
+}
+
+/* Popover de Cores / Destaque */
+.mobile-color-popover {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 20px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.18);
+  padding: 8px 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  z-index: 960;
+  animation: popover-fade-in 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.mobile-color-popover[hidden] {
+  display: none !important;
+}
+
+.mob-color-dot {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: transform 0.12s;
+}
+
+.mob-color-dot:active {
+  transform: scale(1.18);
+}
+
+/* Painel de Formatar Texto (Transformações) */
+.mobile-text-format-sheet {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 8px;
+  right: 8px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.2);
+  padding: 10px 12px 12px;
+  z-index: 960;
+  animation: popover-fade-in 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.mobile-text-format-sheet[hidden] {
+  display: none !important;
+}
+
+.mob-tf-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+
+.mob-tf-title {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.mob-tf-close {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 14px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.mob-tf-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+}
+
+.mob-tf-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 8px 4px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-secondary);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 10.5px;
+  font-weight: 500;
+  text-align: center;
+  transition: background 0.12s, border-color 0.12s;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.mob-tf-btn b {
+  font-size: 13px;
+  font-family: var(--font-mono, monospace);
+  color: var(--accent);
+}
+
+.mob-tf-btn span {
+  font-size: 9.5px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.mob-tf-btn:active {
+  background: var(--bg-hover);
+  border-color: var(--accent);
+}
+
+/* Bottom Sheet de Troca de Bloco (SEM modal e SEM scrim) */
+.mobile-type-sheet-no-scrim {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  max-height: 52vh;
+  background: var(--bg);
+  border-top: 1px solid var(--border);
+  border-radius: 18px 18px 0 0;
+  box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.22);
+  z-index: 960;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: sheet-slide-up 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.mobile-type-sheet-no-scrim[hidden] {
+  display: none !important;
+}
+
+.mob-sheet-handle {
+  width: 38px;
+  height: 4px;
+  background: var(--text-muted);
+  opacity: 0.35;
+  border-radius: 99px;
+  margin: 8px auto 4px;
+  flex-shrink: 0;
+}
+
+.mob-sheet-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 16px 10px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.mob-sheet-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: -0.2px;
+}
+
+.mob-sheet-close {
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  min-height: 28px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.mob-sheet-close:active {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.mob-sheet-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  padding: 12px 14px 28px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.mob-sheet-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px 4px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg-secondary);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 500;
+  text-align: center;
+  transition: background 0.12s, border-color 0.12s;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+}
+
+.mob-sheet-item:active {
+  background: var(--bg-hover);
+  border-color: var(--accent);
+}
+
+.mob-sheet-item .qd-icon {
+  font-size: 22px;
+  color: var(--text-muted);
+}
+
+@keyframes popover-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 /* ===== DESKTOP: ASIDE À DIREITA ESTILO NOTION (APENAS PWA DESKTOP) ===== */
