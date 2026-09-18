@@ -7,6 +7,7 @@
   --text: #1a1a1a;
   --text-muted: #9b9b9b;
   --accent: #2383e2;
+  --tab-active-border-default: #555555;
   --radius: 8px;
   --radius-sm: 5px;
   --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
@@ -20,6 +21,7 @@
   --border: #333333;
   --text: #e8e8e8;
   --text-muted: #5a5a5a;
+  --tab-active-border-default: #808080;
 }
 
 /* ===== RESET ===== */
@@ -2568,7 +2570,7 @@ body:not(.booting) .note-editor-blocks {
     justify-content: center;
   }
 
-  .note-tab {
+  html[data-platform="desktop"] .note-tab {
     min-height: 40px;
     padding: 0 12px;
   }
@@ -2772,12 +2774,12 @@ html[data-platform="mobile"] .notes-tabbar {
   grid-template-columns: auto auto 1fr auto auto;
   align-items: center;
   gap: 5px;
-  padding: 10px 8px;
+  padding: 8px;
   background: var(--bg);
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
   user-select: none;
-  min-height: 48px;
+  min-height: 50px;
   position: relative;
 }
 
@@ -2894,11 +2896,14 @@ html[data-platform="mobile"] .notes-tabs {
   scrollbar-width: none;
   -ms-overflow-style: none;
   min-width: 0;
-  height: 36px;
+  height: 40px;
   margin-left: -27px;
   margin-right: -22px;
   padding-left: 27px;
   padding-right: 22px;
+  padding-top: 2px;
+  padding-bottom: 2px;
+  box-sizing: border-box;
   position: relative;
   z-index: 1;
   -webkit-mask-image: linear-gradient(
@@ -2928,7 +2933,9 @@ html[data-platform="mobile"] .note-tab {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  height: 30px;
+  height: 32px !important;
+  min-height: 32px !important;
+  max-height: 32px !important;
   padding: 0 10px;
   border-radius: 999px;
   background: var(--bg);
@@ -2939,6 +2946,7 @@ html[data-platform="mobile"] .note-tab {
   max-width: 140px;
   user-select: none;
   white-space: nowrap;
+  box-sizing: border-box;
   transition: background 0.12s, border-color 0.12s, color 0.12s, box-shadow 0.12s;
 }
 
@@ -2951,7 +2959,7 @@ html[data-platform="mobile"] .note-tab:hover {
 html[data-platform="extension"] .note-tab.active,
 html[data-platform="mobile"] .note-tab.active {
   background: var(--bg);
-  border-color: var(--accent);
+  border-color: var(--active-accent, var(--tab-active-border-default));
   color: var(--text);
   font-weight: 500;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);

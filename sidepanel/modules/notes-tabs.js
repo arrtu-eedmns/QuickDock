@@ -486,8 +486,13 @@ async function reorderNotes(srcId, targetId, before) {
 // elementos temáticos (citação, marcadores, checkbox) caiam de volta no
 // var(--accent) padrão em vez de ficarem invisíveis.
 function setAccent(color) {
-  if (color) noteEditorEl.style.setProperty('--note-accent', color);
-  else noteEditorEl.style.removeProperty('--note-accent');
+  if (color) {
+    noteEditorEl?.style.setProperty('--note-accent', color);
+    document.documentElement.style.setProperty('--note-accent', color);
+  } else {
+    noteEditorEl?.style.removeProperty('--note-accent');
+    document.documentElement.style.removeProperty('--note-accent');
+  }
 }
 
 function renderTabs() {
@@ -527,11 +532,23 @@ function buildTabIndicator(meta) {
 
 function buildTab(meta) {
   const isConflict = /conflito/i.test(meta.title ?? '');
+  const isActive = meta.id === activeId;
   const tab = document.createElement('div');
-  tab.className = 'note-tab' + (meta.id === activeId ? ' active' : '') + (isConflict ? ' is-conflict' : '');
+  tab.className = 'note-tab' + (isActive ? ' active' : '') + (isConflict ? ' is-conflict' : '');
   tab.draggable = true;
   tab.dataset.id = String(meta.id);
   tab.title = meta.title || 'Sem título';
+
+  // Se a aba estiver ativa: se tiver cor definida, usa essa cor na borda; senão cai no cinza mais escuro do CSS
+  if (isActive) {
+    if (meta.color) {
+      tab.style.setProperty('--active-accent', meta.color);
+      tab.style.borderColor = meta.color;
+    } else {
+      tab.style.removeProperty('--active-accent');
+      tab.style.removeProperty('border-color');
+    }
+  }
 
   const indicator = buildTabIndicator(meta);
 

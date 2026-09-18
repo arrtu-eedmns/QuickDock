@@ -18,8 +18,30 @@ const html       = document.documentElement;
 
 let syncController = null;
 
+function updateStatusBar(theme) {
+  const isDark = theme === 'dark';
+  const color = isDark ? '#191919' : '#ffffff';
+
+  let metaTheme = document.querySelector('meta[name="theme-color"]');
+  if (!metaTheme) {
+    metaTheme = document.createElement('meta');
+    metaTheme.setAttribute('name', 'theme-color');
+    document.head.appendChild(metaTheme);
+  }
+  metaTheme.setAttribute('content', color);
+
+  let appleStatus = document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]');
+  if (!appleStatus) {
+    appleStatus = document.createElement('meta');
+    appleStatus.setAttribute('name', 'apple-mobile-web-app-status-bar-style');
+    document.head.appendChild(appleStatus);
+  }
+  appleStatus.setAttribute('content', isDark ? 'black-translucent' : 'default');
+}
+
 function applyTheme(theme) {
   html.setAttribute('data-theme', theme);
+  updateStatusBar(theme);
 }
 
 async function initTheme() {
