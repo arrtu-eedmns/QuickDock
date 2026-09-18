@@ -2823,6 +2823,21 @@ for (const entrada of ['', null, undefined, '\n\n']) {
   ok('touch · note.js escuta btn-touch-select', noteSource.includes('btn-touch-select'));
   ok('touch · note.js suporta toque longo na alça de bloco', noteSource.includes('touchDragTimer') && noteSource.includes('touchstart'));
   ok('touch · note.js tem scrollCursorIntoView para teclado virtual', noteSource.includes('scrollCursorIntoView') && noteSource.includes('visualViewport'));
+
+  // 16.7: Barra Contextual Estilo Notion, Seleção de Blocos e Sheet de Modelos
+  const styleSource = await readFile(new URL('../sidepanel/style.css', import.meta.url), 'utf8');
+  ok('mobile · note.js define mobileTemplateSheet separado de tipo', noteSource.includes('mobileTemplateSheet') && noteSource.includes('mobile-template-sheet-no-scrim'));
+  ok('mobile · note.js tem botão de Modelos na barra normal', noteSource.includes('mobBtnTemplates') && noteSource.includes('toggleMobileTemplateSheet'));
+  ok('mobile · note.js tem botão de Selecionar na barra normal', noteSource.includes('mobBtnSelect') && noteSource.includes('toggleBlockSelectMode'));
+  ok('mobile · note.js define mobileSelectBar com contador e ações', noteSource.includes('mobileSelectBar') && noteSource.includes('mobSelectCount'));
+  ok('mobile · mobileSelectBar possui copiar e baixar como imagem', noteSource.includes('copySelectedBlocksAsImage') && noteSource.includes('downloadSelectedBlocksAsImage'));
+  ok('mobile · mobileSelectBar possui baixar como md e txt', noteSource.includes('downloadSelectedBlocksAsMd') && noteSource.includes('downloadSelectedBlocksAsTxt'));
+  ok('mobile · mobileSelectBar possui salvar modelo e excluir blocos', noteSource.includes('saveSelectedBlocksAsTemplate') && noteSource.includes('deleteSelectedBlocks'));
+  ok('mobile · note.js tem gesto de toque longo em blocos para seleção', noteSource.includes('touchSelectTimer') && noteSource.includes('enterBlockSelectMode'));
+  ok('mobile · mobileFormatBar possui atalhos de imagem, md e txt', noteSource.includes('mobBtnFmtCopyImg') && noteSource.includes('mobBtnFmtDownloadMd') && noteSource.includes('mobBtnFmtDownloadTxt'));
+  ok('mobile · style.css estiliza mobile-template-sheet-no-scrim', styleSource.includes('.mobile-template-sheet-no-scrim') && styleSource.includes('.mob-template-item'));
+  ok('mobile · style.css estiliza mobile-select-bar e mob-select-count', styleSource.includes('.mobile-select-bar') && styleSource.includes('.mob-select-count'));
+  ok('mobile · sheets usam --keyboard-offset', styleSource.includes('bottom: var(--keyboard-offset, 0px)'));
 }
 
 if (falhas.length) {

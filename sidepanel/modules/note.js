@@ -1635,7 +1635,7 @@ window.addEventListener('blur', () => setCtrl(false));
 
 // ── Clique em marcação detectada (CPF, data, cálculo…) ou seleção por toque ──
 root.addEventListener('click', e => {
-  if (!isCtrlHeld && !touchSelectionActive) return;
+  if (!isCtrlHeld && !touchSelectionActive && !isBlockSelectActive) return;
 
   // Mesmo gesto que abre o menu de CPF/data: com Ctrl ou modo de seleção por toque, clique em link navega.
   // Sem Ctrl/modo toque o clique só posiciona o cursor — senão não dá pra editar o texto.
@@ -1651,8 +1651,23 @@ root.addEventListener('click', e => {
 
   const mark = e.target.closest('mark');
   if (!mark) {
-    // No modo de seleção por toque, tocar em um bloco (fora de link/mark) seleciona o bloco
-    if (touchSelectionActive) {
+    if (isBlockSelectActive) {
+      const block = e.target.closest('.block');
+      if (block && root.contains(block)) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (selectedBlockIds.has(block.dataset.id)) {
+          selectedBlockIds.delete(block.dataset.id);
+          setBlockSelection([...selectedBlockIds]);
+        } else {
+          selectedBlockIds.add(block.dataset.id);
+          setBlockSelection([...selectedBlockIds]);
+          lastHandleClickedId = block.dataset.id;
+        }
+        return;
+      }
+    } else if (touchSelectionActive) {
+      // No modo de seleção por toque, tocar em um bloco (fora de link/mark) seleciona o bloco
       const block = e.target.closest('.block');
       if (block && root.contains(block)) {
         handleHandleClick(block, true);
@@ -3346,6 +3361,82 @@ function insertDividerAtCursor() {
   scheduleSave();
 }
 
+// ── Seleção múltipla de blocos ────────────────────────────────────────────────
+let selectedBlockIds     = new Set();
+let lastHandleClickedId  = null;
+let selecaoEspelhada     = false;   // a seleção de blocos nasceu de uma seleção de texto
+let isBlockSelectActive  = false;   // modo de seleção explícito ativo no mobile
+
+function findBlockById(id) {
+  return [...root.children].find(el => el.classList?.contains('block') && el.dataset.id === id) || null;
+}
+
+function orderedBlocks() {
+  return [...root.children].filter(el => el.classList?.contains('block'));
+}
+
+function setBlockSelection(ids) {
+  root.querySelectorAll('.block.block-selected').forEach(b => b.classList.remove('block-selected'));
+  selectedBlockIds = new Set(ids);
+  for (const b of orderedBlocks()) {
+    if (selectedBlockIds.has(b.dataset.id)) b.classList.add('block-selected');
+  }
+  root.classList.toggle('blocks-selected', selectedBlockIds.size > 1);
+  updateMobileToolbarState();
+}
+
+function clearBlockSelection() {
+  isBlockSelectActive = false;
+  setBlockSelection([]);
+  lastHandleClickedId = null;
+  selecaoEspelhada = false;
+  if (noteSection) noteSection.classList.remove('touch-selection-active');
+}
+
+function selectBlockRange(fromBlock, toBlock) {
+  const all = orderedBlocks();
+  const a = all.indexOf(fromBlock), b = all.indexOf(toBlock);
+  if (a === -1 || b === -1) return;
+  const [lo, hi] = a < b ? [a, b] : [b, a];
+  setBlockSelection(all.slice(lo, hi + 1).map(el => el.dataset.id));
+}
+
+function targetBlocksFor(block) {
+  if (selectedBlockIds.size > 1 && selectedBlockIds.has(block.dataset.id)) {
+    return orderedBlocks().filter(el => selectedBlockIds.has(el.dataset.id));
+  }
+  return [block];
+}
+
+function getSelectedBlockElements() {
+  if (selectedBlockIds.size > 0) {
+    return orderedBlocks().filter(b => selectedBlockIds.has(b.dataset.id));
+  }
+  const curr = currentBlock() || lastFocusedBlock;
+  return curr ? [curr] : [];
+}
+
+function downloadTextFile(filename, text, type = 'text/plain;charset=utf-8') {
+  const blob = new Blob([text], { type });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+function getSuggestedBlockFilename(blocks, defaultName = 'nota') {
+  const alvos = blocks && blocks.length > 0 ? blocks : getSelectedBlockElements();
+  const text = alvos
+    .filter(b => !NO_TEXT_TYPES.has(b.dataset.type))
+    .map(b => getContentEl(b)?.textContent?.trim())
+    .find(Boolean) ?? defaultName;
+  return text.slice(0, 30).replace(/[\\/:*?"<>|]+/g, '-').trim() || defaultName;
+}
+
 // ── Barra Contextual Estilo Notion (Dual-State & No-Scrim Sheets) ────────────
 let lastFocusedBlock = null;
 
@@ -3363,6 +3454,12 @@ mobileFormatBar.style.display = 'none';
 const mobileBlockBar = document.createElement('div');
 mobileBlockBar.className = 'mobile-toolbar-inner mobile-block-bar';
 mobileBlockBar.style.display = 'flex';
+
+// Estado 3: Seleção de Blocos (quando blocos estiverem selecionados ou modo seleção ativo)
+const mobileSelectBar = document.createElement('div');
+mobileSelectBar.className = 'mobile-toolbar-inner mobile-select-bar';
+mobileSelectBar.hidden = true;
+mobileSelectBar.style.display = 'none';
 
 // Popover: Adicionar bloco (Acima ou Abaixo)
 const mobileAddPopover = document.createElement('div');
@@ -3480,6 +3577,101 @@ function applyMobileBlockType(type) {
   }
 }
 
+// Bottom Sheet: Modelos de Bloco (Sem modal e SEM scrim, totalmente separado de tipo)
+const mobileTemplateSheet = document.createElement('div');
+mobileTemplateSheet.className = 'mobile-template-sheet-no-scrim';
+mobileTemplateSheet.hidden = true;
+mobileTemplateSheet.innerHTML = `
+  <div class="mob-sheet-handle"></div>
+  <div class="mob-sheet-header">
+    <span class="mob-sheet-title">Modelos de bloco</span>
+    <button class="mob-sheet-close" id="mob-template-close" aria-label="Fechar">✕</button>
+  </div>
+  <div class="mob-template-list" id="mob-template-list"></div>
+  <div class="mob-template-footer">
+    <button class="mob-template-save-btn" id="mob-template-save-btn">
+      <span class="qd-icon material-symbols-rounded">bookmark_add</span>
+      <span>Salvar bloco atual como modelo</span>
+    </button>
+  </div>
+`;
+
+function renderMobileTemplateList() {
+  const listEl = mobileTemplateSheet.querySelector('#mob-template-list');
+  if (!listEl) return;
+  listEl.innerHTML = '';
+  const tpls = blockTemplates();
+  if (tpls.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'mob-template-empty';
+    empty.textContent = 'Nenhum modelo de bloco salvo ainda';
+    listEl.appendChild(empty);
+    return;
+  }
+
+  for (const tpl of tpls) {
+    const itemBtn = document.createElement('button');
+    itemBtn.className = 'mob-template-item';
+    itemBtn.innerHTML = `
+      <span class="qd-icon material-symbols-rounded">bookmark</span>
+      <span class="mob-template-name">${escHtml(tpl.name)}</span>
+    `;
+    itemBtn.addEventListener('mousedown', e => e.preventDefault());
+    itemBtn.addEventListener('click', e => {
+      e.stopPropagation();
+      closeMobileTemplateSheet();
+      captureUndoPoint();
+      const target = currentBlock() || lastFocusedBlock || root.lastElementChild;
+      insertTemplateBlocks(tpl.content, target);
+    });
+    listEl.appendChild(itemBtn);
+  }
+}
+
+function closeMobileTemplateSheet() {
+  mobileTemplateSheet.hidden = true;
+}
+
+function toggleMobileTemplateSheet() {
+  if (mobileTemplateSheet.hidden) {
+    const block = currentBlock();
+    if (block) lastFocusedBlock = block;
+    renderMobileTemplateList();
+    mobileTemplateSheet.hidden = false;
+    closeMobileAddPopover();
+    closeMobileTypeSheet();
+    closeMobileTextFormatSheet();
+    closeMobileColorPopover();
+  } else {
+    mobileTemplateSheet.hidden = true;
+  }
+}
+
+mobileTemplateSheet.querySelector('#mob-template-close')?.addEventListener('click', e => {
+  e.stopPropagation();
+  closeMobileTemplateSheet();
+});
+
+mobileTemplateSheet.querySelector('#mob-template-save-btn')?.addEventListener('click', e => {
+  e.stopPropagation();
+  const alvos = getSelectedBlockElements();
+  if (alvos.length === 0) {
+    showFeedback('Nenhum bloco para salvar');
+    return;
+  }
+  const targets = alvos.length > 1 ? alvos : targetBlocksFor(alvos[0]);
+  const markdown = blocksToMarkdown(targets.map(serializeBlockEl));
+  if (!markdown.trim()) {
+    showFeedback('Nada para salvar');
+    return;
+  }
+  closeMobileTemplateSheet();
+  openSaveBlockTemplate(mobBtnTemplates, markdown, nome => {
+    showFeedback(`Modelo "${nome}" salvo`);
+    renderMobileTemplateList();
+  });
+});
+
 // ── Botões do Estado 1: Formatação de Texto ──────────────────────────────────
 function createMobToolbarBtn(act, html, title, clickFn) {
   const btn = document.createElement('button');
@@ -3514,6 +3706,56 @@ const mobBtnTextFormat = createMobToolbarBtn(
   }
 );
 
+const mobBtnFmtCopyImg = createMobToolbarBtn(
+  'fmt-copy-img',
+  '<span class="qd-icon material-symbols-rounded">image</span>',
+  'Copiar bloco como imagem',
+  () => {
+    const b = currentBlock() || lastFocusedBlock;
+    if (b) printBlocks(b, 'clipboard');
+  }
+);
+
+const mobBtnFmtDownloadImg = createMobToolbarBtn(
+  'fmt-down-img',
+  '<span class="qd-icon material-symbols-rounded">download</span>',
+  'Baixar bloco como imagem',
+  () => {
+    const b = currentBlock() || lastFocusedBlock;
+    if (b) printBlocks(b, 'download');
+  }
+);
+
+const mobBtnFmtDownloadMd = createMobToolbarBtn(
+  'fmt-down-md',
+  '<span class="qd-icon material-symbols-rounded">description</span><span class="mob-btn-label">.md</span>',
+  'Baixar bloco como Markdown',
+  async () => {
+    const b = currentBlock() || lastFocusedBlock;
+    if (!b) return;
+    const targets = targetBlocksFor(b).map(serializeBlockEl);
+    const text = await blocksToExportMarkdown(targets);
+    const nome = getSuggestedBlockFilename([b], 'bloco');
+    downloadTextFile(`${nome}.md`, text, 'text/markdown;charset=utf-8');
+    showFeedback('Markdown baixado!');
+  }
+);
+
+const mobBtnFmtDownloadTxt = createMobToolbarBtn(
+  'fmt-down-txt',
+  '<span class="qd-icon material-symbols-rounded">text_snippet</span><span class="mob-btn-label">.txt</span>',
+  'Baixar bloco como Texto',
+  () => {
+    const b = currentBlock() || lastFocusedBlock;
+    if (!b) return;
+    const targets = targetBlocksFor(b).map(serializeBlockEl);
+    const text = blocksToPlainText(targets);
+    const nome = getSuggestedBlockFilename([b], 'bloco');
+    downloadTextFile(`${nome}.txt`, text, 'text/plain;charset=utf-8');
+    showFeedback('Texto baixado!');
+  }
+);
+
 mobileFormatBar.append(
   mobBtnBold,
   mobBtnItalic,
@@ -3523,7 +3765,12 @@ mobileFormatBar.append(
   mobBtnLink,
   mobBtnColor,
   Object.assign(document.createElement('div'), { className: 'mob-sep' }),
-  mobBtnTextFormat
+  mobBtnTextFormat,
+  Object.assign(document.createElement('div'), { className: 'mob-sep' }),
+  mobBtnFmtCopyImg,
+  mobBtnFmtDownloadImg,
+  mobBtnFmtDownloadMd,
+  mobBtnFmtDownloadTxt
 );
 
 // ── Botões do Estado 2: Ações de Bloco ───────────────────────────────────────
@@ -3602,6 +3849,24 @@ const mobBtnType = createMobToolbarBtn(
   }
 );
 
+const mobBtnTemplates = createMobToolbarBtn(
+  'templates',
+  '<span class="qd-icon material-symbols-rounded">bookmark</span><span class="mob-btn-label">Modelos</span>',
+  'Modelos de bloco',
+  () => {
+    toggleMobileTemplateSheet();
+  }
+);
+
+const mobBtnSelect = createMobToolbarBtn(
+  'select-blocks',
+  '<span class="qd-icon material-symbols-rounded">checklist</span><span class="mob-btn-label">Selecionar</span>',
+  'Selecionar blocos',
+  () => {
+    toggleBlockSelectMode();
+  }
+);
+
 mobileBlockBar.append(
   mobBtnAdd,
   Object.assign(document.createElement('div'), { className: 'mob-sep' }),
@@ -3614,7 +3879,87 @@ mobileBlockBar.append(
   mobOutdentBtn,
   mobIndentBtn,
   Object.assign(document.createElement('div'), { className: 'mob-sep' }),
-  mobBtnType
+  mobBtnType,
+  Object.assign(document.createElement('div'), { className: 'mob-sep' }),
+  mobBtnTemplates,
+  Object.assign(document.createElement('div'), { className: 'mob-sep' }),
+  mobBtnSelect
+);
+
+// ── Botões do Estado 3: Seleção de Blocos (mobileSelectBar) ─────────────────
+const mobSelectCount = document.createElement('span');
+mobSelectCount.className = 'mob-select-count';
+mobSelectCount.textContent = '1 bloco';
+
+const mobBtnCopyText = createMobToolbarBtn(
+  'sel-copy-text',
+  '<span class="qd-icon material-symbols-rounded">content_copy</span><span class="mob-btn-label">Copiar</span>',
+  'Copiar texto dos blocos',
+  () => copySelectedBlocksAsText()
+);
+
+const mobBtnCopyImg = createMobToolbarBtn(
+  'sel-copy-img',
+  '<span class="qd-icon material-symbols-rounded">image</span><span class="mob-btn-label">Copiar img</span>',
+  'Copiar blocos como imagem',
+  () => copySelectedBlocksAsImage()
+);
+
+const mobBtnDownloadImg = createMobToolbarBtn(
+  'sel-down-img',
+  '<span class="qd-icon material-symbols-rounded">download</span><span class="mob-btn-label">Baixar img</span>',
+  'Baixar blocos como imagem',
+  () => downloadSelectedBlocksAsImage()
+);
+
+const mobBtnDownloadMd = createMobToolbarBtn(
+  'sel-down-md',
+  '<span class="qd-icon material-symbols-rounded">description</span><span class="mob-btn-label">.md</span>',
+  'Baixar blocos como Markdown (.md)',
+  () => downloadSelectedBlocksAsMd()
+);
+
+const mobBtnDownloadTxt = createMobToolbarBtn(
+  'sel-down-txt',
+  '<span class="qd-icon material-symbols-rounded">text_snippet</span><span class="mob-btn-label">.txt</span>',
+  'Baixar blocos como Texto (.txt)',
+  () => downloadSelectedBlocksAsTxt()
+);
+
+const mobBtnSaveTpl = createMobToolbarBtn(
+  'sel-save-tpl',
+  '<span class="qd-icon material-symbols-rounded">bookmark_add</span><span class="mob-btn-label">Modelo</span>',
+  'Salvar blocos como modelo',
+  () => saveSelectedBlocksAsTemplate()
+);
+
+const mobBtnDeleteBlocks = createMobToolbarBtn(
+  'sel-delete',
+  '<span class="qd-icon material-symbols-rounded">delete</span>',
+  'Excluir blocos',
+  () => deleteSelectedBlocks()
+);
+mobBtnDeleteBlocks.classList.add('mob-btn-danger');
+
+const mobBtnCloseSelect = createMobToolbarBtn(
+  'sel-done',
+  '<span class="qd-icon material-symbols-rounded">check</span><span class="mob-btn-label">Concluir</span>',
+  'Concluir seleção',
+  () => exitBlockSelectMode()
+);
+
+mobileSelectBar.append(
+  mobSelectCount,
+  mobBtnCopyText,
+  mobBtnCopyImg,
+  mobBtnDownloadImg,
+  mobBtnDownloadMd,
+  mobBtnDownloadTxt,
+  Object.assign(document.createElement('div'), { className: 'mob-sep' }),
+  mobBtnSaveTpl,
+  mobBtnDeleteBlocks,
+  Object.assign(document.createElement('div'), { className: 'mob-sep' }),
+  mobBtnCloseSelect
 );
 
 // ── Handlers das Ações de Bloco ─────────────────────────────────────────────
@@ -3669,6 +4014,191 @@ function addBlockRelative(position) {
   scheduleSave();
   lastFocusedBlock = newBlock;
 }
+
+// ── Ações de Seleção de Blocos ───────────────────────────────────────────────
+function enterBlockSelectMode(initialBlock) {
+  isBlockSelectActive = true;
+  noteSection.classList.add('touch-selection-active');
+  const target = initialBlock || currentBlock() || lastFocusedBlock || root.firstElementChild;
+  if (target && target.dataset.id) {
+    setBlockSelection([target.dataset.id]);
+    lastHandleClickedId = target.dataset.id;
+  } else {
+    setBlockSelection([]);
+  }
+  updateMobileToolbarState();
+  showFeedback('Modo seleção ativo · toque nos blocos para selecionar');
+}
+
+function exitBlockSelectMode() {
+  isBlockSelectActive = false;
+  noteSection.classList.remove('touch-selection-active');
+  clearBlockSelection();
+  updateMobileToolbarState();
+}
+
+function toggleBlockSelectMode() {
+  if (isBlockSelectActive) {
+    exitBlockSelectMode();
+  } else {
+    enterBlockSelectMode();
+  }
+}
+
+async function copySelectedBlocksAsText() {
+  const alvos = getSelectedBlockElements();
+  if (alvos.length === 0) {
+    showFeedback('Nenhum bloco selecionado');
+    return;
+  }
+  const targets = alvos.map(serializeBlockEl);
+  const text = blocksToPlainText(targets);
+  await navigator.clipboard.writeText(text);
+  showFeedback('Texto copiado!');
+}
+
+async function copySelectedBlocksAsImage() {
+  const alvos = getSelectedBlockElements();
+  if (alvos.length === 0) {
+    showFeedback('Nenhum bloco selecionado');
+    return;
+  }
+  showFeedback('Gerando imagem…');
+  try {
+    const ok = await copyBlocksAsImage(alvos);
+    showFeedback(ok ? 'Imagem copiada!' : 'Erro ao copiar imagem');
+  } catch (_) {
+    showFeedback('Erro ao copiar imagem');
+  }
+}
+
+async function downloadSelectedBlocksAsImage() {
+  const alvos = getSelectedBlockElements();
+  if (alvos.length === 0) {
+    showFeedback('Nenhum bloco selecionado');
+    return;
+  }
+  const nome = getSuggestedBlockFilename(alvos, 'nota');
+  showFeedback('Gerando imagem…');
+  try {
+    const ok = await downloadBlocksAsImage(alvos, nome);
+    showFeedback(ok ? 'Imagem baixada!' : 'Erro ao baixar imagem');
+  } catch (_) {
+    showFeedback('Erro ao baixar imagem');
+  }
+}
+
+async function downloadSelectedBlocksAsMd() {
+  const alvos = getSelectedBlockElements();
+  if (alvos.length === 0) {
+    showFeedback('Nenhum bloco selecionado');
+    return;
+  }
+  const targets = alvos.map(serializeBlockEl);
+  const text = await blocksToExportMarkdown(targets);
+  const nome = getSuggestedBlockFilename(alvos, 'blocos');
+  downloadTextFile(`${nome}.md`, text, 'text/markdown;charset=utf-8');
+  showFeedback('Markdown baixado!');
+}
+
+function downloadSelectedBlocksAsTxt() {
+  const alvos = getSelectedBlockElements();
+  if (alvos.length === 0) {
+    showFeedback('Nenhum bloco selecionado');
+    return;
+  }
+  const targets = alvos.map(serializeBlockEl);
+  const text = blocksToPlainText(targets);
+  const nome = getSuggestedBlockFilename(alvos, 'blocos');
+  downloadTextFile(`${nome}.txt`, text, 'text/plain;charset=utf-8');
+  showFeedback('Texto baixado!');
+}
+
+function saveSelectedBlocksAsTemplate() {
+  const alvos = getSelectedBlockElements();
+  if (alvos.length === 0) {
+    showFeedback('Nenhum bloco selecionado');
+    return;
+  }
+  const targets = alvos.length > 1 ? alvos : targetBlocksFor(alvos[0]);
+  const markdown = blocksToMarkdown(targets.map(serializeBlockEl));
+  if (!markdown.trim()) {
+    showFeedback('Nada para salvar');
+    return;
+  }
+  openSaveBlockTemplate(mobBtnSaveTpl, markdown, nome => {
+    showFeedback(`Modelo "${nome}" salvo`);
+    renderMobileTemplateList();
+  });
+}
+
+function deleteSelectedBlocks() {
+  const alvos = getSelectedBlockElements();
+  if (alvos.length === 0) return;
+  captureUndoPoint();
+  const prev = alvos[0].previousElementSibling;
+  alvos.forEach(b => b.remove());
+  if (root.children.length === 0) root.appendChild(createBlockEl('paragraph'));
+  renumberLists();
+  exitBlockSelectMode();
+  const focusTarget = (prev && document.body.contains(prev)) ? prev : root.firstElementChild;
+  if (focusTarget) {
+    const c = getContentEl(focusTarget);
+    c.focus();
+    setCaretOffset(c, c.textContent.length);
+  }
+  scheduleSave();
+}
+
+// ── Toque Longo em Blocos no Mobile para Seleção ─────────────────────────────
+let touchSelectTimer = null;
+let touchSelectStart = null;
+
+root.addEventListener('pointerdown', e => {
+  const isMobile = typeof document !== 'undefined' && document.documentElement.dataset.platform === 'mobile';
+  if (!isMobile) return;
+  if (e.pointerType === 'mouse' && e.button !== 0) return;
+
+  const targetBlock = e.target.closest('.block');
+  if (!targetBlock || !root.contains(targetBlock)) return;
+
+  if (e.target.closest('a, button, input, .block-checkbox, mark')) return;
+
+  touchSelectStart = { x: e.clientX, y: e.clientY, block: targetBlock };
+  clearTimeout(touchSelectTimer);
+
+  touchSelectTimer = setTimeout(() => {
+    if (!touchSelectStart) return;
+    const blk = touchSelectStart.block;
+    if (blk && root.contains(blk)) {
+      if (navigator.vibrate) {
+        try { navigator.vibrate(40); } catch (_) {}
+      }
+      enterBlockSelectMode(blk);
+    }
+    touchSelectStart = null;
+  }, 450);
+}, { passive: true });
+
+root.addEventListener('pointermove', e => {
+  if (!touchSelectStart) return;
+  const dx = Math.abs(e.clientX - touchSelectStart.x);
+  const dy = Math.abs(e.clientY - touchSelectStart.y);
+  if (dx > 10 || dy > 10) {
+    clearTimeout(touchSelectTimer);
+    touchSelectStart = null;
+  }
+}, { passive: true });
+
+root.addEventListener('pointerup', () => {
+  clearTimeout(touchSelectTimer);
+  touchSelectStart = null;
+}, { passive: true });
+
+root.addEventListener('pointercancel', () => {
+  clearTimeout(touchSelectTimer);
+  touchSelectStart = null;
+}, { passive: true });
 
 // Handlers do Popover Adicionar
 mobileAddPopover.querySelectorAll('.mob-popover-item').forEach(btn => {
@@ -3732,6 +4262,7 @@ function toggleMobileAddPopover() {
   mobileAddPopover.hidden = !mobileAddPopover.hidden;
   if (!mobileAddPopover.hidden) {
     closeMobileTypeSheet();
+    closeMobileTemplateSheet();
     closeMobileTextFormatSheet();
     closeMobileColorPopover();
   }
@@ -3766,6 +4297,7 @@ function toggleMobileTypeSheet() {
     if (block) lastFocusedBlock = block;
     mobileTypeSheet.hidden = false;
     closeMobileAddPopover();
+    closeMobileTemplateSheet();
     closeMobileTextFormatSheet();
     closeMobileColorPopover();
   } else {
@@ -3788,11 +4320,37 @@ document.addEventListener('pointerdown', e => {
   if (!mobileTypeSheet.hidden && !mobileTypeSheet.contains(e.target) && !mobBtnType.contains(e.target)) {
     closeMobileTypeSheet();
   }
+  if (!mobileTemplateSheet.hidden && !mobileTemplateSheet.contains(e.target) && !mobBtnTemplates.contains(e.target)) {
+    closeMobileTemplateSheet();
+  }
 });
 
-// Atualiza o estado da barra contextual (Texto Selecionado vs Ações de Bloco)
+// Atualiza o estado da barra contextual (Texto Selecionado vs Ações de Bloco vs Seleção de Blocos)
 function updateMobileToolbarState() {
   if (typeof document === 'undefined') return;
+
+  if (selectedBlockIds.size > 0 || isBlockSelectActive) {
+    mobileBlockBar.hidden = true;
+    mobileBlockBar.style.display = 'none';
+    mobileFormatBar.hidden = true;
+    mobileFormatBar.style.display = 'none';
+    mobileSelectBar.hidden = false;
+    mobileSelectBar.style.display = 'flex';
+
+    closeMobileAddPopover();
+    closeMobileTypeSheet();
+    closeMobileTemplateSheet();
+    closeMobileTextFormatSheet();
+    closeMobileColorPopover();
+
+    const count = selectedBlockIds.size;
+    mobSelectCount.textContent = count === 1 ? '1 bloco' : `${count} blocos`;
+    return;
+  }
+
+  mobileSelectBar.hidden = true;
+  mobileSelectBar.style.display = 'none';
+
   const sel = document.getSelection();
   const hasSelection = sel && !sel.isCollapsed && sel.rangeCount > 0 && root.contains(sel.anchorNode);
 
@@ -3803,6 +4361,7 @@ function updateMobileToolbarState() {
     mobileFormatBar.style.display = 'flex';
     closeMobileAddPopover();
     closeMobileTypeSheet();
+    closeMobileTemplateSheet();
   } else {
     mobileFormatBar.hidden = true;
     mobileFormatBar.style.display = 'none';
@@ -3825,6 +4384,8 @@ root.addEventListener('scroll', () => {
   closeMobileAddPopover();
   closeMobileTextFormatSheet();
   closeMobileColorPopover();
+  closeMobileTypeSheet();
+  closeMobileTemplateSheet();
 }, { passive: true });
 
 // Monta os elementos no DOM
@@ -3833,10 +4394,12 @@ mobileNotionToolbar.append(
   mobileColorPopover,
   mobileTextFormatSheet,
   mobileFormatBar,
-  mobileBlockBar
+  mobileBlockBar,
+  mobileSelectBar
 );
 noteSection.appendChild(mobileNotionToolbar);
 document.body.appendChild(mobileTypeSheet);
+document.body.appendChild(mobileTemplateSheet);
 updateMobileToolbarState();
 
 // ── Sincronização do Teclado Virtual (Notion Mobile Toolbar & VisualViewport) ──
@@ -4095,57 +4658,15 @@ blockAddBtn.addEventListener('click', e => {
   }
 });
 
-// ── Seleção múltipla de blocos (Shift+clique na alça) ─────────────────────────
-let selectedBlockIds     = new Set();
-let lastHandleClickedId  = null;
-let selecaoEspelhada     = false;   // a seleção de blocos nasceu de uma seleção de texto
-
-function findBlockById(id) {
-  return [...root.children].find(el => el.classList?.contains('block') && el.dataset.id === id) || null;
-}
-
-function orderedBlocks() {
-  return [...root.children].filter(el => el.classList?.contains('block'));
-}
-
-function setBlockSelection(ids) {
-  root.querySelectorAll('.block.block-selected').forEach(b => b.classList.remove('block-selected'));
-  selectedBlockIds = new Set(ids);
-  for (const b of orderedBlocks()) {
-    if (selectedBlockIds.has(b.dataset.id)) b.classList.add('block-selected');
-  }
-  // Com o bloco inteiro realçado, o realce nativo do texto por baixo vira um
-  // borrão duplo. A classe apaga só o desenho dele — a seleção de texto
-  // continua existindo, que é o que a barra de formatação usa.
-  root.classList.toggle('blocks-selected', selectedBlockIds.size > 1);
-}
-
-function clearBlockSelection() {
-  setBlockSelection([]);
-  lastHandleClickedId = null;
-  selecaoEspelhada = false;
-}
-
-function selectBlockRange(fromBlock, toBlock) {
-  const all = orderedBlocks();
-  const a = all.indexOf(fromBlock), b = all.indexOf(toBlock);
-  if (a === -1 || b === -1) return;
-  const [lo, hi] = a < b ? [a, b] : [b, a];
-  setBlockSelection(all.slice(lo, hi + 1).map(el => el.dataset.id));
-}
-
-// Blocos-alvo de uma ação do menu: se o bloco clicado faz parte de uma
-// seleção múltipla ativa, a ação vale pra todos ela; senão, só pra ele.
-function targetBlocksFor(block) {
-  if (selectedBlockIds.size > 1 && selectedBlockIds.has(block.dataset.id)) {
-    return orderedBlocks().filter(el => selectedBlockIds.has(el.dataset.id));
-  }
-  return [block];
-}
+// (A lógica principal de seleção de blocos foi inicializada acima, junto com as barras de atalhos)
 
 document.addEventListener('mousedown', e => {
   if (selectedBlockIds.size === 0) return;
   if (blockMenuEl && blockMenuEl.contains(e.target)) return;
+  if (typeof mobileNotionToolbar !== 'undefined' && mobileNotionToolbar.contains(e.target)) return;
+  if (typeof mobileTemplateSheet !== 'undefined' && mobileTemplateSheet.contains(e.target)) return;
+  if (typeof mobileTypeSheet !== 'undefined' && mobileTypeSheet.contains(e.target)) return;
+  if (isBlockSelectActive && root.contains(e.target)) return;
   // .contains(), não === : o alvo real do clique é o <span> do ícone dentro
   // do botão, nunca o próprio <button>. Com === isso nunca batia, e clicar na
   // alça sempre limpava o grupo antes de handleHandleClick chegar a lê-lo.

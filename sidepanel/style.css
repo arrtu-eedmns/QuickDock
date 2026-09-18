@@ -3625,7 +3625,7 @@ html[data-platform="mobile"] .mob-btn .qd-icon {
 /* Bottom Sheet de Troca de Bloco (SEM modal e SEM scrim) */
 .mobile-type-sheet-no-scrim {
   position: fixed;
-  bottom: 0;
+  bottom: var(--keyboard-offset, 0px);
   left: 0;
   right: 0;
   max-height: 52vh;
@@ -3729,6 +3729,141 @@ html[data-platform="mobile"] .mob-btn .qd-icon {
 .mob-sheet-item .qd-icon {
   font-size: 22px;
   color: var(--text-muted);
+}
+
+/* Bottom Sheet de Modelos de Bloco (SEM modal e SEM scrim) */
+.mobile-template-sheet-no-scrim {
+  position: fixed;
+  bottom: var(--keyboard-offset, 0px);
+  left: 0;
+  right: 0;
+  max-height: 52vh;
+  background: var(--bg);
+  border-top: 1px solid var(--border);
+  border-radius: 18px 18px 0 0;
+  box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.22);
+  z-index: 960;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: sheet-slide-up 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.mobile-template-sheet-no-scrim[hidden] {
+  display: none !important;
+}
+
+.mob-template-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 14px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  max-height: 34vh;
+}
+
+.mob-template-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-secondary);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  text-align: left;
+  transition: background 0.12s, border-color 0.12s;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.mob-template-item:active {
+  background: var(--bg-hover);
+  border-color: var(--accent);
+}
+
+.mob-template-item .qd-icon {
+  font-size: 18px;
+  color: var(--accent);
+}
+
+.mob-template-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mob-template-empty {
+  padding: 24px 12px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.mob-template-footer {
+  padding: 8px 14px 18px;
+  border-top: 1px solid var(--border);
+  background: var(--bg);
+  flex-shrink: 0;
+}
+
+.mob-template-save-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  padding: 9px 12px;
+  border-radius: 8px;
+  border: 1px dashed var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  color: var(--accent);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.12s;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.mob-template-save-btn:active {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.mob-template-save-btn .qd-icon {
+  font-size: 18px;
+}
+
+/* Barra do Modo de Seleção de Blocos (mobileSelectBar) */
+.mobile-select-bar {
+  background: color-mix(in srgb, var(--accent) 7%, var(--bg-secondary));
+}
+
+.mob-select-count {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+  margin-right: 4px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.mob-btn-danger {
+  color: var(--danger, #ef4444);
+}
+
+.mob-btn-danger:active {
+  background: color-mix(in srgb, var(--danger, #ef4444) 15%, transparent);
+  color: var(--danger, #ef4444);
 }
 
 @keyframes popover-fade-in {
