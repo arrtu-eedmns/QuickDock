@@ -1,8 +1,8 @@
 import { initNotesTabs, createTutorialNote, downloadAllNotes, refreshNotesList, getActiveNoteUid } from './modules/notes-tabs.js';
 import { positionPopover } from './modules/popover.js';
-import { initDocuments } from './modules/documents.js';
+import { initDocuments, toggleDocsCollapsed } from './modules/documents.js';
 import { loadTheme, saveTheme } from './modules/storage.js';
-import { initResizer } from './modules/resizer.js';
+import { initResizer, toggleDocsExtension } from './modules/resizer.js';
 import { SyncController, SYNC_STATE } from './modules/sync-controller.js';
 import { canSafelyReloadCurrentNote, switchToNote, flushSave, isEditingTemplate, setImageResolver } from './modules/note.js';
 import { conectarPainel, applyPlatform } from './modules/platform.js';
@@ -70,6 +70,14 @@ function openAppMenu() {
   };
 
   const dark = html.getAttribute('data-theme') === 'dark';
+  addOpt('description', 'Documentos', async () => {
+    const isMobile = html.getAttribute('data-platform') === 'mobile' || html.dataset.platform === 'mobile';
+    if (isMobile) {
+      await toggleDocsCollapsed();
+    } else {
+      toggleDocsExtension();
+    }
+  });
   addOpt('menu_book', 'Ver tutorial', createTutorialNote);
   addOpt(dark ? 'light_mode' : 'dark_mode', dark ? 'Tema claro' : 'Tema escuro', toggleTheme);
   addOpt('sync', 'Sincronização…', () => syncController?.abrirPopover(btnAppMenu));

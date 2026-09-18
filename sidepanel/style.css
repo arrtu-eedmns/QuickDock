@@ -2735,38 +2735,44 @@ body:not(.booting) .note-editor-blocks {
   order: 4;
 }
 
-/* ===== EXTENSÃO: CABEÇALHO E ABAS BASEADOS NO REDESIGN.HTML ===== */
-html[data-platform="extension"] #app {
+/* ===== EXTENSÃO E MOBILE: CABEÇALHO E ABAS BASEADOS NO REDESIGN.HTML ===== */
+html[data-platform="extension"] #app,
+html[data-platform="mobile"] #app {
   display: flex;
   flex-direction: column;
-  height: 100vh;
+  height: var(--vv-height, 100vh);
   overflow: hidden;
 }
 
-html[data-platform="extension"] .app-aside {
+html[data-platform="extension"] .app-aside,
+html[data-platform="mobile"] .app-aside {
   display: contents;
 }
 
-html[data-platform="extension"] .aside-brand {
+html[data-platform="extension"] .aside-brand,
+html[data-platform="mobile"] .aside-brand {
   display: none;
 }
 
-html[data-platform="extension"] .aside-actions {
+html[data-platform="extension"] .aside-actions,
+html[data-platform="mobile"] .aside-actions {
   display: contents;
 }
 
-html[data-platform="extension"] .aside-search-label {
+html[data-platform="extension"] .aside-search-label,
+html[data-platform="mobile"] .aside-search-label {
   display: none;
 }
 
-/* Cabeçalho da extensão em Grid: [Menu/H] [Novo/+] [Abas centrais] [Sync/S] [Mais/M] */
-html[data-platform="extension"] .notes-tabbar {
+/* Cabeçalho em Grid: [Menu/H] [Novo/+] [Abas centrais] [Sync/S] [Mais/M] */
+html[data-platform="extension"] .notes-tabbar,
+html[data-platform="mobile"] .notes-tabbar {
   order: 1;
   display: grid;
   grid-template-columns: auto auto 1fr auto auto;
   align-items: center;
   gap: 5px;
-  padding: 6px 8px;
+  padding: 10px 8px;
   background: var(--bg);
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
@@ -2776,7 +2782,8 @@ html[data-platform="extension"] .notes-tabbar {
 }
 
 /* Degradê fade esquerdo (atrás do botão +, projetando profundidade sobre as abas) */
-html[data-platform="extension"] .notes-tabbar::before {
+html[data-platform="extension"] .notes-tabbar::before,
+html[data-platform="mobile"] .notes-tabbar::before {
   content: '';
   position: absolute;
   top: 0;
@@ -2789,7 +2796,8 @@ html[data-platform="extension"] .notes-tabbar::before {
 }
 
 /* Degradê fade direito (atrás do botão S, projetando profundidade sobre as abas) */
-html[data-platform="extension"] .notes-tabbar::after {
+html[data-platform="extension"] .notes-tabbar::after,
+html[data-platform="mobile"] .notes-tabbar::after {
   content: '';
   position: absolute;
   top: 0;
@@ -2802,7 +2810,8 @@ html[data-platform="extension"] .notes-tabbar::after {
 }
 
 /* Ordem e visual dos controles do cabeçalho */
-html[data-platform="extension"] #btn-notes-list {
+html[data-platform="extension"] #btn-notes-list,
+html[data-platform="mobile"] #btn-notes-list {
   order: 1;
   position: relative;
   z-index: 10;
@@ -2822,18 +2831,21 @@ html[data-platform="extension"] #btn-notes-list {
   transition: background 0.15s, color 0.15s, border-color 0.15s;
 }
 
-html[data-platform="extension"] #btn-notes-list:hover {
+html[data-platform="extension"] #btn-notes-list:hover,
+html[data-platform="mobile"] #btn-notes-list:hover {
   background: var(--bg-hover);
   color: var(--text);
   border-color: var(--border);
 }
 
-html[data-platform="extension"] #btn-notes-list .qd-icon {
+html[data-platform="extension"] #btn-notes-list .qd-icon,
+html[data-platform="mobile"] #btn-notes-list .qd-icon {
   font-size: 18px;
 }
 
 /* Botão de Adicionar (+) em formato de pílula (sempre em primeiro plano) */
-html[data-platform="extension"] #btn-new-note {
+html[data-platform="extension"] #btn-new-note,
+html[data-platform="mobile"] #btn-new-note {
   order: 2;
   position: relative;
   z-index: 10;
@@ -2854,21 +2866,25 @@ html[data-platform="extension"] #btn-new-note {
   transition: background 0.15s, border-color 0.15s, color 0.15s, transform 0.1s;
 }
 
-html[data-platform="extension"] #btn-new-note:hover {
+html[data-platform="extension"] #btn-new-note:hover,
+html[data-platform="mobile"] #btn-new-note:hover {
   background: var(--bg-hover);
   border-color: var(--text-muted);
 }
 
-html[data-platform="extension"] #btn-new-note:active {
+html[data-platform="extension"] #btn-new-note:active,
+html[data-platform="mobile"] #btn-new-note:active {
   transform: scale(0.96);
 }
 
-html[data-platform="extension"] #btn-new-note .qd-icon {
+html[data-platform="extension"] #btn-new-note .qd-icon,
+html[data-platform="mobile"] #btn-new-note .qd-icon {
   font-size: 18px;
 }
 
 /* Área central de abas com scroll horizontal que entra até a metade dos botões + e S com dissolução em fade */
-html[data-platform="extension"] .notes-tabs {
+html[data-platform="extension"] .notes-tabs,
+html[data-platform="mobile"] .notes-tabs {
   order: 3;
   display: flex;
   align-items: center;
@@ -2901,12 +2917,14 @@ html[data-platform="extension"] .notes-tabs {
   );
 }
 
-html[data-platform="extension"] .notes-tabs::-webkit-scrollbar {
+html[data-platform="extension"] .notes-tabs::-webkit-scrollbar,
+html[data-platform="mobile"] .notes-tabs::-webkit-scrollbar {
   display: none;
 }
 
 /* Abas em formato de pílula (Pill Tabs) */
-html[data-platform="extension"] .note-tab {
+html[data-platform="extension"] .note-tab,
+html[data-platform="mobile"] .note-tab {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -2924,12 +2942,14 @@ html[data-platform="extension"] .note-tab {
   transition: background 0.12s, border-color 0.12s, color 0.12s, box-shadow 0.12s;
 }
 
-html[data-platform="extension"] .note-tab:hover {
+html[data-platform="extension"] .note-tab:hover,
+html[data-platform="mobile"] .note-tab:hover {
   background: var(--bg-hover);
   color: var(--text);
 }
 
-html[data-platform="extension"] .note-tab.active {
+html[data-platform="extension"] .note-tab.active,
+html[data-platform="mobile"] .note-tab.active {
   background: var(--bg);
   border-color: var(--accent);
   color: var(--text);
@@ -2937,14 +2957,16 @@ html[data-platform="extension"] .note-tab.active {
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
 }
 
-html[data-platform="extension"] .note-tab-dot {
+html[data-platform="extension"] .note-tab-dot,
+html[data-platform="mobile"] .note-tab-dot {
   width: 8px;
   height: 8px;
   border-radius: 50%;
   flex-shrink: 0;
 }
 
-html[data-platform="extension"] .note-tab-title {
+html[data-platform="extension"] .note-tab-title,
+html[data-platform="mobile"] .note-tab-title {
   font-size: 11.5px;
   line-height: 1;
   overflow: hidden;
@@ -2953,7 +2975,8 @@ html[data-platform="extension"] .note-tab-title {
 }
 
 /* Botão de Sincronização (S) sempre em primeiro plano sobre o degradê */
-html[data-platform="extension"] #btn-sync {
+html[data-platform="extension"] #btn-sync,
+html[data-platform="mobile"] #btn-sync {
   order: 4;
   position: relative;
   z-index: 10;
@@ -2974,13 +2997,15 @@ html[data-platform="extension"] #btn-sync {
   transition: background 0.15s, border-color 0.15s, color 0.15s;
 }
 
-html[data-platform="extension"] #btn-sync:hover {
+html[data-platform="extension"] #btn-sync:hover,
+html[data-platform="mobile"] #btn-sync:hover {
   background: var(--bg-hover);
   color: var(--text);
   border-color: var(--text-muted);
 }
 
-html[data-platform="extension"] #btn-app-menu {
+html[data-platform="extension"] #btn-app-menu,
+html[data-platform="mobile"] #btn-app-menu {
   order: 5;
   position: relative;
   z-index: 10;
@@ -3000,7 +3025,8 @@ html[data-platform="extension"] #btn-app-menu {
   transition: background 0.15s, color 0.15s, border-color 0.15s;
 }
 
-html[data-platform="extension"] #btn-app-menu:hover {
+html[data-platform="extension"] #btn-app-menu:hover,
+html[data-platform="mobile"] #btn-app-menu:hover {
   background: var(--bg-hover);
   color: var(--text);
   border-color: var(--border);
@@ -3141,7 +3167,7 @@ html[data-platform="extension"] .docs-section.is-minimized #docs-hidden-hint {
 
 .copy-menu.is-bottom-sheet {
   position: fixed !important;
-  bottom: 0 !important;
+  bottom: var(--keyboard-offset, 0px) !important;
   left: 0 !important;
   right: 0 !important;
   top: auto !important;
@@ -3208,13 +3234,21 @@ html[data-platform="mobile"] #resize-handle {
 }
 
 html[data-platform="mobile"] .note-section {
-  height: 100vh !important;
-  padding-bottom: 46px;
+  order: 2;
+  flex: 1 1 0px !important;
+  min-height: 0 !important;
+  height: auto !important;
+  max-height: none !important;
+  display: flex !important;
+  flex-direction: column !important;
+  position: relative !important;
+  overflow: hidden !important;
+  padding-bottom: 0 !important;
 }
 
 html[data-platform="mobile"] .docs-section {
   position: fixed;
-  bottom: 0;
+  bottom: var(--keyboard-offset, 0px);
   left: 0;
   right: 0;
   z-index: 900;
@@ -3224,7 +3258,7 @@ html[data-platform="mobile"] .docs-section {
   border-bottom: none;
   box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.12);
   overflow: hidden;
-  transition: height 0.28s cubic-bezier(0.16, 1, 0.3, 1), transform 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.2s ease;
 }
 
 /* Pílula de arrasto para o bottom sheet de documentos */
@@ -3238,27 +3272,35 @@ html[data-platform="mobile"] .docs-section::before {
   border-radius: 99px;
   margin: 6px auto 2px;
   flex-shrink: 0;
+  cursor: pointer;
 }
 
 html[data-platform="mobile"] .docs-header {
   padding: 4px 12px 6px;
 }
 
-/* Estado recolhido (peek bar fixa no rodapé) */
+/* Estado recolhido (fechado): escondido abaixo da tela sem ocupar espaço e sem peek bar */
 html[data-platform="mobile"] .docs-section.is-collapsed {
-  height: 44px !important;
-  min-height: 44px !important;
-  max-height: 44px !important;
-  flex: 0 0 44px !important;
-  transform: translateY(0);
+  transform: translateY(100%) !important;
+  pointer-events: none !important;
+  opacity: 0 !important;
+  visibility: hidden !important;
+  height: 0 !important;
+  min-height: 0 !important;
+  max-height: 0 !important;
+  flex: 0 0 0px !important;
 }
 
-/* Estado expandido (slide-up para 75vh) */
+/* Estado expandido (slide-up integrado no rodapé sem scrim/backdrop) */
 html[data-platform="mobile"] .docs-section:not(.is-collapsed) {
-  height: 75vh !important;
-  min-height: 75vh !important;
-  max-height: 78vh !important;
-  flex: 0 0 75vh !important;
+  transform: translateY(0) !important;
+  pointer-events: auto !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+  height: 60vh !important;
+  min-height: 220px !important;
+  max-height: 80vh !important;
+  flex: 0 0 auto !important;
   background: var(--bg);
   animation: sheet-slide-up 0.24s cubic-bezier(0.16, 1, 0.3, 1);
 }

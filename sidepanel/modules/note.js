@@ -1,7 +1,7 @@
 import {
   getNoteById, updateNoteBlocksById, saveFile, loadFileBlob, moveInlineFileToDocuments,
 } from './storage.js';
-import { refreshDocuments } from './documents.js';
+import { refreshDocuments, setDocsCollapsed } from './documents.js';
 import { setActiveArea, isNoteActive } from './active-area.js';
 import { openModal } from './modal.js';
 import { tryParseMath } from './math-parser.js';
@@ -3838,6 +3838,74 @@ mobileNotionToolbar.append(
 noteSection.appendChild(mobileNotionToolbar);
 document.body.appendChild(mobileTypeSheet);
 updateMobileToolbarState();
+
+// ── Sincronização do Teclado Virtual (Notion Mobile Toolbar & VisualViewport) ──
+function syncVisualViewport() {
+  if (typeof window === 'undefined' || !window.visualViewport) return;
+  const isMobile = typeof document !== 'undefined' && document.documentElement.dataset.platform === 'mobile';
+  const app = document.getElementById('app');
+  const vv = window.visualViewport;
+
+  if (!isMobile) {
+    if (app) {
+      app.style.height = '';
+      app.style.transform = '';
+    }
+    document.documentElement.style.removeProperty('--vv-height');
+    document.documentElement.style.removeProperty('--keyboard-offset');
+    return;
+  }
+
+  const vvHeight = vv.height;
+  const keyboardOffset = Math.max(0, window.innerHeight - vv.height - (vv.offsetTop || 0));
+
+  document.documentElement.style.setProperty('--vv-height', `${vvHeight}px`);
+  document.documentElement.style.setProperty('--keyboard-offset', `${keyboardOffset}px`);
+
+  if (app) {
+    app.style.height = `${vvHeight}px`;
+    app.style.transform = vv.offsetTop ? `translateY(${vv.offsetTop}px)` : '';
+  }
+
+  // Quando o teclado sobe, garante que o bloco em edição continue visível acima da barra
+  if (document.activeElement && root && root.contains(document.activeElement)) {
+    const blk = currentBlock() || lastFocusedBlock;
+    if (blk) {
+      requestAnimationFrame(() => {
+        blk.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      });
+    }
+  }
+}
+
+if (typeof window !== 'undefined' && window.visualViewport) {
+  window.visualViewport.addEventListener('resize', syncVisualViewport);
+  window.visualViewport.addEventListener('scroll', syncVisualViewport);
+  window.addEventListener('resize', syncVisualViewport);
+  window.addEventListener('orientationchange', syncVisualViewport);
+}
+
+// Ao tocar no editor no mobile, se documentos estiver aberto, recolhe-o suavemente
+root.addEventListener('pointerdown', () => {
+  const isMobile = typeof document !== 'undefined' && document.documentElement.dataset.platform === 'mobile';
+  if (isMobile) {
+    const docsSec = document.querySelector('.docs-section');
+    if (docsSec && !docsSec.classList.contains('is-collapsed')) {
+      setDocsCollapsed(true);
+    }
+  }
+});
+
+root.addEventListener('focusin', () => {
+  syncVisualViewport();
+  updateMobileToolbarState();
+});
+
+root.addEventListener('focusout', () => {
+  setTimeout(syncVisualViewport, 120);
+});
+
+syncVisualViewport();
 
 // ── Menu de cálculo ───────────────────────────────────────────────────────────
 function showMathMenu(parsed, anchorRect) {

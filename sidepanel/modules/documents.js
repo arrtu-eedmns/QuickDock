@@ -56,18 +56,9 @@ export function updateDocsHeader() {
 let docsBackdropEl = null;
 
 function updateDocsBackdrop(open) {
-  const isMobile = typeof document !== 'undefined' && document.documentElement.dataset.platform === 'mobile';
-  if (open && isMobile) {
-    if (!docsBackdropEl) {
-      docsBackdropEl = document.createElement('div');
-      docsBackdropEl.className = 'docs-sheet-backdrop';
-      docsBackdropEl.addEventListener('click', () => toggleDocsCollapsed());
-      document.body.appendChild(docsBackdropEl);
-    }
-  } else {
-    docsBackdropEl?.remove();
-    docsBackdropEl = null;
-  }
+  // Mobile e extensão funcionam como bottom sheet integrado sem scrim/backdrop (sem modal sem scrimm)
+  docsBackdropEl?.remove();
+  docsBackdropEl = null;
 }
 
 export function setDocsCollapsed(collapsed) {
@@ -419,6 +410,19 @@ export async function initDocuments() {
         if (isMobile) {
           toggleDocsCollapsed();
         }
+      }
+    });
+  }
+
+  if (docsSection) {
+    docsSection.addEventListener('pointerdown', e => {
+      const isMobile = typeof document !== 'undefined' && document.documentElement.dataset.platform === 'mobile';
+      if (!isMobile || docsSection.classList.contains('is-collapsed')) return;
+      const rect = docsSection.getBoundingClientRect();
+      if (e.clientY >= rect.top && e.clientY <= rect.top + 24) {
+        e.preventDefault();
+        e.stopPropagation();
+        toggleDocsCollapsed();
       }
     });
   }
