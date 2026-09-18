@@ -27,6 +27,11 @@
 /* ===== RESET ===== */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+/* Tira o flash cinza/azul de toque do WebKit mobile em tudo — botão, bloco,
+   link. As regras pontuais mais abaixo continuam existindo, mas isso cobre
+   qualquer coisa que ainda escapasse. */
+* { -webkit-tap-highlight-color: transparent; }
+
 /* ===== ÍCONES (fonte Material Symbols Rounded, via icons.js) ===== */
 .qd-icon {
   font-size: 1.15em;
