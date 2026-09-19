@@ -18,6 +18,7 @@ import {
 import { blocksToMarkdown, blocksToPlainText, parseMarkdownToBlocks } from './blocks.js';
 import { buildBackup, parseBackup } from './backup.js';
 import { iconSvg, createIcon } from './icons.js';
+import { switchView } from './views.js';
 
 const tabsEl        = document.getElementById('notes-tabs');
 const btnNew        = document.getElementById('btn-new-note');
@@ -1249,6 +1250,8 @@ export async function editTemplate(tpl) {
   templateKind.value = tpl.kind;
   templateBar.hidden = false;
   noteSection.classList.add('template-mode');
+  document.documentElement.classList.add('template-mode');
+  document.body.classList.add('template-mode');
 }
 
 async function exitTemplate(salvar) {
@@ -1267,6 +1270,8 @@ async function exitTemplate(salvar) {
   editingTpl = null;
   templateBar.hidden = true;
   noteSection.classList.remove('template-mode');
+  document.documentElement.classList.remove('template-mode');
+  document.body.classList.remove('template-mode');
 
   const voltarPara = notesMeta.some(n => n.id === returnNoteId) ? returnNoteId : notesMeta[0]?.id;
 
@@ -1332,7 +1337,8 @@ async function openNewMenu() {
   }
 
   pop.appendChild(Object.assign(document.createElement('div'), { className: 'math-divider' }));
-  newMenuOpt(pop, 'Gerenciar modelos…', () => openTemplatesManager(btnNew, {
+  newMenuOpt(pop, 'Galeria de modelos…', () => switchView('templates'));
+  newMenuOpt(pop, 'Gerenciar modelos (menu rápido)…', () => openTemplatesManager(btnNew, {
     onUse: createNoteFromTemplate,
     getCurrentNote: currentNoteAsMarkdown,
   }));
@@ -1382,7 +1388,13 @@ async function activateNote(id) {
   await switchToNote(id);
   await setDocumentsNote(id);
   await saveActiveNoteId(id);
+  switchView('editor');
 }
+
+document.addEventListener('quickdock:use-template-note', async e => {
+  const { template } = e.detail || {};
+  if (template) await createNoteFromTemplate(template);
+});
 
 export async function initNotesTabs() {
   await migrateLegacyNoteIfNeeded();

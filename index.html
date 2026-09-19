@@ -37,16 +37,32 @@
   <div id="app">
 
     <section class="note-section">
-      <!-- Barra de modo modelo -->
+      <!-- Barra de modo modelo: design refinado unificado ao cabeçalho moderno -->
       <div id="template-bar" class="template-bar" hidden>
-        <span class="template-bar-tag">Modelo</span>
-        <input id="template-bar-name" class="template-bar-name" type="text" placeholder="Nome do modelo" />
-        <select id="template-bar-kind" class="template-bar-kind" title="Onde este modelo é usado">
-          <option value="note">Nota inteira</option>
-          <option value="block">Bloco</option>
-        </select>
-        <button id="template-bar-cancel" class="template-bar-btn" title="Sair sem salvar">Cancelar</button>
-        <button id="template-bar-save" class="template-bar-btn template-bar-primary">Salvar</button>
+        <div class="template-bar-left">
+          <button id="template-bar-cancel" class="template-bar-btn template-bar-back" title="Sair sem salvar" aria-label="Sair sem salvar">
+            <span class="qd-icon material-symbols-rounded" aria-hidden="true">arrow_back</span>
+          </button>
+          <div class="template-bar-tag">
+            <span class="qd-icon material-symbols-rounded" aria-hidden="true">auto_stories</span>
+            <span>Modelo</span>
+          </div>
+        </div>
+        <div class="template-bar-center">
+          <input id="template-bar-name" class="template-bar-name" type="text" placeholder="Nome do modelo..." aria-label="Nome do modelo" />
+          <div class="template-bar-select-wrap">
+            <select id="template-bar-kind" class="template-bar-kind" title="Onde este modelo é usado">
+              <option value="note">Nota inteira</option>
+              <option value="block">Bloco</option>
+            </select>
+          </div>
+        </div>
+        <div class="template-bar-right">
+          <button id="template-bar-save" class="template-bar-btn template-bar-primary" title="Salvar modelo">
+            <span class="qd-icon material-symbols-rounded" aria-hidden="true">check</span>
+            <span>Salvar</span>
+          </button>
+        </div>
       </div>
 
       <div class="note-watermark" aria-hidden="true">
@@ -65,16 +81,98 @@
       </span>
     </section>
 
+    <!-- Galeria de Modelos (Visão em tela completa / cards) -->
+    <section class="templates-gallery-view" id="templates-gallery-view" hidden>
+      <header class="gallery-header">
+        <div class="gallery-header-left">
+          <button id="btn-gallery-back" class="icon-btn gallery-back-btn" title="Voltar para as notas" aria-label="Voltar para as notas">
+            <span class="qd-icon material-symbols-rounded" aria-hidden="true">arrow_back</span>
+          </button>
+          <div class="gallery-title-group">
+            <h1 class="gallery-title">Modelos</h1>
+            <span id="gallery-count" class="gallery-count-badge">0 modelos</span>
+          </div>
+        </div>
+
+        <div class="gallery-header-center">
+          <div class="gallery-search-box">
+            <span class="qd-icon material-symbols-rounded search-icon" aria-hidden="true">search</span>
+            <input type="text" id="gallery-search-input" class="gallery-search-input" placeholder="Buscar modelos..." aria-label="Buscar modelos" />
+            <button id="gallery-search-clear" class="icon-btn gallery-search-clear" title="Limpar busca" aria-label="Limpar busca" hidden>
+              <span class="qd-icon material-symbols-rounded" aria-hidden="true">close</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="gallery-header-right">
+          <button id="btn-gallery-new" class="gallery-action-btn primary" title="Criar novo modelo">
+            <span class="qd-icon material-symbols-rounded" aria-hidden="true">add</span>
+            <span>Novo modelo</span>
+          </button>
+          <button id="btn-gallery-import" class="gallery-action-btn" title="Importar modelo (.md)">
+            <span class="qd-icon material-symbols-rounded" aria-hidden="true">upload_file</span>
+            <span>Importar</span>
+          </button>
+          <input type="file" id="gallery-import-input" accept=".md,.txt,text/markdown,text/plain" hidden />
+        </div>
+      </header>
+
+      <div class="gallery-filter-bar">
+        <div class="gallery-tabs" role="tablist">
+          <button class="gallery-tab active" data-filter="all" role="tab" aria-selected="true">
+            <span class="qd-icon material-symbols-rounded" aria-hidden="true">dashboard</span>
+            <span>Todos</span>
+            <span class="gallery-tab-count" id="count-tab-all">0</span>
+          </button>
+          <button class="gallery-tab" data-filter="note" role="tab" aria-selected="false">
+            <span class="qd-icon material-symbols-rounded" aria-hidden="true">description</span>
+            <span>Notas</span>
+            <span class="gallery-tab-count" id="count-tab-note">0</span>
+          </button>
+          <button class="gallery-tab" data-filter="block" role="tab" aria-selected="false">
+            <span class="qd-icon material-symbols-rounded" aria-hidden="true">widgets</span>
+            <span>Blocos</span>
+            <span class="gallery-tab-count" id="count-tab-block">0</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="gallery-content-scroll" id="gallery-content-scroll">
+        <div class="gallery-grid" id="gallery-grid"></div>
+        <div class="gallery-empty hidden" id="gallery-empty">
+          <span class="qd-icon material-symbols-rounded gallery-empty-icon" aria-hidden="true">auto_stories</span>
+          <h3 class="gallery-empty-title">Nenhum modelo encontrado</h3>
+          <p class="gallery-empty-desc">Crie um novo modelo ou importe arquivos Markdown para começar.</p>
+          <button class="gallery-empty-btn" id="gallery-empty-create-btn">
+            <span class="qd-icon material-symbols-rounded" aria-hidden="true">add</span>
+            <span>Criar modelo agora</span>
+          </button>
+        </div>
+      </div>
+    </section>
+
     <div id="resize-handle" class="resize-handle" title="Arraste para redimensionar"></div>
 
     <aside class="app-aside" id="app-aside">
       <div class="notes-tabbar">
         <div class="aside-brand" id="aside-brand">
-          <span class="aside-brand-title">QuickDock</span>
+          <div class="aside-brand-lockup">
+            <svg class="aside-brand-icon" viewBox="0 0 512 512" width="20" height="20" aria-hidden="true">
+              <path d="M153.03 153.03 A150 150 0 1 1 358.97 358.97 A150 150 0 0 0 153.03 153.03 Z" fill="currentColor"/>
+              <path d="M153.03 153.03 A150 150 0 1 0 358.97 358.97 A150 150 0 0 1 153.03 153.03 Z" fill="currentColor"/>
+              <path d="M241.59 241.59 L476.35 431.09 L386.18 431.44 Z" fill="currentColor"/>
+            </svg>
+            <span class="aside-brand-title">QuickDock</span>
+          </div>
         </div>
-        <button id="btn-notes-list" class="icon-btn" title="Todas as notas" aria-label="Todas as notas">
+        <button id="btn-notes-list" class="icon-btn aside-nav-btn" title="Todas as notas" aria-label="Todas as notas">
           <span class="qd-icon material-symbols-rounded" aria-hidden="true">menu</span>
           <span class="aside-search-label">Todas as notas</span>
+        </button>
+        <button id="btn-nav-templates" class="icon-btn aside-nav-btn" title="Galeria de Modelos" aria-label="Galeria de Modelos">
+          <span class="qd-icon material-symbols-rounded" aria-hidden="true">auto_stories</span>
+          <span class="aside-nav-label">Modelos</span>
+          <span id="nav-templates-count" class="aside-nav-badge">0</span>
         </button>
         <div id="notes-tabs" class="notes-tabs"></div>
         <input type="file" id="note-import-input" accept=".md,.txt,text/markdown,text/plain" hidden />

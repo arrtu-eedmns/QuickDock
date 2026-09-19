@@ -2840,6 +2840,31 @@ for (const entrada of ['', null, undefined, '\n\n']) {
   ok('mobile · sheets usam --keyboard-offset', styleSource.includes('bottom: var(--keyboard-offset, 0px)'));
 }
 
+// ── 17. Sistema de Múltiplas Telas, Galeria de Modelos e Refatoração Desktop ──
+{
+  const { readFile } = await import('node:fs/promises');
+  const indexHtml = await readFile(new URL('../index.html', import.meta.url), 'utf8');
+  const errHtml   = await readFile(new URL('../404.html', import.meta.url), 'utf8');
+  const sideHtml  = await readFile(new URL('../sidepanel/index.html', import.meta.url), 'utf8');
+  const styleCss  = await readFile(new URL('../sidepanel/style.css', import.meta.url), 'utf8');
+  const viewsJs   = await readFile(new URL('../sidepanel/modules/views.js', import.meta.url), 'utf8');
+  const tplGalJs  = await readFile(new URL('../sidepanel/modules/templates-gallery.js', import.meta.url), 'utf8');
+
+  ok('telas · index.html e 404.html mantêm 100% de paridade', indexHtml === errHtml);
+  ok('telas · index.html define seção templates-gallery-view', indexHtml.includes('id="templates-gallery-view"'));
+  ok('telas · index.html define btn-nav-templates na aside', indexHtml.includes('id="btn-nav-templates"'));
+  ok('telas · sidepanel/index.html define templates-gallery-view', sideHtml.includes('id="templates-gallery-view"'));
+  ok('telas · views.js exporta switchView e getCurrentView', viewsJs.includes('export function switchView') && viewsJs.includes('export function getCurrentView'));
+  ok('telas · templates-gallery.js exporta initTemplatesGallery e renderTemplatesGallery', tplGalJs.includes('export function initTemplatesGallery') && tplGalJs.includes('export async function renderTemplatesGallery'));
+  ok('desktop · aside reposicionada à esquerda com border-right', styleCss.includes('html[data-platform="desktop"] .app-aside') && styleCss.includes('border-right: 1px solid var(--border)'));
+  ok('desktop · workspace/note-section à direita com order 2', styleCss.includes('html[data-platform="desktop"] .templates-gallery-view') && styleCss.includes('order: 2'));
+  ok('desktop · aside oculta btn-nav-templates no mobile e extensão', styleCss.includes('html[data-platform="extension"] #btn-nav-templates'));
+  ok('galeria · css define grid de cards e visual de preview', styleCss.includes('.gallery-grid') && styleCss.includes('.template-card') && styleCss.includes('.template-card-preview'));
+  ok('modo modelo · oculta barra de abas de notas ao editar modelo', styleCss.includes('.template-mode .notes-tabbar') && styleCss.includes('display: none !important'));
+  ok('modo modelo · header template-bar usa componentes modernos com seções', indexHtml.includes('template-bar-left') && indexHtml.includes('template-bar-center') && indexHtml.includes('template-bar-right'));
+  ok('mobile · note-section e galeria isoladas com hidden display none', styleCss.includes('html[data-platform="mobile"] .note-section[hidden]') && styleCss.includes('display: none !important'));
+}
+
 if (falhas.length) {
   console.error(`\n✗ ${falhas.length} falha(s), ${passou} ok\n`);
   for (const f of falhas) console.error(`  ✗ ${f}`);

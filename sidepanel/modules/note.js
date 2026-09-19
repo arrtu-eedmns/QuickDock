@@ -2230,6 +2230,14 @@ async function insertTemplateBlocks(markdown, atBlock) {
   scheduleSave();
 }
 
+document.addEventListener('quickdock:insert-template-blocks', e => {
+  const { content } = e.detail || {};
+  if (!content) return;
+  captureUndoPoint();
+  const target = currentBlock() || lastFocusedBlock || root.lastElementChild;
+  if (target) insertTemplateBlocks(content, target);
+});
+
 // Modelos entram no menu "/" como itens normais, filtráveis pelo nome.
 function slashItemsWithTemplates() {
   return [

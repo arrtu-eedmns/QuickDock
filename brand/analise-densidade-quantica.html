@@ -1,0 +1,1903 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>QuickDock — Análise de Identidade: Textura Densidade Quântica</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-dark: #101014;
+      --bg-card: #16161c;
+      --bg-card-hover: #1c1c24;
+      --border: rgba(255, 255, 255, 0.08);
+      --border-focus: rgba(167, 139, 250, 0.4);
+      --text: #f4f4f5;
+      --text-muted: #a1a1aa;
+      --text-dim: #71717a;
+      --accent: #7c3aed;
+      --accent-light: #a78bfa;
+      --accent-glow: #c4b5fd;
+      --accent-subtle: rgba(124, 58, 237, 0.15);
+      --font: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+      --font-mono: 'JetBrains Mono', monospace;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background-color: var(--bg-dark);
+      color: var(--text);
+      font-family: var(--font);
+      line-height: 1.5;
+      padding: 0;
+      margin: 0;
+      min-height: 100vh;
+      -webkit-font-smoothing: antialiased;
+      overflow-x: hidden;
+    }
+
+    /* Header & Hero */
+    header {
+      border-bottom: 1px solid var(--border);
+      background: radial-gradient(circle at 50% -20%, rgba(124, 58, 237, 0.25), transparent 70%), #101014;
+      padding: 40px 24px 32px;
+      text-align: center;
+      position: relative;
+    }
+
+    .badge-quantum {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 12px;
+      border-radius: 999px;
+      background: rgba(124, 58, 237, 0.2);
+      border: 1px solid rgba(167, 139, 250, 0.35);
+      color: var(--accent-glow);
+      font-size: 11.5px;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      margin-bottom: 14px;
+    }
+
+    .badge-quantum span.dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--accent-glow);
+      box-shadow: 0 0 8px var(--accent-glow);
+    }
+
+    h1 {
+      font-size: clamp(26px, 4vw, 36px);
+      font-weight: 800;
+      letter-spacing: -0.8px;
+      color: #ffffff;
+      margin-bottom: 10px;
+    }
+
+    h1 span.highlight {
+      background: linear-gradient(135deg, #ffffff 30%, #c4b5fd 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .subtitle {
+      max-width: 680px;
+      margin: 0 auto;
+      font-size: 15px;
+      color: var(--text-muted);
+      font-weight: 400;
+    }
+
+    .concept-quote {
+      margin: 18px auto 0;
+      max-width: 580px;
+      padding: 10px 18px;
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.03);
+      border-left: 3px solid var(--accent-light);
+      font-size: 13.5px;
+      color: #e4e4e7;
+      font-style: italic;
+    }
+
+    /* Layout principal */
+    main {
+      max-width: 1340px;
+      margin: 0 auto;
+      padding: 32px 20px 80px;
+      display: flex;
+      flex-direction: column;
+      gap: 36px;
+    }
+
+    .grid-stage {
+      display: grid;
+      grid-template-columns: 1fr 380px;
+      gap: 24px;
+      align-items: start;
+    }
+
+    @media (max-width: 1024px) {
+      .grid-stage {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    /* Cartão do Estágio Interativo */
+    .viewer-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 16px 40px rgba(0, 0, 0, 0.4);
+    }
+
+    .card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 20px;
+      border-bottom: 1px solid var(--border);
+      background: rgba(255, 255, 255, 0.02);
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    .card-title {
+      font-size: 14px;
+      font-weight: 700;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .tabs-variants {
+      display: flex;
+      background: rgba(0, 0, 0, 0.35);
+      padding: 3px;
+      border-radius: 8px;
+      gap: 2px;
+    }
+
+    .tab-btn {
+      padding: 5px 12px;
+      border-radius: 6px;
+      border: none;
+      background: transparent;
+      color: var(--text-muted);
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .tab-btn:hover {
+      color: #fff;
+    }
+
+    .tab-btn.is-active {
+      background: var(--accent);
+      color: #ffffff;
+      box-shadow: 0 2px 8px rgba(124, 58, 237, 0.4);
+    }
+
+    /* Área de Canvas / Visualização */
+    .viewport-box {
+      position: relative;
+      height: 520px;
+      background-color: var(--bg-dark);
+      background-image: radial-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px);
+      background-size: 24px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      user-select: none;
+      cursor: grab;
+    }
+
+    .viewport-box:active {
+      cursor: grabbing;
+    }
+
+    .svg-container {
+      width: 380px;
+      height: 380px;
+      transform-origin: center center;
+      transition: transform 0.15s ease-out;
+      will-change: transform;
+      filter: drop-shadow(0 20px 35px rgba(0, 0, 0, 0.6));
+    }
+
+    .svg-container svg {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+
+    /* HUD de Controles de Zoom */
+    .zoom-hud {
+      position: absolute;
+      bottom: 16px;
+      left: 16px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      background: rgba(16, 16, 20, 0.85);
+      backdrop-filter: blur(10px);
+      border: 1px solid var(--border);
+      padding: 4px 8px;
+      border-radius: 10px;
+      z-index: 10;
+    }
+
+    .hud-btn {
+      width: 28px;
+      height: 28px;
+      border-radius: 6px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: rgba(255, 255, 255, 0.05);
+      color: var(--text);
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.12s;
+    }
+
+    .hud-btn:hover {
+      background: rgba(255, 255, 255, 0.12);
+      border-color: var(--accent-light);
+    }
+
+    .hud-zoom-text {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: var(--text-muted);
+      min-width: 48px;
+      text-align: center;
+    }
+
+    .hud-badge {
+      position: absolute;
+      top: 16px;
+      left: 16px;
+      background: rgba(16, 16, 20, 0.85);
+      backdrop-filter: blur(10px);
+      border: 1px solid var(--border);
+      padding: 4px 10px;
+      border-radius: 8px;
+      font-size: 11px;
+      font-family: var(--font-mono);
+      color: var(--accent-light);
+      pointer-events: none;
+    }
+
+    /* Card de Controles e Estatísticas */
+    .controls-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .control-section-title {
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      color: var(--text-dim);
+      margin-bottom: 8px;
+    }
+
+    .control-group {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .control-label-row {
+      display: flex;
+      justify-content: space-between;
+      font-size: 12.5px;
+      font-weight: 500;
+    }
+
+    .control-val {
+      font-family: var(--font-mono);
+      color: var(--accent-light);
+      font-weight: 600;
+    }
+
+    input[type="range"] {
+      width: 100%;
+      height: 6px;
+      border-radius: 3px;
+      background: rgba(255, 255, 255, 0.12);
+      outline: none;
+      -webkit-appearance: none;
+      accent-color: var(--accent-light);
+      cursor: pointer;
+    }
+
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      background: rgba(0, 0, 0, 0.3);
+      padding: 12px;
+      border-radius: 12px;
+      border: 1px solid rgba(255, 255, 255, 0.04);
+      text-align: center;
+    }
+
+    .stat-item {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .stat-num {
+      font-size: 16px;
+      font-weight: 700;
+      font-family: var(--font-mono);
+      color: #fff;
+    }
+
+    .stat-desc {
+      font-size: 10.5px;
+      color: var(--text-muted);
+    }
+
+    .actions-box {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-top: 4px;
+    }
+
+    .btn-primary {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      background: linear-gradient(135deg, #7c3aed, #6d28d9);
+      color: #ffffff;
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      padding: 11px 16px;
+      border-radius: 10px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      box-shadow: 0 4px 14px rgba(124, 58, 237, 0.35);
+      transition: all 0.15s;
+    }
+
+    .btn-primary:hover {
+      background: linear-gradient(135deg, #8b5cf6, #7c3aed);
+      transform: translateY(-1px);
+    }
+
+    .btn-secondary {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      background: rgba(255, 255, 255, 0.05);
+      color: var(--text);
+      border: 1px solid var(--border);
+      padding: 10px 16px;
+      border-radius: 10px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .btn-secondary:hover {
+      background: rgba(255, 255, 255, 0.09);
+      border-color: rgba(255, 255, 255, 0.15);
+    }
+
+    /* Controles de Gradiente & Tons de Violeta */
+    .segmented-control {
+      display: flex;
+      background: rgba(0, 0, 0, 0.45);
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      padding: 3px;
+      gap: 3px;
+    }
+
+    .seg-btn {
+      flex: 1;
+      padding: 6px 4px;
+      font-size: 11px;
+      font-weight: 600;
+      border: none;
+      background: transparent;
+      color: var(--text-muted);
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.15s;
+      text-align: center;
+      white-space: nowrap;
+    }
+
+    .seg-btn:hover {
+      color: #fff;
+    }
+
+    .seg-btn.is-active {
+      background: var(--accent);
+      color: #ffffff;
+      box-shadow: 0 2px 8px rgba(124, 58, 237, 0.4);
+    }
+
+    .gradient-presets-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 6px;
+    }
+
+    .preset-chip {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(255, 255, 255, 0.07);
+      border-radius: 8px;
+      padding: 6px 8px;
+      cursor: pointer;
+      transition: all 0.15s;
+      text-align: left;
+    }
+
+    .preset-chip:hover {
+      background: rgba(255, 255, 255, 0.08);
+      border-color: var(--accent-light);
+    }
+
+    .preset-chip.is-active {
+      border-color: var(--accent-light);
+      background: rgba(124, 58, 237, 0.2);
+      box-shadow: 0 0 10px rgba(124, 58, 237, 0.25);
+    }
+
+    .preset-swatch {
+      width: 18px;
+      height: 18px;
+      border-radius: 5px;
+      flex-shrink: 0;
+      border: 1px solid rgba(255, 255, 255, 0.25);
+      box-shadow: 0 2px 5px rgba(0, 0, 0, 0.4);
+    }
+
+    .preset-name {
+      font-size: 11px;
+      font-weight: 600;
+      color: #e4e4e7;
+      line-height: 1.2;
+    }
+
+    .color-stops-row {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 6px;
+    }
+
+    .color-stop-item {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      background: rgba(0, 0, 0, 0.28);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 6px 8px;
+    }
+
+    .color-stop-label {
+      font-size: 9.5px;
+      color: var(--text-dim);
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+    }
+
+    .color-stop-input-wrap {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .color-picker-input {
+      -webkit-appearance: none;
+      -moz-appearance: none;
+      appearance: none;
+      width: 22px;
+      height: 22px;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      background: transparent;
+      padding: 0;
+      flex-shrink: 0;
+    }
+    .color-picker-input::-webkit-color-swatch-wrapper {
+      padding: 0;
+    }
+    .color-picker-input::-webkit-color-swatch {
+      border: 1px solid rgba(255, 255, 255, 0.35);
+      border-radius: 5px;
+    }
+
+    .color-hex-text {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      color: #fff;
+      font-weight: 600;
+    }
+
+    .angle-quick-btns {
+      display: grid;
+      grid-template-columns: repeat(6, 1fr);
+      gap: 4px;
+      margin-top: 4px;
+    }
+
+    .angle-btn {
+      padding: 5px 2px;
+      font-size: 10px;
+      font-family: var(--font-mono);
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      color: var(--text-muted);
+      border-radius: 5px;
+      cursor: pointer;
+      transition: all 0.12s;
+      text-align: center;
+    }
+
+    .angle-btn:hover {
+      background: rgba(255, 255, 255, 0.1);
+      color: #fff;
+    }
+
+    .angle-btn.is-active {
+      background: rgba(124, 58, 237, 0.35);
+      border-color: var(--accent-light);
+      color: #fff;
+      font-weight: 700;
+    }
+
+    .grad-info-note {
+      font-size: 10.5px;
+      color: var(--text-dim);
+      font-style: italic;
+      line-height: 1.35;
+      padding: 4px 6px;
+      background: rgba(255, 255, 255, 0.02);
+      border-radius: 6px;
+      border-left: 2px solid var(--accent-light);
+    }
+
+    /* Seção de Escala Óptica (Regra 6) */
+    .section-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 24px;
+    }
+
+    .section-header {
+      margin-bottom: 20px;
+    }
+
+    .section-title {
+      font-size: 18px;
+      font-weight: 700;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 4px;
+    }
+
+    .section-subtitle {
+      font-size: 13.5px;
+      color: var(--text-muted);
+    }
+
+    .scale-row {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-around;
+      gap: 20px;
+      padding: 28px 16px;
+      background: #0b0b0e;
+      border-radius: 14px;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      overflow-x: auto;
+    }
+
+    .scale-item {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+      flex-shrink: 0;
+    }
+
+    .scale-item .logo-frame {
+      border-radius: 18%;
+      overflow: hidden;
+      background: #101014;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+    }
+
+    .scale-label {
+      font-size: 11px;
+      font-family: var(--font-mono);
+      color: var(--text-dim);
+    }
+
+    .scale-desc {
+      font-size: 10.5px;
+      color: var(--accent-light);
+      font-weight: 500;
+      text-align: center;
+    }
+
+    /* Comparativo das 4 Variantes (Regra 18) */
+    .variants-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 18px;
+      margin-top: 16px;
+    }
+
+    .variant-card {
+      background: rgba(0, 0, 0, 0.25);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      transition: transform 0.15s, border-color 0.15s;
+    }
+
+    .variant-card:hover {
+      transform: translateY(-2px);
+      border-color: rgba(167, 139, 250, 0.3);
+    }
+
+    .variant-preview {
+      width: 100%;
+      height: 180px;
+      background: #101014;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+    }
+
+    .variant-preview svg {
+      max-width: 140px;
+      max-height: 140px;
+    }
+
+    .variant-title {
+      font-size: 14px;
+      font-weight: 700;
+      color: #fff;
+    }
+
+    .variant-use {
+      font-size: 11px;
+      font-family: var(--font-mono);
+      color: var(--accent-light);
+      background: rgba(124, 58, 237, 0.15);
+      padding: 3px 8px;
+      border-radius: 6px;
+      width: fit-content;
+    }
+
+    .variant-desc {
+      font-size: 12.5px;
+      color: var(--text-muted);
+      line-height: 1.45;
+    }
+
+    /* Checklist das 21 Regras */
+    .rules-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 12px;
+      margin-top: 16px;
+    }
+
+    .rule-item {
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      border-radius: 10px;
+      padding: 12px 14px;
+      display: flex;
+      gap: 10px;
+      align-items: flex-start;
+    }
+
+    .rule-item.rule-ok .rule-icon {
+      color: #10b981;
+      background: rgba(16, 185, 129, 0.12);
+    }
+
+    .rule-icon {
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      font-weight: 700;
+      flex-shrink: 0;
+      margin-top: 2px;
+    }
+
+    .rule-body h4 {
+      font-size: 12.5px;
+      font-weight: 600;
+      color: #fff;
+      margin-bottom: 2px;
+    }
+
+    .rule-body p {
+      font-size: 11.5px;
+      color: var(--text-muted);
+      line-height: 1.4;
+    }
+
+    /* Paleta de Cores */
+    .palette-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-top: 14px;
+    }
+
+    .color-swatch {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      background: rgba(0, 0, 0, 0.3);
+      padding: 6px 12px 6px 6px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+    }
+
+    .swatch-box {
+      width: 26px;
+      height: 26px;
+      border-radius: 6px;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+    }
+
+    .swatch-info {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .swatch-name {
+      font-size: 11.5px;
+      font-weight: 600;
+      color: #fff;
+    }
+
+    .swatch-hex {
+      font-family: var(--font-mono);
+      font-size: 10.5px;
+      color: var(--text-dim);
+    }
+
+    /* Toast notification */
+    #toast {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      background: #1e1e24;
+      border: 1px solid var(--accent-light);
+      color: #fff;
+      padding: 10px 18px;
+      border-radius: 10px;
+      font-size: 13px;
+      font-weight: 500;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+      transform: translateY(100px);
+      opacity: 0;
+      transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.25s;
+      z-index: 9999;
+      pointer-events: none;
+    }
+
+    #toast.show {
+      transform: translateY(0);
+      opacity: 1;
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div class="badge-quantum">
+      <span class="dot"></span>
+      Diretriz de Identidade Visual
+    </div>
+    <h1>QuickDock — Textura <span class="highlight">"Densidade Quântica"</span></h1>
+    <p class="subtitle">
+      Bancada interativa de análise cromática, densidade radial e comportamento óptico da logo QuickDock.
+    </p>
+    <div class="concept-quote">
+      “Matéria comprimida em um espaço pequeno. Pequeno por fora → extremamente denso por dentro.”
+    </div>
+  </header>
+
+  <main>
+    <!-- Estágio Interativo Principal -->
+    <div class="grid-stage">
+      <div class="viewer-card">
+        <div class="card-header">
+          <div class="card-title">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10"/><path d="m10 15 5-3-5-3v6Z"/>
+            </svg>
+            Visualizador Macro / Micro
+          </div>
+          <div class="tabs-variants">
+            <button class="tab-btn" data-variant="main">1. Densidade Quântica</button>
+            <button class="tab-btn is-active" data-variant="glow">2. Com Glow Central</button>
+            <button class="tab-btn" data-variant="anim">3. Respiração (Animado)</button>
+            <button class="tab-btn" data-variant="solid">4. Chapada (Sem Partículas)</button>
+            <button class="tab-btn" data-variant="mask">5. Máscara & Malha</button>
+          </div>
+        </div>
+
+        <div class="viewport-box" id="viewport">
+          <div class="hud-badge" id="hud-status">Semente: #108 · 2400 partículas</div>
+          <div class="svg-container" id="svg-stage">
+            <!-- SVG dinâmico injetado aqui -->
+          </div>
+
+          <div class="zoom-hud">
+            <button class="hud-btn" id="btn-zoom-out" title="Diminuir Zoom">−</button>
+            <span class="hud-zoom-text" id="zoom-text">100%</span>
+            <button class="hud-btn" id="btn-zoom-in" title="Aumentar Zoom">+</button>
+            <button class="hud-btn" id="btn-zoom-reset" title="Restaurar (100%)">⟲</button>
+            <button class="hud-btn" id="btn-zoom-macro" title="Macro no Núcleo (400%)">✦</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Painel de Controles & Métricas em Tempo Real -->
+      <div class="controls-card">
+        <!-- Seção: Gradiente & Tons de Violeta -->
+        <div class="control-section-title" style="display: flex; justify-content: space-between; align-items: center;">
+          <span>Gradiente do Corpo do Q</span>
+          <span class="control-val" id="val-grad-type-badge">Radial</span>
+        </div>
+
+        <!-- Seletor de Modo do Gradiente -->
+        <div class="segmented-control" id="seg-grad-type">
+          <button class="seg-btn is-active" data-grad-type="radial">Radial (Núcleo)</button>
+          <button class="seg-btn" data-grad-type="linear">Linear (Ângulo)</button>
+          <button class="seg-btn" data-grad-type="solid">Sólido</button>
+        </div>
+
+        <!-- Presets de Tons de Violeta -->
+        <div class="control-group">
+          <div class="control-label-row">
+            <span>Paletas & Presets de Violeta</span>
+          </div>
+          <div class="gradient-presets-grid" id="presets-container">
+            <!-- Gerado dinamicamente via JS com 6 presets prontos -->
+          </div>
+        </div>
+
+        <!-- Controle Direcional / Linear -->
+        <div class="control-group" id="group-grad-linear" style="display: none;">
+          <div class="control-label-row">
+            <span>Direção / Ângulo</span>
+            <span class="control-val" id="val-grad-angle">135°</span>
+          </div>
+          <input type="range" id="input-grad-angle" min="0" max="360" step="1" value="135">
+          <div class="angle-quick-btns">
+            <button class="angle-btn is-active" data-angle="135">135° ↘</button>
+            <button class="angle-btn" data-angle="180">180° ↓</button>
+            <button class="angle-btn" data-angle="90">90° →</button>
+            <button class="angle-btn" data-angle="45">45° ↗</button>
+            <button class="angle-btn" data-angle="0">0° ↑</button>
+            <button class="angle-btn" data-angle="270">270° ←</button>
+          </div>
+        </div>
+
+        <!-- Controle Radial -->
+        <div class="control-group" id="group-grad-radial">
+          <div class="control-label-row">
+            <span>Expansão Radial (Raio)</span>
+            <span class="control-val" id="val-grad-radius">245px</span>
+          </div>
+          <input type="range" id="input-grad-radius" min="140" max="360" step="5" value="245">
+          <div class="grad-info-note">
+            ✦ Ancorado na estrela de quarks (251.23, 251.23): luz expande do núcleo para a borda.
+          </div>
+        </div>
+
+        <!-- Cores dos Stops do Degradê -->
+        <div class="control-group" id="group-grad-colors">
+          <div class="control-label-row">
+            <span>Tons de Violeta (3 Stops)</span>
+          </div>
+          <div class="color-stops-row">
+            <div class="color-stop-item">
+              <span class="color-stop-label">1. Luz / Centro</span>
+              <div class="color-stop-input-wrap">
+                <input type="color" class="color-picker-input" id="input-color-1" value="#9333EA">
+                <span class="color-hex-text" id="label-color-1">#9333EA</span>
+              </div>
+            </div>
+            <div class="color-stop-item">
+              <span class="color-stop-label">2. Corpo / Meio</span>
+              <div class="color-stop-input-wrap">
+                <input type="color" class="color-picker-input" id="input-color-2" value="#7C3AED">
+                <span class="color-hex-text" id="label-color-2">#7C3AED</span>
+              </div>
+            </div>
+            <div class="color-stop-item">
+              <span class="color-stop-label">3. Profundidade</span>
+              <div class="color-stop-input-wrap">
+                <input type="color" class="color-picker-input" id="input-color-3" value="#2E1065">
+                <span class="color-hex-text" id="label-color-3">#2E1065</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="control-section-title" style="margin-top: 6px;">Parâmetros da Textura</div>
+
+        <div class="control-group">
+          <div class="control-label-row">
+            <span>Quantidade de Partículas</span>
+            <span class="control-val" id="val-count">2400</span>
+          </div>
+          <input type="range" id="input-count" min="800" max="3600" step="100" value="2400">
+        </div>
+
+        <div class="control-group">
+          <div class="control-label-row">
+            <span>Concentração Radial</span>
+            <span class="control-val" id="val-exp">1.95</span>
+          </div>
+          <input type="range" id="input-exp" min="1.0" max="3.0" step="0.05" value="1.95">
+        </div>
+
+        <div class="control-group">
+          <div class="control-label-row">
+            <span>Intensidade dos Aglomerados</span>
+            <span class="control-val" id="val-cluster">45%</span>
+          </div>
+          <input type="range" id="input-cluster" min="0" max="90" step="5" value="45">
+        </div>
+
+        <div class="control-section-title" style="margin-top: 6px;">Distribuição em Profundidade (Regra 7 & 15)</div>
+        <div class="stats-grid">
+          <div class="stat-item">
+            <span class="stat-num" id="stat-micro">90%</span>
+            <span class="stat-desc">Micro (0.6-0.9px)</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-num" id="stat-small">8%</span>
+            <span class="stat-desc">Médias (1.0-1.4px)</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-num" id="stat-bright">2%</span>
+            <span class="stat-desc">Núcleo (Luz)</span>
+          </div>
+        </div>
+
+        <div class="actions-box">
+          <button class="btn-primary" id="btn-download-svg">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+            </svg>
+            Baixar SVG (.svg)
+          </button>
+          <button class="btn-secondary" id="btn-copy-svg">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>
+            </svg>
+            Copiar Código SVG
+          </button>
+          <button class="btn-secondary" id="btn-reseed">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
+            </svg>
+            Nova Semente Estatística
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Seção: Teste de Escala Óptica (Regra 6) -->
+    <div class="section-card">
+      <div class="section-header">
+        <h2 class="section-title">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect width="18" height="18" x="3" y="3" rx="2"/><path d="M7 7h10v10H7z"/>
+          </svg>
+          Comportamento Óptico em Escala (Regra 6)
+        </h2>
+        <p class="section-subtitle">
+          “Logo grande: partículas perceptíveis · Logo média: discretas · Favicon (16-32px): textura praticamente desaparece, mantendo pureza da silhueta.”
+        </p>
+      </div>
+
+      <div class="scale-row">
+        <div class="scale-item">
+          <div class="logo-frame scale-preview" style="width: 140px; height: 140px;" data-size="140"></div>
+          <span class="scale-label">140px</span>
+          <span class="scale-desc">Banner / Master<br>(Partículas nítidas)</span>
+        </div>
+        <div class="scale-item">
+          <div class="logo-frame scale-preview" style="width: 96px; height: 96px;" data-size="96"></div>
+          <span class="scale-label">96px</span>
+          <span class="scale-desc">Ícone App / Splash<br>(Textura sutil)</span>
+        </div>
+        <div class="scale-item">
+          <div class="logo-frame scale-preview" style="width: 64px; height: 64px;" data-size="64"></div>
+          <span class="scale-label">64px</span>
+          <span class="scale-desc">Launcher Médio<br>(Quase sólida)</span>
+        </div>
+        <div class="scale-item">
+          <div class="logo-frame scale-preview" style="width: 48px; height: 48px;" data-size="48"></div>
+          <span class="scale-label">48px</span>
+          <span class="scale-desc">Header Toolbar<br>(Nuance veludo)</span>
+        </div>
+        <div class="scale-item">
+          <div class="logo-frame scale-preview" style="width: 32px; height: 32px;" data-size="32"></div>
+          <span class="scale-label">32px</span>
+          <span class="scale-desc">Menu / Dock<br>(Silhueta sólida)</span>
+        </div>
+        <div class="scale-item">
+          <div class="logo-frame scale-preview" style="width: 16px; height: 16px; border-radius: 4px;" data-size="16"></div>
+          <span class="scale-label">16px</span>
+          <span class="scale-desc">Favicon Real<br>(Pureza vetorial)</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Comparativo das 4 Variantes da Diretriz (Regra 18) -->
+    <div class="section-card">
+      <div class="section-header">
+        <h2 class="section-title">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+          </svg>
+          Variantes Oficiais do Sistema (Regra 18)
+        </h2>
+        <p class="section-subtitle">Onde e como aplicar cada versão na identidade visual do QuickDock.</p>
+      </div>
+
+      <div class="variants-grid">
+        <div class="variant-card">
+          <div class="variant-preview" id="card-prev-solid"></div>
+          <div class="variant-title">1. Violeta Sólida / Chapada</div>
+          <span class="variant-use">Favicon · Extensão · Documentação</span>
+          <p class="variant-desc">Forma base limpa, sem partículas. Garante legibilidade absoluta em 16px e reprodução em materiais monocromáticos.</p>
+        </div>
+
+        <div class="variant-card">
+          <div class="variant-preview" id="card-prev-main"></div>
+          <div class="variant-title">2. Densidade Quântica (Oficial)</div>
+          <span class="variant-use">Identidade Principal · Ícone App</span>
+          <p class="variant-desc">Partículas microscópicas condensando-se radialmente em direção à estrela de quarks. Estática, elegante e silenciosa.</p>
+        </div>
+
+        <div class="variant-card">
+          <div class="variant-preview" id="card-prev-glow"></div>
+          <div class="variant-title">3. Densidade + Glow Central</div>
+          <span class="variant-use">Splash Screen · Telas de Carregamento</span>
+          <p class="variant-desc">Adiciona uma aura de plasma quântico ao redor da estrela central, transmitindo poder de processamento ativo.</p>
+        </div>
+
+        <div class="variant-card">
+          <div class="variant-preview" id="card-prev-anim"></div>
+          <div class="variant-title">4. Respiração do Núcleo</div>
+          <span class="variant-use">Processamento · Execução de Tarefas</span>
+          <p class="variant-desc">Pulsação suave de 4.5s no núcleo. Não faz as partículas voarem como galáxia: apenas respira solenemente.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Especificação Cromática e Validação das 21 Regras -->
+    <div class="section-card">
+      <div class="section-header">
+        <h2 class="section-title">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+          </svg>
+          Especificação Cromática & Conformidade com as 21 Diretrizes
+        </h2>
+        <p class="section-subtitle">Validação técnica das decisões visuais implementadas no SVG.</p>
+      </div>
+
+      <div class="palette-row">
+        <div class="color-swatch">
+          <div class="swatch-box" style="background: #101014;"></div>
+          <div class="swatch-info">
+            <span class="swatch-name">Fundo Neutro</span>
+            <span class="swatch-hex">#101014</span>
+          </div>
+        </div>
+        <div class="color-swatch">
+          <div class="swatch-box" style="background: #2E1065;"></div>
+          <div class="swatch-info">
+            <span class="swatch-name">Q Profundidade</span>
+            <span class="swatch-hex">#2E1065</span>
+          </div>
+        </div>
+        <div class="color-swatch">
+          <div class="swatch-box" style="background: #7C3AED;"></div>
+          <div class="swatch-info">
+            <span class="swatch-name">Q Corpo Base</span>
+            <span class="swatch-hex">#7C3AED</span>
+          </div>
+        </div>
+        <div class="color-swatch">
+          <div class="swatch-box" style="background: #9333EA;"></div>
+          <div class="swatch-info">
+            <span class="swatch-name">Q Luz / Gradiente</span>
+            <span class="swatch-hex">#9333EA</span>
+          </div>
+        </div>
+        <div class="color-swatch">
+          <div class="swatch-box" style="background: #8B5CF6;"></div>
+          <div class="swatch-info">
+            <span class="swatch-name">Partícula Periférica</span>
+            <span class="swatch-hex">#8B5CF6</span>
+          </div>
+        </div>
+        <div class="color-swatch">
+          <div class="swatch-box" style="background: #A78BFA;"></div>
+          <div class="swatch-info">
+            <span class="swatch-name">Partícula Média</span>
+            <span class="swatch-hex">#A78BFA</span>
+          </div>
+        </div>
+        <div class="color-swatch">
+          <div class="swatch-box" style="background: #C4B5FD;"></div>
+          <div class="swatch-info">
+            <span class="swatch-name">Partícula Próxima</span>
+            <span class="swatch-hex">#C4B5FD</span>
+          </div>
+        </div>
+        <div class="color-swatch">
+          <div class="swatch-box" style="background: #DDD6FE;"></div>
+          <div class="swatch-info">
+            <span class="swatch-name">Luz do Núcleo</span>
+            <span class="swatch-hex">#DDD6FE</span>
+          </div>
+        </div>
+        <div class="color-swatch">
+          <div class="swatch-box" style="background: #FFFFFF;"></div>
+          <div class="swatch-info">
+            <span class="swatch-name">Estrela Central</span>
+            <span class="swatch-hex">#FFFFFF</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="rules-grid">
+        <div class="rule-item rule-ok">
+          <div class="rule-icon">✓</div>
+          <div class="rule-body">
+            <h4>1 & 2. Densidade Radial Não-Uniforme</h4>
+            <p>Concentração calculada com potência inversa e ruído harmônico. Mais pontos perto do centro, com aglomerados naturais e vazios.</p>
+          </div>
+        </div>
+        <div class="rule-item rule-ok">
+          <div class="rule-icon">✓</div>
+          <div class="rule-body">
+            <h4>3 & 4. Sem Grade / Distribuição Pseudoaleatória</h4>
+            <p>Pontos distribuídos probabilisticamente via PRNG determinístico. Zero alinhamento geométrico artificial.</p>
+          </div>
+        </div>
+        <div class="rule-item rule-ok">
+          <div class="rule-icon">✓</div>
+          <div class="rule-body">
+            <h4>5. Estrela Central é Núcleo, Não Partícula</h4>
+            <p>Forma de 4 pontas em SVG sólido puro no centro óptico (251.23, 251.23), dominante e cristalina sobre o campo de matéria.</p>
+          </div>
+        </div>
+        <div class="rule-item rule-ok">
+          <div class="rule-icon">✓</div>
+          <div class="rule-body">
+            <h4>6, 7 & 15. Partículas Microscópicas (90/8/2%)</h4>
+            <p>90% micro (raio ~0.7px), 8% médias (raio ~1.1px) e 2% luminosas. Invisível em 16px, fascinante em 512px.</p>
+          </div>
+        </div>
+        <div class="rule-item rule-ok">
+          <div class="rule-icon">✓</div>
+          <div class="rule-body">
+            <h4>9. Luminosidade Aumenta com a Densidade</h4>
+            <p>Partículas mais próximas do núcleo possuem opacidade maior e tons mais claros (#C4B5FD e #DDD6FE).</p>
+          </div>
+        </div>
+        <div class="rule-item rule-ok">
+          <div class="rule-icon">✓</div>
+          <div class="rule-body">
+            <h4>10 & 11. Máscara do Q & Sem Anéis Circulares</h4>
+            <p>As partículas atravessam organicamente o interior do Q e são cortadas precisamente pelo contorno vetorial da letra via <code>clipPath</code>.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <div id="toast">Notificação</div>
+
+  <script>
+    // PRNG Mulberry32 determinístico
+    function mulberry32(a) {
+      return function() {
+        let t = a += 0x6D2B79F5;
+        t = Math.imul(t ^ (t >>> 15), t | 1);
+        t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+      };
+    }
+
+    // Ruído 2D para aglomerados naturais
+    function noise2D(x, y) {
+      const n1 = Math.sin(x * 0.023 + y * 0.017) * Math.cos(y * 0.029 - x * 0.019);
+      const n2 = Math.sin(x * 0.057 - y * 0.043) * 0.5;
+      const n3 = Math.cos(x * 0.091 + y * 0.083) * 0.25;
+      return (n1 + n2 + n3) / 1.75;
+    }
+
+    // Presets de Tons de Violeta para o Gradiente da Base do Q
+    const GRADIENT_PRESETS = [
+      {
+        id: 'preset-core',
+        name: 'Núcleo Quântico',
+        type: 'radial',
+        desc: 'Radial do núcleo (251px)',
+        angle: 135,
+        radius: 245,
+        color1: '#9333EA',
+        color2: '#7C3AED',
+        color3: '#2E1065',
+        offset1: 0,
+        offset2: 45,
+        offset3: 100,
+        swatch: 'radial-gradient(circle at center, #9333EA 0%, #7C3AED 45%, #2E1065 100%)'
+      },
+      {
+        id: 'preset-diag-135',
+        name: 'Diagonal 135° (Cosmo)',
+        type: 'linear',
+        desc: 'Luz topo-esq → cauda',
+        angle: 135,
+        radius: 245,
+        color1: '#9333EA',
+        color2: '#7C3AED',
+        color3: '#1E0B38',
+        offset1: 0,
+        offset2: 50,
+        offset3: 100,
+        swatch: 'linear-gradient(135deg, #9333EA 0%, #7C3AED 50%, #1E0B38 100%)'
+      },
+      {
+        id: 'preset-vert-180',
+        name: 'Gravidade Vertical 180°',
+        type: 'linear',
+        desc: 'Zenital (topo p/ cauda)',
+        angle: 180,
+        radius: 245,
+        color1: '#8B5CF6',
+        color2: '#6D28D9',
+        color3: '#25094C',
+        offset1: 0,
+        offset2: 50,
+        offset3: 100,
+        swatch: 'linear-gradient(180deg, #8B5CF6 0%, #6D28D9 50%, #25094C 100%)'
+      },
+      {
+        id: 'preset-uv',
+        name: 'Nebulosa UV',
+        type: 'radial',
+        desc: 'Alta saturação luminosa',
+        angle: 135,
+        radius: 270,
+        color1: '#C084FC',
+        color2: '#7C3AED',
+        color3: '#3B0764',
+        offset1: 0,
+        offset2: 40,
+        offset3: 100,
+        swatch: 'radial-gradient(circle at center, #C084FC 0%, #7C3AED 40%, #3B0764 100%)'
+      },
+      {
+        id: 'preset-abyss',
+        name: 'Abismo Cósmico',
+        type: 'linear',
+        desc: 'Profundidade máxima',
+        angle: 135,
+        radius: 245,
+        color1: '#7C3AED',
+        color2: '#4C1D95',
+        color3: '#120326',
+        offset1: 0,
+        offset2: 45,
+        offset3: 100,
+        swatch: 'linear-gradient(135deg, #7C3AED 0%, #4C1D95 45%, #120326 100%)'
+      },
+      {
+        id: 'preset-solid',
+        name: 'Violeta Chapado',
+        type: 'solid',
+        desc: 'Sólido original (#7C3AED)',
+        angle: 135,
+        radius: 245,
+        color1: '#7C3AED',
+        color2: '#7C3AED',
+        color3: '#7C3AED',
+        offset1: 0,
+        offset2: 50,
+        offset3: 100,
+        swatch: '#7C3AED'
+      }
+    ];
+
+    // Gerador de SVG de Densidade Quântica com Gradiente Multidimensional
+    function generateQuantumSvgString({
+      seed = 108,
+      particleCount = 2400,
+      compressionExponent = 1.95,
+      clusterIntensity = 0.45,
+      variant = 'glow', // 'main', 'glow', 'anim', 'solid', 'mask'
+      bgFill = '#101014',
+      gradType = 'radial', // 'radial', 'linear', 'solid'
+      gradAngle = 135,
+      gradRadialR = 245,
+      gradColor1 = '#9333EA',
+      gradColor2 = '#7C3AED',
+      gradColor3 = '#2E1065',
+      gradOffset1 = 0,
+      gradOffset2 = 45,
+      gradOffset3 = 100
+    } = {}) {
+      const cx = 251.23, cy = 251.23, maxR = 255;
+      const minX = 70, maxX = 460;
+      const minY = 70, maxY = 440;
+
+      let circlesXml = '';
+
+      if (variant !== 'solid') {
+        const rand = mulberry32(seed);
+        const particles = [];
+        let attempts = 0;
+        const maxAttempts = particleCount * 12;
+
+        while (particles.length < particleCount && attempts < maxAttempts) {
+          attempts++;
+          const x = minX + rand() * (maxX - minX);
+          const y = minY + rand() * (maxY - minY);
+
+          const dx = x - cx, dy = y - cy;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          if (dist > maxR) continue;
+
+          const normDist = dist / maxR;
+          const radialProb = Math.pow(Math.max(0, 1 - normDist), compressionExponent);
+          const clusterMod = (1 - clusterIntensity) + clusterIntensity * 2 * ((noise2D(x, y) + 1) / 2);
+          const finalProb = Math.min(1, Math.max(0.015, radialProb * clusterMod));
+
+          if (rand() > finalProb) continue;
+
+          const roll = rand();
+          let radius, opacity, color;
+          const proximity = Math.max(0, 1 - dist / 185);
+
+          if (roll < 0.90) {
+            radius = (0.55 + rand() * 0.35).toFixed(2);
+            opacity = (0.28 + proximity * 0.35 + rand() * 0.15).toFixed(2);
+            color = rand() < 0.65 ? '#8B5CF6' : (rand() < 0.88 ? '#A78BFA' : '#7C3AED');
+          } else if (roll < 0.98) {
+            radius = (0.95 + rand() * 0.40).toFixed(2);
+            opacity = (0.50 + proximity * 0.35 + rand() * 0.15).toFixed(2);
+            color = proximity > 0.4 && rand() < 0.6 ? '#C4B5FD' : '#A78BFA';
+          } else {
+            radius = (1.45 + rand() * 0.45).toFixed(2);
+            opacity = (0.75 + proximity * 0.25).toFixed(2);
+            color = proximity > 0.3 ? '#DDD6FE' : '#C4B5FD';
+          }
+
+          if (variant === 'mask') {
+            color = '#38bdf8';
+            opacity = '0.7';
+          }
+
+          particles.push({ x: x.toFixed(1), y: y.toFixed(1), r: radius, color, opacity });
+        }
+
+        particles.sort((a, b) => Number(a.r) - Number(b.r));
+        circlesXml = particles.map(p => `    <circle cx="${p.x}" cy="${p.y}" r="${p.r}" fill="${p.color}" opacity="${p.opacity}" />`).join('\n');
+      }
+
+      const isGlow = variant === 'glow' || variant === 'anim';
+      const isAnim = variant === 'anim';
+      const isMask = variant === 'mask';
+
+      // Definição do Gradiente do Corpo do Q
+      let qGradDef = '';
+      let qFill = gradColor2;
+
+      if (isMask) {
+        qFill = '#1e1e24';
+      } else if (gradType === 'radial') {
+        qGradDef = `
+    <radialGradient id="qd-q-grad" cx="251.23" cy="251.23" r="${gradRadialR}" gradientUnits="userSpaceOnUse">
+      <stop offset="${gradOffset1}%" stop-color="${gradColor1}"/>
+      <stop offset="${gradOffset2}%" stop-color="${gradColor2}"/>
+      <stop offset="${gradOffset3}%" stop-color="${gradColor3}"/>
+    </radialGradient>`;
+        qFill = 'url(#qd-q-grad)';
+      } else if (gradType === 'linear') {
+        const rad = (gradAngle - 90) * (Math.PI / 180);
+        const x1 = (50 - 50 * Math.cos(rad)).toFixed(2);
+        const y1 = (50 - 50 * Math.sin(rad)).toFixed(2);
+        const x2 = (50 + 50 * Math.cos(rad)).toFixed(2);
+        const y2 = (50 + 50 * Math.sin(rad)).toFixed(2);
+        qGradDef = `
+    <linearGradient id="qd-q-grad" x1="${x1}%" y1="${y1}%" x2="${x2}%" y2="${y2}%">
+      <stop offset="${gradOffset1}%" stop-color="${gradColor1}"/>
+      <stop offset="${gradOffset2}%" stop-color="${gradColor2}"/>
+      <stop offset="${gradOffset3}%" stop-color="${gradColor3}"/>
+    </linearGradient>`;
+        qFill = 'url(#qd-q-grad)';
+      } else {
+        qFill = gradColor2;
+      }
+
+      const glowDefs = isGlow ? `
+    <radialGradient id="qd-core-glow" cx="251.23" cy="251.23" r="140" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#C4B5FD" stop-opacity="0.42"/>
+      <stop offset="35%" stop-color="#A78BFA" stop-opacity="0.22"/>
+      <stop offset="70%" stop-color="#8B5CF6" stop-opacity="0.08"/>
+      <stop offset="100%" stop-color="#7C3AED" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="qd-star-glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="4.5" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>` : '';
+
+      const animStyle = isAnim ? `
+    <style>
+      @keyframes quantum-pulse {
+        0%, 100% { opacity: 0.95; transform: scale(1); }
+        50% { opacity: 1; transform: scale(1.025); }
+      }
+      @keyframes core-breathe {
+        0%, 100% { opacity: 0.25; }
+        50% { opacity: 0.50; }
+      }
+      .quantum-star {
+        transform-origin: 251.23px 251.23px;
+        animation: quantum-pulse 4.5s ease-in-out infinite;
+      }
+      .quantum-glow-core {
+        animation: core-breathe 4.5s ease-in-out infinite;
+      }
+    </style>` : '';
+
+      const qStroke = isMask ? ' stroke="#38bdf8" stroke-width="1.5" stroke-dasharray="4 3"' : '';
+
+      return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <defs>
+    <clipPath id="qd-q-shape">
+      <path d="M153.03 153.03 A150 150 0 1 1 358.97 358.97 A150 150 0 0 0 153.03 153.03 Z"/>
+      <path d="M153.03 153.03 A150 150 0 1 0 358.97 358.97 A150 150 0 0 1 153.03 153.03 Z"/>
+      <path d="M241.59 241.59 L476.35 431.09 L386.18 431.44 Z"/>
+    </clipPath>${qGradDef}${glowDefs}${animStyle}
+  </defs>
+
+  <rect width="512" height="512" rx="112" fill="${bgFill}"/>
+
+  <g id="qd-base-q" fill="${qFill}"${qStroke}>
+    <path d="M153.03 153.03 A150 150 0 1 1 358.97 358.97 A150 150 0 0 0 153.03 153.03 Z"/>
+    <path d="M153.03 153.03 A150 150 0 1 0 358.97 358.97 A150 150 0 0 1 153.03 153.03 Z"/>
+    <path d="M241.59 241.59 L476.35 431.09 L386.18 431.44 Z"/>
+  </g>
+
+  ${variant !== 'solid' ? `<g id="qd-quantum-density" clip-path="url(#qd-q-shape)">
+${isGlow ? `    <circle class="quantum-glow-core" cx="251.23" cy="251.23" r="140" fill="url(#qd-core-glow)" />\n` : ''}${circlesXml}
+  </g>` : ''}
+
+  <g id="qd-core-star"${isGlow ? ' filter="url(#qd-star-glow)"' : ''} class="quantum-star">
+    <path d="M0 -58 C0 -10.4 10.4 0 58 0 C10.4 0 0 10.4 0 58 C0 10.4 -10.4 0 -58 0 C-10.4 0 0 -10.4 0 -58 Z"
+          transform="translate(251.23 251.23) rotate(45)"
+          fill="#FFFFFF"/>
+  </g>
+</svg>`;
+    }
+
+    // Estado da aplicação
+    const state = {
+      seed: 108,
+      particleCount: 2400,
+      compressionExponent: 1.95,
+      clusterIntensity: 0.45,
+      variant: 'glow', // Glow ativado por padrão conforme preferência do usuário
+      zoom: 1,
+      panX: 0,
+      panY: 0,
+      isDragging: false,
+      startX: 0,
+      startY: 0,
+      // Configurações do Gradiente de Fundo (Preset oficial ativo: Diagonal 135° Cósmica)
+      gradType: 'linear',
+      gradAngle: 135,
+      gradRadialR: 245,
+      gradColor1: '#9333EA',
+      gradColor2: '#7C3AED',
+      gradColor3: '#1E0B38',
+      gradOffset1: 0,
+      gradOffset2: 50,
+      gradOffset3: 100,
+      activePresetId: 'preset-diag-135'
+    };
+
+    const svgStage = document.getElementById('svg-stage');
+    const hudStatus = document.getElementById('hud-status');
+    const zoomText = document.getElementById('zoom-text');
+    const toast = document.getElementById('toast');
+
+    // Elementos de controle de gradiente
+    const valGradTypeBadge = document.getElementById('val-grad-type-badge');
+    const groupGradLinear = document.getElementById('group-grad-linear');
+    const groupGradRadial = document.getElementById('group-grad-radial');
+    const inputGradAngle = document.getElementById('input-grad-angle');
+    const valGradAngle = document.getElementById('val-grad-angle');
+    const inputGradRadius = document.getElementById('input-grad-radius');
+    const valGradRadius = document.getElementById('val-grad-radius');
+    const presetsContainer = document.getElementById('presets-container');
+
+    const inputColor1 = document.getElementById('input-color-1');
+    const labelColor1 = document.getElementById('label-color-1');
+    const inputColor2 = document.getElementById('input-color-2');
+    const labelColor2 = document.getElementById('label-color-2');
+    const inputColor3 = document.getElementById('input-color-3');
+    const labelColor3 = document.getElementById('label-color-3');
+
+    function showToast(msg) {
+      toast.textContent = msg;
+      toast.classList.add('show');
+      setTimeout(() => toast.classList.remove('show'), 2200);
+    }
+
+    function renderPresetsChips() {
+      presetsContainer.innerHTML = GRADIENT_PRESETS.map(preset => `
+        <button class="preset-chip ${preset.id === state.activePresetId ? 'is-active' : ''}" data-preset-id="${preset.id}">
+          <div class="preset-swatch" style="background: ${preset.swatch};"></div>
+          <div class="preset-name">${preset.name}</div>
+        </button>
+      `).join('');
+
+      presetsContainer.querySelectorAll('.preset-chip').forEach(btn => {
+        btn.addEventListener('click', () => {
+          applyPreset(btn.dataset.presetId);
+        });
+      });
+    }
+
+    function applyPreset(presetId) {
+      const preset = GRADIENT_PRESETS.find(p => p.id === presetId);
+      if (!preset) return;
+
+      state.activePresetId = preset.id;
+      state.gradType = preset.type;
+      state.gradAngle = preset.angle;
+      state.gradRadialR = preset.radius;
+      state.gradColor1 = preset.color1;
+      state.gradColor2 = preset.color2;
+      state.gradColor3 = preset.color3;
+      state.gradOffset1 = preset.offset1;
+      state.gradOffset2 = preset.offset2;
+      state.gradOffset3 = preset.offset3;
+
+      syncUIFromState();
+      renderStage();
+      renderScales();
+      showToast(`Gradiente: ${preset.name}`);
+    }
+
+    function syncUIFromState() {
+      // Badge de tipo
+      valGradTypeBadge.textContent = state.gradType === 'radial' ? 'Radial' : (state.gradType === 'linear' ? 'Linear' : 'Sólido');
+
+      // Botões segmentados
+      document.querySelectorAll('#seg-grad-type .seg-btn').forEach(btn => {
+        btn.classList.toggle('is-active', btn.dataset.gradType === state.gradType);
+      });
+
+      // Visibilidade de grupos
+      groupGradLinear.style.display = state.gradType === 'linear' ? 'flex' : 'none';
+      groupGradRadial.style.display = state.gradType === 'radial' ? 'flex' : 'none';
+
+      // Sliders & valores
+      inputGradAngle.value = state.gradAngle;
+      valGradAngle.textContent = `${state.gradAngle}°`;
+
+      inputGradRadius.value = state.gradRadialR;
+      valGradRadius.textContent = `${state.gradRadialR}px`;
+
+      // Botões de ângulo rápido
+      document.querySelectorAll('.angle-btn').forEach(btn => {
+        btn.classList.toggle('is-active', Number(btn.dataset.angle) === state.gradAngle);
+      });
+
+      // Cores
+      inputColor1.value = state.gradColor1;
+      labelColor1.textContent = state.gradColor1.toUpperCase();
+      inputColor2.value = state.gradColor2;
+      labelColor2.textContent = state.gradColor2.toUpperCase();
+      inputColor3.value = state.gradColor3;
+      labelColor3.textContent = state.gradColor3.toUpperCase();
+
+      // Presets chips
+      presetsContainer.querySelectorAll('.preset-chip').forEach(btn => {
+        btn.classList.toggle('is-active', btn.dataset.presetId === state.activePresetId);
+      });
+    }
+
+    function renderStage() {
+      const svg = generateQuantumSvgString(state);
+      svgStage.innerHTML = svg;
+      const gradLabel = state.gradType === 'solid' ? 'Sólido' : (state.gradType === 'radial' ? 'Radial' : `Linear ${state.gradAngle}°`);
+      hudStatus.textContent = `Semente: #${state.seed} · ${state.variant === 'solid' ? '0' : state.particleCount} partículas · Gradiente: ${gradLabel}`;
+      updateTransform();
+    }
+
+    function updateTransform() {
+      svgStage.style.transform = `translate(${state.panX}px, ${state.panY}px) scale(${state.zoom})`;
+      zoomText.textContent = `${Math.round(state.zoom * 100)}%`;
+    }
+
+    // Zoom & Pan
+    document.getElementById('btn-zoom-in').addEventListener('click', () => {
+      state.zoom = Math.min(16, +(state.zoom * 1.4).toFixed(2));
+      updateTransform();
+    });
+
+    document.getElementById('btn-zoom-out').addEventListener('click', () => {
+      state.zoom = Math.max(0.4, +(state.zoom / 1.4).toFixed(2));
+      updateTransform();
+    });
+
+    document.getElementById('btn-zoom-reset').addEventListener('click', () => {
+      state.zoom = 1;
+      state.panX = 0;
+      state.panY = 0;
+      updateTransform();
+    });
+
+    document.getElementById('btn-zoom-macro').addEventListener('click', () => {
+      state.zoom = 4;
+      state.panX = 0;
+      state.panY = 0;
+      updateTransform();
+      showToast('Zoom Macro (400%): Inspecionando o núcleo');
+    });
+
+    const viewport = document.getElementById('viewport');
+    viewport.addEventListener('wheel', e => {
+      e.preventDefault();
+      const delta = e.deltaY < 0 ? 1.18 : 0.85;
+      state.zoom = Math.min(16, Math.max(0.4, +(state.zoom * delta).toFixed(2)));
+      updateTransform();
+    }, { passive: false });
+
+    viewport.addEventListener('mousedown', e => {
+      if (e.target.closest('.zoom-hud')) return;
+      state.isDragging = true;
+      state.startX = e.clientX - state.panX;
+      state.startY = e.clientY - state.panY;
+    });
+
+    window.addEventListener('mousemove', e => {
+      if (!state.isDragging) return;
+      state.panX = e.clientX - state.startX;
+      state.panY = e.clientY - state.startY;
+      updateTransform();
+    });
+
+    window.addEventListener('mouseup', () => {
+      state.isDragging = false;
+    });
+
+    // Controles de Modo do Gradiente
+    document.querySelectorAll('#seg-grad-type .seg-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        state.gradType = btn.dataset.gradType;
+        state.activePresetId = null; // Custom
+        syncUIFromState();
+        renderStage();
+        renderScales();
+      });
+    });
+
+    // Controles Lineares (Ângulo & Botões de Direção)
+    inputGradAngle.addEventListener('input', () => {
+      state.gradAngle = Number(inputGradAngle.value);
+      valGradAngle.textContent = `${state.gradAngle}°`;
+      state.activePresetId = null;
+      syncUIFromState();
+      renderStage();
+      renderScales();
+    });
+
+    document.querySelectorAll('.angle-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        state.gradAngle = Number(btn.dataset.angle);
+        state.activePresetId = null;
+        syncUIFromState();
+        renderStage();
+        renderScales();
+      });
+    });
+
+    // Controles Radiais (Raio)
+    inputGradRadius.addEventListener('input', () => {
+      state.gradRadialR = Number(inputGradRadius.value);
+      valGradRadius.textContent = `${state.gradRadialR}px`;
+      state.activePresetId = null;
+      renderStage();
+      renderScales();
+    });
+
+    // Controles de Cor (3 Stops)
+    inputColor1.addEventListener('input', () => {
+      state.gradColor1 = inputColor1.value;
+      labelColor1.textContent = inputColor1.value.toUpperCase();
+      state.activePresetId = null;
+      renderStage();
+      renderScales();
+    });
+
+    inputColor2.addEventListener('input', () => {
+      state.gradColor2 = inputColor2.value;
+      labelColor2.textContent = inputColor2.value.toUpperCase();
+      state.activePresetId = null;
+      renderStage();
+      renderScales();
+    });
+
+    inputColor3.addEventListener('input', () => {
+      state.gradColor3 = inputColor3.value;
+      labelColor3.textContent = inputColor3.value.toUpperCase();
+      state.activePresetId = null;
+      renderStage();
+      renderScales();
+    });
+
+    // Controles de Partículas
+    const inputCount = document.getElementById('input-count');
+    const valCount = document.getElementById('val-count');
+    inputCount.addEventListener('input', () => {
+      state.particleCount = Number(inputCount.value);
+      valCount.textContent = state.particleCount;
+      renderStage();
+      renderScales();
+    });
+
+    const inputExp = document.getElementById('input-exp');
+    const valExp = document.getElementById('val-exp');
+    inputExp.addEventListener('input', () => {
+      state.compressionExponent = Number(inputExp.value);
+      valExp.textContent = state.compressionExponent.toFixed(2);
+      renderStage();
+    });
+
+    const inputCluster = document.getElementById('input-cluster');
+    const valCluster = document.getElementById('val-cluster');
+    inputCluster.addEventListener('input', () => {
+      state.clusterIntensity = Number(inputCluster.value) / 100;
+      valCluster.textContent = `${inputCluster.value}%`;
+      renderStage();
+    });
+
+    document.getElementById('btn-reseed').addEventListener('click', () => {
+      state.seed = Math.floor(Math.random() * 9000) + 100;
+      renderStage();
+      renderScales();
+      showToast(`Nova semente gerada: #${state.seed}`);
+    });
+
+    // Variantes
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('is-active'));
+        btn.classList.add('is-active');
+        state.variant = btn.dataset.variant;
+        renderStage();
+      });
+    });
+
+    // Renderização dos cards e escalas ópticas
+    function renderScales() {
+      const svgScale = generateQuantumSvgString({ ...state, variant: 'glow' });
+      document.querySelectorAll('.scale-preview').forEach(el => {
+        el.innerHTML = svgScale;
+      });
+
+      // Cards de variantes estáticos refletem o gradiente atual
+      document.getElementById('card-prev-solid').innerHTML = generateQuantumSvgString({ ...state, variant: 'solid' });
+      document.getElementById('card-prev-main').innerHTML = generateQuantumSvgString({ ...state, variant: 'main' });
+      document.getElementById('card-prev-glow').innerHTML = generateQuantumSvgString({ ...state, variant: 'glow' });
+      document.getElementById('card-prev-anim').innerHTML = generateQuantumSvgString({ ...state, variant: 'anim' });
+    }
+
+    // Download & Cópia de SVG
+    document.getElementById('btn-download-svg').addEventListener('click', () => {
+      const svg = generateQuantumSvgString(state);
+      const blob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `quickdock-quantum-${state.variant}-${state.gradType}.svg`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      showToast('SVG baixado com sucesso!');
+    });
+
+    document.getElementById('btn-copy-svg').addEventListener('click', async () => {
+      const svg = generateQuantumSvgString(state);
+      await navigator.clipboard.writeText(svg);
+      showToast('Código SVG copiado para a área de transferência!');
+    });
+
+    // Inicialização
+    renderPresetsChips();
+    syncUIFromState();
+    renderStage();
+    renderScales();
+  </script>
+</body>
+</html>

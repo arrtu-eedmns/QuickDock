@@ -8,6 +8,8 @@ import { canSafelyReloadCurrentNote, switchToNote, flushSave, isEditingTemplate,
 import { conectarPainel, applyPlatform } from './modules/platform.js';
 
 import { iconSvg } from './modules/icons.js';
+import { switchView } from './modules/views.js';
+import { initTemplatesGallery } from './modules/templates-gallery.js';
 
 // Aplica a identificação de plataforma (extension, mobile, desktop) imediatamente
 applyPlatform();
@@ -100,6 +102,7 @@ function openAppMenu() {
       toggleDocsExtension();
     }
   });
+  addOpt('auto_stories', 'Galeria de modelos', () => switchView('templates'));
   addOpt('menu_book', 'Ver tutorial', createTutorialNote);
   addOpt(dark ? 'light_mode' : 'dark_mode', dark ? 'Tema claro' : 'Tema escuro', toggleTheme);
   addOpt('sync', 'Sincronização…', () => syncController?.abrirPopover(btnAppMenu));
@@ -149,6 +152,12 @@ async function init() {
     await initNotesTabs();
     await initDocuments();
     await initResizer();
+    initTemplatesGallery();
+
+    const btnNavTemplates = document.getElementById('btn-nav-templates');
+    if (btnNavTemplates) {
+      btnNavTemplates.addEventListener('click', () => switchView('templates'));
+    }
 
     syncController = new SyncController({
       onNotesChanged: refreshNotesList,
