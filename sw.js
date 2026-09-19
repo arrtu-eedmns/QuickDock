@@ -52,6 +52,7 @@ const ASSET_PATHS = [
   'sidepanel/modules/notefile.js',
   'sidepanel/modules/links.js',
   'sidepanel/modules/graph-view.js',
+  'sidepanel/modules/board-view.js',
   'board/index.html',
   'board/style.css',
   'board/board.js',

@@ -3399,34 +3399,87 @@ html[data-platform="mobile"] .note-section {
   padding-bottom: 0 !important;
 }
 
+/* ── Regras Universais de Visões (View Engine) ─────────────────────────────── */
+
+/* Qualquer seção ou visão com [hidden] JAMAIS deve ser exibida */
+.note-section[hidden],
+.templates-gallery-view[hidden],
+.graph-view[hidden],
+.board-view[hidden],
+html[data-platform="extension"] .note-section[hidden],
 html[data-platform="mobile"] .note-section[hidden],
-html[data-platform="mobile"].view-templates .note-section,
-body.view-templates html[data-platform="mobile"] .note-section {
+html[data-platform="desktop"] .note-section[hidden],
+html[data-platform="extension"] .templates-gallery-view[hidden],
+html[data-platform="mobile"] .templates-gallery-view[hidden],
+html[data-platform="desktop"] .templates-gallery-view[hidden],
+html[data-platform="extension"] .graph-view[hidden],
+html[data-platform="mobile"] .graph-view[hidden],
+html[data-platform="desktop"] .graph-view[hidden],
+html[data-platform="extension"] .board-view[hidden],
+html[data-platform="mobile"] .board-view[hidden],
+html[data-platform="desktop"] .board-view[hidden] {
   display: none !important;
 }
 
-html[data-platform="mobile"] .templates-gallery-view {
-  order: 2;
-  flex: 1 1 0px !important;
-  min-height: 0 !important;
-  height: 100% !important;
+/* Quando qualquer visão secundária estiver ativa, oculta o editor de notas em todas as plataformas */
+html.view-templates .note-section,
+html.view-grafo .note-section,
+html.view-board .note-section,
+body.view-templates .note-section,
+body.view-grafo .note-section,
+body.view-board .note-section,
+html.view-templates #btn-touch-select,
+html.view-grafo #btn-touch-select,
+html.view-board #btn-touch-select {
+  display: none !important;
+}
+
+/* Na extensão e no mobile, telas completas cobrem 100% e ocultam barra de abas, resize e docs */
+html[data-platform="extension"].view-templates .notes-tabbar,
+html[data-platform="extension"].view-grafo .notes-tabbar,
+html[data-platform="extension"].view-board .notes-tabbar,
+html[data-platform="extension"].view-templates #resize-handle,
+html[data-platform="extension"].view-grafo #resize-handle,
+html[data-platform="extension"].view-board #resize-handle,
+html[data-platform="extension"].view-templates .docs-section,
+html[data-platform="extension"].view-grafo .docs-section,
+html[data-platform="extension"].view-board .docs-section,
+body.view-templates html[data-platform="extension"] .notes-tabbar,
+body.view-grafo html[data-platform="extension"] .notes-tabbar,
+body.view-board html[data-platform="extension"] .notes-tabbar,
+body.view-templates html[data-platform="extension"] #resize-handle,
+body.view-grafo html[data-platform="extension"] #resize-handle,
+body.view-board html[data-platform="extension"] #resize-handle,
+body.view-templates html[data-platform="extension"] .docs-section,
+body.view-grafo html[data-platform="extension"] .docs-section,
+body.view-board html[data-platform="extension"] .docs-section,
+html[data-platform="mobile"].view-templates .notes-tabbar,
+html[data-platform="mobile"].view-grafo .notes-tabbar,
+html[data-platform="mobile"].view-board .notes-tabbar,
+html[data-platform="mobile"].view-templates .docs-section,
+html[data-platform="mobile"].view-grafo .docs-section,
+html[data-platform="mobile"].view-board .docs-section {
+  display: none !important;
+}
+
+/* Na extensão e mobile, a visão ativa ocupa 100% da viewport e fica à frente */
+html[data-platform="extension"] .templates-gallery-view,
+html[data-platform="extension"] .graph-view,
+html[data-platform="extension"] .board-view,
+html[data-platform="mobile"] .templates-gallery-view,
+html[data-platform="mobile"] .graph-view,
+html[data-platform="mobile"] .board-view {
+  order: 1 !important;
+  flex: 1 1 100% !important;
+  width: 100% !important;
+  height: 100vh !important;
+  min-height: 100vh !important;
+  max-height: 100vh !important;
+  position: absolute !important;
+  inset: 0 !important;
+  z-index: 100 !important;
   display: flex !important;
   flex-direction: column !important;
-  position: relative !important;
-  overflow: hidden !important;
-  background: var(--bg);
-}
-
-html[data-platform="mobile"] .templates-gallery-view[hidden] {
-  display: none !important;
-}
-
-/* Quando visualizando a galeria de modelos no mobile ou extensão, oculta a barra de abas de notas */
-html[data-platform="mobile"].view-templates .notes-tabbar,
-body.view-templates html[data-platform="mobile"] .notes-tabbar,
-html[data-platform="extension"].view-templates .notes-tabbar,
-body.view-templates html[data-platform="extension"] .notes-tabbar {
-  display: none !important;
 }
 
 html[data-platform="mobile"] .docs-section {
@@ -4049,7 +4102,11 @@ html[data-platform="mobile"] .mob-btn .qd-icon {
 
 /* ===== COMPARTILHADO: OCULTA ITENS ESPECÍFICOS DE DESKTOP NO MOBILE/EXTENSÃO ===== */
 html[data-platform="extension"] #btn-nav-templates,
-html[data-platform="mobile"] #btn-nav-templates {
+html[data-platform="extension"] #btn-nav-graph,
+html[data-platform="extension"] #btn-nav-board,
+html[data-platform="mobile"] #btn-nav-templates,
+html[data-platform="mobile"] #btn-nav-graph,
+html[data-platform="mobile"] #btn-nav-board {
   display: none !important;
 }
 
@@ -4681,9 +4738,11 @@ html[data-platform="mobile"] #btn-nav-templates {
     z-index: 10;
   }
 
-  /* 2. Palco central (Editor e Telas completas como Galeria) à DIREITA */
+  /* 2. Palco central (Editor e Telas completas: Galeria, Grafo e Quadro) à DIREITA */
   html[data-platform="desktop"] .note-section,
-  html[data-platform="desktop"] .templates-gallery-view {
+  html[data-platform="desktop"] .templates-gallery-view,
+  html[data-platform="desktop"] .graph-view,
+  html[data-platform="desktop"] .board-view {
     order: 2 !important;
     flex: 1 1 auto;
     width: 0;
@@ -4697,7 +4756,9 @@ html[data-platform="mobile"] #btn-nav-templates {
   }
 
   html[data-platform="desktop"] .note-section[hidden],
-  html[data-platform="desktop"] .templates-gallery-view[hidden] {
+  html[data-platform="desktop"] .templates-gallery-view[hidden],
+  html[data-platform="desktop"] .graph-view[hidden],
+  html[data-platform="desktop"] .board-view[hidden] {
     display: none !important;
   }
 
@@ -5599,6 +5660,392 @@ html[data-platform="mobile"] #btn-nav-templates {
   margin-top: 3px;
 }
 
+/* ===== VISÃO DO QUADRO INFINITO (CANVAS ESPACIAL) ===== */
+.board-view {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  background: var(--bg);
+  overflow: hidden;
+  position: relative;
+  z-index: 5;
+}
 
+.board-view[hidden] {
+  display: none !important;
+}
 
+.board-header {
+  position: relative;
+  height: 52px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 12px;
+  z-index: 50;
+  gap: 8px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  flex-shrink: 0;
+}
 
+.board-header-left,
+.board-header-center,
+.board-header-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.board-back-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-hover);
+  border: 1px solid var(--border);
+  color: var(--text);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.board-back-btn:hover {
+  background: var(--border);
+  transform: translateX(-1px);
+}
+
+.board-title-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.board-title-input {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 4px 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  outline: none;
+  width: 120px;
+  max-width: 160px;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.board-title-input:hover,
+.board-title-input:focus {
+  background: var(--bg-hover);
+  border-color: var(--border);
+}
+
+.board-save-status {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 10px;
+  color: var(--text-muted);
+  opacity: 0.8;
+  white-space: nowrap;
+}
+
+.board-save-status .status-icon {
+  font-size: 12px;
+  color: #16a34a;
+}
+
+.board-tools-group {
+  display: flex;
+  align-items: center;
+  background: var(--bg-subtle, var(--bg-surface-hover));
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 2px;
+  gap: 2px;
+}
+
+.board-tool-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.board-tool-btn:hover {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+
+.board-tool-btn.active {
+  background: var(--accent);
+  color: #ffffff;
+}
+
+.board-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg-card, var(--bg));
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.board-btn:hover {
+  background: var(--bg-hover);
+  border-color: var(--accent);
+}
+
+.board-btn.icon-btn {
+  padding: 4px;
+  width: 28px;
+  height: 28px;
+  justify-content: center;
+}
+
+.board-zoom-group {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  background: var(--bg-subtle, var(--bg-surface-hover));
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 2px;
+}
+
+.board-zoom-group .zoom-level-text {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-muted);
+  min-width: 34px;
+  text-align: center;
+}
+
+.board-open-tab-btn {
+  color: var(--accent) !important;
+  font-weight: 600;
+}
+
+.open-tab-btn-label {
+  display: none;
+}
+
+@media (min-width: 768px) {
+  .open-tab-btn-label {
+    display: inline;
+  }
+}
+
+.board-container {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  background-color: var(--bg);
+  background-image: radial-gradient(var(--border) 1px, transparent 1px);
+  background-size: 24px 24px;
+  cursor: default;
+  touch-action: none;
+  width: 100%;
+  height: calc(100% - 52px);
+}
+
+.board-container.is-panning {
+  cursor: grabbing;
+}
+
+.board-svg {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 10;
+  overflow: visible;
+}
+
+.board-arrow-path {
+  fill: none;
+  stroke: var(--text-muted);
+  stroke-width: 2px;
+  stroke-linecap: round;
+  pointer-events: stroke;
+  cursor: pointer;
+  transition: stroke 0.15s ease, stroke-width 0.15s ease;
+}
+
+.board-arrow-path:hover,
+.board-arrow-path.selected {
+  stroke: var(--accent);
+  stroke-width: 3px;
+}
+
+.draft-arrow {
+  stroke: var(--accent);
+  stroke-width: 2px;
+  stroke-dasharray: 4 4;
+}
+
+.board-world {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+  z-index: 20;
+  pointer-events: none;
+}
+
+.board-cards-layer {
+  position: relative;
+}
+
+.board-card {
+  position: absolute;
+  top: 0;
+  left: 0;
+  background: var(--bg-card, var(--bg));
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  display: flex;
+  flex-direction: column;
+  overflow: visible;
+  pointer-events: auto;
+  user-select: none;
+  transition: box-shadow 0.15s ease, border-color 0.15s ease;
+}
+
+.board-card:hover {
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+  border-color: var(--accent);
+}
+
+.board-card[data-color="yellow"] { background: #fef9c3; border-color: #fde047; color: #713f12; }
+.board-card[data-color="green"]  { background: #dcfce7; border-color: #86efac; color: #14532d; }
+.board-card[data-color="blue"]   { background: #e0f2fe; border-color: #7dd3fc; color: #0c4a6e; }
+.board-card[data-color="pink"]   { background: #fce7f3; border-color: #f472b6; color: #831843; }
+
+[data-theme="dark"] .board-card[data-color="yellow"] { background: #422006; border-color: #854d0e; color: #fef08a; }
+[data-theme="dark"] .board-card[data-color="green"]  { background: #052e16; border-color: #166534; color: #bbf7d0; }
+[data-theme="dark"] .board-card[data-color="blue"]   { background: #082f49; border-color: #075985; color: #bae6fd; }
+[data-theme="dark"] .board-card[data-color="pink"]   { background: #500724; border-color: #9d174d; color: #fbcfe8; }
+
+.board-card-header {
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 8px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  cursor: grab;
+  flex-shrink: 0;
+}
+
+.board-card-header:active {
+  cursor: grabbing;
+}
+
+.board-card-handle {
+  font-size: 11px;
+  font-weight: 600;
+  opacity: 0.6;
+}
+
+.board-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.card-action-btn {
+  background: transparent;
+  border: none;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 2px;
+  border-radius: 4px;
+  opacity: 0.6;
+}
+
+.card-action-btn:hover {
+  opacity: 1;
+  background: rgba(0, 0, 0, 0.08);
+}
+
+.board-card-body {
+  flex: 1;
+  padding: 8px 10px;
+  font-size: 12px;
+  line-height: 1.4;
+  outline: none;
+  cursor: text;
+  overflow-y: auto;
+  user-select: text;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.board-card-resizer {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 14px;
+  height: 14px;
+  cursor: se-resize;
+}
+
+.board-card-resizer::after {
+  content: '';
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  width: 5px;
+  height: 5px;
+  border-right: 2px solid var(--border);
+  border-bottom: 2px solid var(--border);
+}
+
+.board-card-connect-handle {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid #ffffff;
+  cursor: crosshair;
+  opacity: 0;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+  z-index: 30;
+}
+
+.board-card:hover .board-card-connect-handle {
+  opacity: 1;
+}
+
+.board-card-connect-handle:hover {
+  transform: scale(1.3);
+}
+
+.board-card-connect-handle.top    { top: -6px; left: 50%; margin-left: -6px; }
+.board-card-connect-handle.right  { right: -6px; top: 50%; margin-top: -6px; }
+.board-card-connect-handle.bottom { bottom: -6px; left: 50%; margin-left: -6px; }
+.board-card-connect-handle.left   { left: -6px; top: 50%; margin-top: -6px; }

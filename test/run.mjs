@@ -3174,6 +3174,14 @@ for (const entrada of ['', null, undefined, '\n\n']) {
   ok('quadro · app.js possui função abrirQuadroInfinito', appSource.includes('export function abrirQuadroInfinito') && appSource.includes('board/index.html'));
   ok('quadro · index.html possui botão de navegação para o quadro', sidepanelHtmlSource.includes('id="btn-nav-board"'));
   ok('quadro · menu de opções possui atalho para o quadro infinito', appSource.includes('Quadro Infinito'));
+
+  // 22.5: Modo Integrado no Painel e Prevenção de Sobreposição de Telas
+  const viewsSource = await readFile(new URL('../sidepanel/modules/views.js', import.meta.url), 'utf8');
+  const sidepanelStyleSource = await readFile(new URL('../sidepanel/style.css', import.meta.url), 'utf8');
+  ok('quadro · views.js suporta visão integrada board', viewsSource.includes("viewName === 'board'"));
+  ok('quadro · sidepanel/index.html possui seção board-view interna', sidepanelHtmlSource.includes('id="board-view"') && sidepanelHtmlSource.includes('id="btn-board-open-tab"'));
+  ok('design · style.css isola visões para evitar sobreposição de telas', sidepanelStyleSource.includes('.board-view[hidden]') && sidepanelStyleSource.includes('html.view-board .note-section'));
+  ok('design · botões de navegação lateral ocultos na extensão e mobile para evitar aperto', sidepanelStyleSource.includes('html[data-platform="extension"] #btn-nav-board') && sidepanelStyleSource.includes('html[data-platform="mobile"] #btn-nav-graph'));
 }
 
 if (falhas.length) {

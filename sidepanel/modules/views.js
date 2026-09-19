@@ -24,6 +24,8 @@ export function switchView(viewName, params = {}) {
       document.dispatchEvent(new CustomEvent('quickdock:refresh-templates-gallery', { detail: params }));
     } else if (viewName === 'grafo') {
       document.dispatchEvent(new CustomEvent('quickdock:refresh-graph-view', { detail: params }));
+    } else if (viewName === 'board') {
+      document.dispatchEvent(new CustomEvent('quickdock:refresh-board-view', { detail: params }));
     }
     return;
   }
@@ -34,8 +36,10 @@ export function switchView(viewName, params = {}) {
   const noteSection = document.querySelector('.note-section');
   const templatesView = document.getElementById('templates-gallery-view');
   const graphView = document.getElementById('graph-view');
+  const boardView = document.getElementById('board-view');
   const btnNavTemplates = document.getElementById('btn-nav-templates');
   const btnNavGraph = document.getElementById('btn-nav-graph');
+  const btnNavBoard = document.getElementById('btn-nav-board');
 
   // Oculta todas as visões secundárias
   if (templatesView) {
@@ -46,10 +50,15 @@ export function switchView(viewName, params = {}) {
     graphView.hidden = true;
     graphView.classList.remove('active');
   }
-  document.documentElement.classList.remove('view-templates', 'view-grafo');
-  document.body.classList.remove('view-templates', 'view-grafo');
+  if (boardView) {
+    boardView.hidden = true;
+    boardView.classList.remove('active');
+  }
+  document.documentElement.classList.remove('view-templates', 'view-grafo', 'view-board');
+  document.body.classList.remove('view-templates', 'view-grafo', 'view-board');
   if (btnNavTemplates) btnNavTemplates.classList.remove('active');
   if (btnNavGraph) btnNavGraph.classList.remove('active');
+  if (btnNavBoard) btnNavBoard.classList.remove('active');
 
   if (viewName === 'templates') {
     if (noteSection) noteSection.hidden = true;
@@ -71,6 +80,16 @@ export function switchView(viewName, params = {}) {
     document.body.classList.add('view-grafo');
     if (btnNavGraph) btnNavGraph.classList.add('active');
     document.dispatchEvent(new CustomEvent('quickdock:refresh-graph-view', { detail: params }));
+  } else if (viewName === 'board') {
+    if (noteSection) noteSection.hidden = true;
+    if (boardView) {
+      boardView.hidden = false;
+      boardView.classList.add('active');
+    }
+    document.documentElement.classList.add('view-board');
+    document.body.classList.add('view-board');
+    if (btnNavBoard) btnNavBoard.classList.add('active');
+    document.dispatchEvent(new CustomEvent('quickdock:refresh-board-view', { detail: params }));
   } else {
     // Visão padrão: editor de notas
     if (noteSection) {
