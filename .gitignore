@@ -19,6 +19,8 @@ brand/quickdock-logo.html
 *.af
 
 # Notas internas de passagem de sessão e planejamento: úteis localmente,
-# não fazem parte do histórico público do projeto.
-docs/HANDOFF*.md
-docs/PLANEJAMENTO*.md
+# não fazem parte do histórico público do projeto. A pasta inteira, não só
+# alguns nomes — cada nova rodada de planejamento vem com um nome diferente
+# (HANDOFF-N, PLANEJAMENTO-X, PLANO-Y...) e ficar listando padrão por padrão
+# é perder a corrida. Se um dia precisar de doc público aqui, ela sai daqui.
+docs/

@@ -3,6 +3,7 @@ import {
   reorderNoteRecords, moveNoteRecord, migrateLegacyNoteIfNeeded, loadActiveNoteId, saveActiveNoteId,
   getNoteById, detachFilesFromNote, updateNoteBlocksById,
   updateTemplateById, gcInlineFiles,
+  listarPastas, criarPasta, renomearPasta, excluirPasta, moverNotaParaPasta, normalizarCaminhoPasta,
 } from './storage.js';
 import { setDocumentsNote, refreshDocuments } from './documents.js';
 import { positionPopover } from './popover.js';
@@ -948,6 +949,12 @@ function renderTabMenu(meta, anchorEl) {
     downloadText(`${safeFilename(meta.title)}.txt`, text);
   });
 
+  addOpt('Mover para pasta...', async () => {
+    await promptMoverNotaParaPasta(meta, anchorEl, () => {
+      renderTabs();
+    });
+  });
+
   menu.appendChild(Object.assign(document.createElement('div'), { className: 'math-divider' }));
 
   addOpt('Limpar conteúdo', async () => {
@@ -989,20 +996,475 @@ document.addEventListener('mousedown', e => {
   if (tabMenuEl && !tabMenuEl.contains(e.target)) closeTabMenu();
 });
 
+// ── Gestão e Árvore de Pastas (Fase 2) ─────────────────────────────────────────
+const FOLDERS_OPEN_KEY = 'quickdock:folders:open';
+
+function getOpenFolders() {
+  try {
+    const raw = localStorage.getItem(FOLDERS_OPEN_KEY);
+    if (raw) return new Set(JSON.parse(raw));
+  } catch {}
+  return null;
+}
+
+function saveOpenFolders(set) {
+  try {
+    localStorage.setItem(FOLDERS_OPEN_KEY, JSON.stringify([...set]));
+  } catch {}
+}
+
+function buildFolderTree(pastas, notes) {
+  const root = {
+    caminho: '',
+    nome: '',
+    nivel: 0,
+    subpastas: new Map(),
+    notas: [],
+  };
+
+  const todosCaminhos = new Set();
+  for (const p of (pastas || [])) if (p.caminho) todosCaminhos.add(p.caminho);
+  for (const n of (notes || [])) if (n.pasta) todosCaminhos.add(n.pasta);
+
+  for (const c of [...todosCaminhos]) {
+    const partes = c.split('/');
+    for (let i = 1; i <= partes.length; i++) {
+      todosCaminhos.add(partes.slice(0, i).join('/'));
+    }
+  }
+
+  const caminhosOrdenados = [...todosCaminhos].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+
+  function getNode(caminho) {
+    if (!caminho) return root;
+    const partes = caminho.split('/');
+    let cur = root;
+    for (let i = 0; i < partes.length; i++) {
+      const subCaminho = partes.slice(0, i + 1).join('/');
+      if (!cur.subpastas.has(parts[i])) {
+        cur.subpastas.set(parts[i], {
+          caminho: subCaminho,
+          nome: parts[i],
+          nivel: i + 1,
+          subpastas: new Map(),
+          notas: [],
+        });
+      }
+      cur = cur.subpastas.get(parts[i]);
+    }
+    return cur;
+  }
+
+  for (const c of caminhosOrdenados) getNode(c);
+
+  for (const n of notes) {
+    const node = getNode(n.pasta || '');
+    node.notas.push(n);
+  }
+
+  return root;
+}
+
+function contarNotasTotal(node) {
+  let count = node.notas.length;
+  for (const sub of node.subpastas.values()) {
+    count += contarNotasTotal(sub);
+  }
+  return count;
+}
+
+let folderModalEl = null;
+function closeFolderModal() { folderModalEl?.remove(); folderModalEl = null; }
+
+function promptNovaPasta(parentPath = '', onDone = null) {
+  closeFolderModal();
+  const pop = document.createElement('div');
+  pop.className = 'copy-menu folder-modal';
+
+  const head = document.createElement('div');
+  head.className = 'copy-menu-header';
+  head.textContent = parentPath ? `Nova subpasta em "${parentPath}"` : 'Nova pasta';
+
+  const input = document.createElement('input');
+  input.className = 'link-input folder-modal-input';
+  input.type = 'text';
+  input.placeholder = 'Nome da pasta';
+
+  const errorMsg = document.createElement('div');
+  errorMsg.className = 'folder-modal-error';
+  errorMsg.style.display = 'none';
+
+  const btnRow = document.createElement('div');
+  btnRow.className = 'folder-modal-actions';
+
+  const btnCancel = document.createElement('button');
+  btnCancel.className = 'copy-opt folder-modal-btn';
+  btnCancel.innerHTML = '<span class="copy-opt-value">Cancelar</span>';
+  btnCancel.addEventListener('click', e => { e.stopPropagation(); closeFolderModal(); });
+
+  const btnConfirm = document.createElement('button');
+  btnConfirm.className = 'copy-opt folder-modal-btn folder-confirm-btn';
+  btnConfirm.innerHTML = '<span class="copy-opt-value">Criar</span>';
+
+  const doSave = async () => {
+    const nome = input.value.trim().replace(/[\\/:*?"<>|]/g, '');
+    if (!nome) {
+      errorMsg.textContent = 'Informe um nome para a pasta.';
+      errorMsg.style.display = 'block';
+      return;
+    }
+    const fullPath = parentPath ? `${parentPath}/${nome}` : nome;
+    try {
+      normalizarCaminhoPasta(fullPath);
+    } catch (err) {
+      errorMsg.textContent = err.message || 'Caminho excede 3 níveis de profundidade.';
+      errorMsg.style.display = 'block';
+      return;
+    }
+    closeFolderModal();
+    await criarPasta(fullPath);
+    const openSet = getOpenFolders() || new Set();
+    openSet.add(fullPath);
+    if (parentPath) openSet.add(parentPath);
+    saveOpenFolders(openSet);
+    if (onDone) await onDone();
+  };
+
+  btnConfirm.addEventListener('click', async e => { e.stopPropagation(); await doSave(); });
+  input.addEventListener('keydown', e => {
+    e.stopPropagation();
+    if (e.key === 'Enter') { e.preventDefault(); doSave(); }
+    if (e.key === 'Escape') { e.preventDefault(); closeFolderModal(); }
+  });
+
+  btnRow.append(btnCancel, btnConfirm);
+  pop.append(head, input, errorMsg, btnRow);
+  pop.addEventListener('mousedown', e => e.stopPropagation());
+  document.body.appendChild(pop);
+  folderModalEl = pop;
+
+  pop.style.position = 'fixed';
+  pop.style.top = '50%';
+  pop.style.left = '50%';
+  pop.style.transform = 'translate(-50%, -50%)';
+  pop.style.zIndex = '1000';
+  input.focus();
+}
+
+function promptRenomearPasta(caminhoAntigo, onDone = null) {
+  closeFolderModal();
+  const pop = document.createElement('div');
+  pop.className = 'copy-menu folder-modal';
+
+  const head = document.createElement('div');
+  head.className = 'copy-menu-header';
+  head.textContent = 'Renomear pasta';
+
+  const input = document.createElement('input');
+  input.className = 'link-input folder-modal-input';
+  input.type = 'text';
+  const partes = caminhoAntigo.split('/');
+  input.value = partes[partes.length - 1];
+
+  const errorMsg = document.createElement('div');
+  errorMsg.className = 'folder-modal-error';
+  errorMsg.style.display = 'none';
+
+  const btnRow = document.createElement('div');
+  btnRow.className = 'folder-modal-actions';
+
+  const btnCancel = document.createElement('button');
+  btnCancel.className = 'copy-opt folder-modal-btn';
+  btnCancel.innerHTML = '<span class="copy-opt-value">Cancelar</span>';
+  btnCancel.addEventListener('click', e => { e.stopPropagation(); closeFolderModal(); });
+
+  const btnConfirm = document.createElement('button');
+  btnConfirm.className = 'copy-opt folder-modal-btn folder-confirm-btn';
+  btnConfirm.innerHTML = '<span class="copy-opt-value">Renomear</span>';
+
+  const doRename = async () => {
+    const novoNome = input.value.trim().replace(/[\\/:*?"<>|]/g, '');
+    if (!novoNome) {
+      errorMsg.textContent = 'Informe o novo nome.';
+      errorMsg.style.display = 'block';
+      return;
+    }
+    const novoCaminho = partes.length > 1
+      ? `${partes.slice(0, -1).join('/')}/${novoNome}`
+      : novoNome;
+    if (novoCaminho === caminhoAntigo) {
+      closeFolderModal();
+      return;
+    }
+    try {
+      normalizarCaminhoPasta(novoCaminho);
+    } catch (err) {
+      errorMsg.textContent = err.message || 'Caminho inválido.';
+      errorMsg.style.display = 'block';
+      return;
+    }
+    closeFolderModal();
+    await renomearPasta(caminhoAntigo, novoCaminho);
+    notesMeta = await loadAllNotesMeta();
+    const openSet = getOpenFolders();
+    if (openSet && openSet.has(caminhoAntigo)) {
+      openSet.delete(caminhoAntigo);
+      openSet.add(novoCaminho);
+      saveOpenFolders(openSet);
+    }
+    renderTabs();
+    if (onDone) await onDone();
+  };
+
+  btnConfirm.addEventListener('click', async e => { e.stopPropagation(); await doRename(); });
+  input.addEventListener('keydown', e => {
+    e.stopPropagation();
+    if (e.key === 'Enter') { e.preventDefault(); doRename(); }
+    if (e.key === 'Escape') { e.preventDefault(); closeFolderModal(); }
+  });
+
+  btnRow.append(btnCancel, btnConfirm);
+  pop.append(head, input, errorMsg, btnRow);
+  pop.addEventListener('mousedown', e => e.stopPropagation());
+  document.body.appendChild(pop);
+  folderModalEl = pop;
+
+  pop.style.position = 'fixed';
+  pop.style.top = '50%';
+  pop.style.left = '50%';
+  pop.style.transform = 'translate(-50%, -50%)';
+  pop.style.zIndex = '1000';
+  input.focus();
+  input.select();
+}
+
+function promptExcluirPasta(caminho, totalNotas, onDone = null) {
+  closeFolderModal();
+  const pop = document.createElement('div');
+  pop.className = 'copy-menu folder-modal';
+
+  const head = document.createElement('div');
+  head.className = 'copy-menu-header';
+  head.textContent = `Excluir pasta "${caminho}"`;
+
+  const desc = document.createElement('div');
+  desc.className = 'folder-modal-desc';
+  desc.textContent = totalNotas > 0
+    ? `Esta pasta contém ${totalNotas} nota(s). O que deseja fazer com elas?`
+    : 'Tem certeza que deseja excluir esta pasta vazia?';
+
+  const btnRow = document.createElement('div');
+  btnRow.className = 'folder-modal-actions-col';
+
+  if (totalNotas > 0) {
+    const btnMoverRaiz = document.createElement('button');
+    btnMoverRaiz.className = 'copy-opt folder-action-opt';
+    btnMoverRaiz.innerHTML = '<span class="copy-opt-value">Mover notas para a raiz e excluir pasta</span>';
+    btnMoverRaiz.addEventListener('click', async e => {
+      e.stopPropagation();
+      closeFolderModal();
+      await excluirPasta(caminho, { manterNotas: true });
+      notesMeta = await loadAllNotesMeta();
+      renderTabs();
+      if (onDone) await onDone();
+    });
+    btnRow.appendChild(btnMoverRaiz);
+
+    const btnApagarTudo = document.createElement('button');
+    btnApagarTudo.className = 'copy-opt folder-action-opt folder-action-danger';
+    btnApagarTudo.innerHTML = '<span class="copy-opt-value">Excluir pasta e todas as notas</span>';
+    btnApagarTudo.addEventListener('click', async e => {
+      e.stopPropagation();
+      closeFolderModal();
+      await excluirPasta(caminho, { manterNotas: false });
+      notesMeta = await loadAllNotesMeta();
+      if (!notesMeta.some(n => n.id === activeId) && notesMeta.length > 0) {
+        await activateNote(notesMeta[0].id);
+      }
+      renderTabs();
+      if (onDone) await onDone();
+    });
+    btnRow.appendChild(btnApagarTudo);
+  } else {
+    const btnConfirmVazia = document.createElement('button');
+    btnConfirmVazia.className = 'copy-opt folder-action-opt folder-action-danger';
+    btnConfirmVazia.innerHTML = '<span class="copy-opt-value">Excluir pasta</span>';
+    btnConfirmVazia.addEventListener('click', async e => {
+      e.stopPropagation();
+      closeFolderModal();
+      await excluirPasta(caminho, { manterNotas: true });
+      notesMeta = await loadAllNotesMeta();
+      renderTabs();
+      if (onDone) await onDone();
+    });
+    btnRow.appendChild(btnConfirmVazia);
+  }
+
+  const btnCancel = document.createElement('button');
+  btnCancel.className = 'copy-opt folder-action-opt';
+  btnCancel.innerHTML = '<span class="copy-opt-value">Cancelar</span>';
+  btnCancel.addEventListener('click', e => { e.stopPropagation(); closeFolderModal(); });
+  btnRow.appendChild(btnCancel);
+
+  pop.append(head, desc, btnRow);
+  pop.addEventListener('mousedown', e => e.stopPropagation());
+  document.body.appendChild(pop);
+  folderModalEl = pop;
+
+  pop.style.position = 'fixed';
+  pop.style.top = '50%';
+  pop.style.left = '50%';
+  pop.style.transform = 'translate(-50%, -50%)';
+  pop.style.zIndex = '1000';
+}
+
+let moveMenuEl = null;
+function closeMoveMenu() { moveMenuEl?.remove(); moveMenuEl = null; }
+
+async function promptMoverNotaParaPasta(meta, anchorEl, onDone = null) {
+  closeMoveMenu();
+  const pop = document.createElement('div');
+  pop.className = 'copy-menu folder-picker-popover';
+
+  const head = document.createElement('div');
+  head.className = 'copy-menu-header';
+  head.textContent = 'Mover para pasta';
+  pop.appendChild(head);
+
+  const pastas = await listarPastas();
+  const todosCaminhos = new Set();
+  for (const p of pastas) if (p.caminho) todosCaminhos.add(p.caminho);
+  for (const n of notesMeta) if (n.pasta) todosCaminhos.add(n.pasta);
+  const ordenados = [...todosCaminhos].sort();
+
+  const optRaiz = document.createElement('button');
+  optRaiz.className = 'copy-opt' + (!meta.pasta ? ' current' : '');
+  optRaiz.innerHTML = `<span class="copy-opt-value">📁 Raiz (sem pasta)</span>${!meta.pasta ? '<span class="copy-opt-hint">✓</span>' : ''}`;
+  optRaiz.addEventListener('click', async e => {
+    e.stopPropagation();
+    closeMoveMenu();
+    await moverNotaParaPasta(meta.id, '');
+    meta.pasta = '';
+    notesMeta = await loadAllNotesMeta();
+    renderTabs();
+    if (onDone) await onDone();
+  });
+  pop.appendChild(optRaiz);
+
+  for (const cam of ordenados) {
+    const isCurrent = meta.pasta === cam;
+    const parts = cam.split('/');
+    const indent = '&nbsp;&nbsp;'.repeat(parts.length - 1);
+    const opt = document.createElement('button');
+    opt.className = 'copy-opt' + (isCurrent ? ' current' : '');
+    opt.innerHTML = `<span class="copy-opt-value">${indent}📁 ${parts[parts.length - 1]}</span>${isCurrent ? '<span class="copy-opt-hint">✓</span>' : ''}`;
+    opt.title = cam;
+    opt.addEventListener('click', async e => {
+      e.stopPropagation();
+      closeMoveMenu();
+      await moverNotaParaPasta(meta.id, cam);
+      meta.pasta = cam;
+      notesMeta = await loadAllNotesMeta();
+      renderTabs();
+      if (onDone) await onDone();
+    });
+    pop.appendChild(opt);
+  }
+
+  pop.appendChild(Object.assign(document.createElement('div'), { className: 'math-divider' }));
+
+  const optNova = document.createElement('button');
+  optNova.className = 'copy-opt';
+  optNova.innerHTML = '<span class="copy-opt-value">＋ Nova pasta...</span>';
+  optNova.addEventListener('click', e => {
+    e.stopPropagation();
+    closeMoveMenu();
+    promptNovaPasta('', async () => {
+      await promptMoverNotaParaPasta(meta, anchorEl, onDone);
+    });
+  });
+  pop.appendChild(optNova);
+
+  pop.addEventListener('mousedown', e => e.stopPropagation());
+  document.body.appendChild(pop);
+  moveMenuEl = pop;
+
+  if (anchorEl) {
+    positionPopover(pop, anchorEl);
+  } else {
+    pop.style.position = 'fixed';
+    pop.style.top = '50%';
+    pop.style.left = '50%';
+    pop.style.transform = 'translate(-50%, -50%)';
+    pop.style.zIndex = '1000';
+  }
+}
+
+let folderMenuEl = null;
+function closeFolderMenu() { folderMenuEl?.remove(); folderMenuEl = null; }
+
+function openFolderMenu(caminho, nivel, totalNotas, anchorEl, onRefresh) {
+  closeFolderMenu();
+  const menu = document.createElement('div');
+  menu.className = 'copy-menu folder-context-menu';
+
+  const head = document.createElement('div');
+  head.className = 'copy-menu-header';
+  head.textContent = caminho;
+  menu.appendChild(head);
+
+  if (nivel < 3) {
+    const btnSub = document.createElement('button');
+    btnSub.className = 'copy-opt';
+    btnSub.innerHTML = '<span class="copy-opt-value">＋ Nova subpasta</span>';
+    btnSub.addEventListener('click', e => {
+      e.stopPropagation();
+      closeFolderMenu();
+      promptNovaPasta(caminho, onRefresh);
+    });
+    menu.appendChild(btnSub);
+  }
+
+  const btnRenomear = document.createElement('button');
+  btnRenomear.className = 'copy-opt';
+  btnRenomear.innerHTML = '<span class="copy-opt-value">✎ Renomear pasta</span>';
+  btnRenomear.addEventListener('click', e => {
+    e.stopPropagation();
+    closeFolderMenu();
+    promptRenomearPasta(caminho, onRefresh);
+  });
+  menu.appendChild(btnRenomear);
+
+  const btnExcluir = document.createElement('button');
+  btnExcluir.className = 'copy-opt folder-action-danger';
+  btnExcluir.innerHTML = '<span class="copy-opt-value">🗑 Excluir pasta</span>';
+  btnExcluir.addEventListener('click', e => {
+    e.stopPropagation();
+    closeFolderMenu();
+    promptExcluirPasta(caminho, totalNotas, onRefresh);
+  });
+  menu.appendChild(btnExcluir);
+
+  menu.addEventListener('mousedown', e => e.stopPropagation());
+  document.body.appendChild(menu);
+  folderMenuEl = menu;
+  positionPopover(menu, anchorEl);
+}
+
 // ── Lista de notas ("☰") ──────────────────────────────────────────────────────
 let notesListPopover = null;
-function closeNotesListPopover() { notesListPopover?.remove(); notesListPopover = null; }
+function closeNotesListPopover() {
+  notesListPopover?.remove();
+  notesListPopover = null;
+  closeFolderModal();
+  closeMoveMenu();
+  closeFolderMenu();
+}
 
-// Abre o mesmo menu "⋯" de sempre, mas ancorado na aba de verdade — assim
-// não precisa duplicar a lógica de renomear/ícone/cor/excluir pra dentro
-// da lista. A aba de qualquer nota sempre existe no DOM (só pode estar fora
-// da área visível pela rolagem horizontal).
 function openTabMenuForNote(meta) {
   closeNotesListPopover();
   const tabEl = tabsEl.querySelector(`.note-tab[data-id="${meta.id}"]`);
   if (!tabEl) return;
-  // Sem "smooth" aqui: o menu abre logo em seguida e precisa da posição
-  // final da aba, não de uma posição no meio de uma animação de rolagem.
   tabEl.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   openTabMenu(meta, tabEl);
 }
@@ -1013,22 +1475,22 @@ function cleanupListDrag() {
   listDropIndicatorEl?.remove();
   listDropIndicatorEl = null;
   noteDragSrcId = null;
+  document.querySelectorAll('.folder-header.drag-over').forEach(el => el.classList.remove('drag-over'));
 }
 
-function renderNotesListRows(container, filterQuery = '', countEl = null, clearBtn = null) {
-  container.querySelectorAll('.notes-list-item, .notes-list-empty').forEach(el => el.remove());
+async function renderNotesListRows(container, filterQuery = '', countEl = null, clearBtn = null) {
+  container.querySelectorAll('.notes-list-item, .folder-item, .notes-list-empty').forEach(el => el.remove());
 
   const q = filterQuery.trim().toLowerCase();
-  const filtered = q
-    ? notesMeta.filter(m => {
+  const isSearching = !!q;
+
+  if (countEl && clearBtn) {
+    if (isSearching) {
+      const filtered = notesMeta.filter(m => {
         const titleMatch = (m.title || '').toLowerCase().includes(q);
         const contentMatch = (m.content || '').toLowerCase().includes(q);
         return titleMatch || contentMatch;
-      })
-    : notesMeta;
-
-  if (countEl && clearBtn) {
-    if (q) {
+      });
       const visible = filtered.length;
       const total = notesMeta.length;
       const hidden = total - visible;
@@ -1041,22 +1503,79 @@ function renderNotesListRows(container, filterQuery = '', countEl = null, clearB
     }
   }
 
-  if (filtered.length === 0) {
-    const empty = document.createElement('div');
-    empty.className = 'copy-opt notes-list-empty';
-    empty.style.color = 'var(--text-muted)';
-    empty.style.justifyContent = 'center';
-    empty.textContent = 'Nenhuma nota encontrada';
-    container.appendChild(empty);
+  // Se estiver buscando, exibe notas correspondentes em lista plana com tag da pasta
+  if (isSearching) {
+    const filtered = notesMeta.filter(m => {
+      const titleMatch = (m.title || '').toLowerCase().includes(q);
+      const contentMatch = (m.content || '').toLowerCase().includes(q);
+      return titleMatch || contentMatch;
+    });
+
+    if (filtered.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'copy-opt notes-list-empty';
+      empty.style.color = 'var(--text-muted)';
+      empty.style.justifyContent = 'center';
+      empty.textContent = 'Nenhuma nota encontrada';
+      container.appendChild(empty);
+      return;
+    }
+
+    for (const meta of filtered) {
+      const isConflict = /conflito/i.test(meta.title ?? '');
+      const row = document.createElement('div');
+      row.className = 'copy-opt notes-list-item' + (meta.id === activeId ? ' current' : '') + (isConflict ? ' is-conflict' : '');
+      row.dataset.id = String(meta.id);
+
+      const indicator = buildTabIndicator(meta);
+      const label = document.createElement('span');
+      label.className = 'copy-opt-value';
+      label.textContent = meta.title || 'Sem título';
+
+      if (indicator) row.appendChild(indicator);
+      row.appendChild(label);
+
+      if (meta.pasta) {
+        const badge = document.createElement('span');
+        badge.className = 'note-folder-badge';
+        badge.textContent = meta.pasta;
+        badge.title = `Pasta: ${meta.pasta}`;
+        row.appendChild(badge);
+      }
+
+      const editBtn = document.createElement('button');
+      editBtn.className = 'notes-list-edit-btn';
+      editBtn.innerHTML = iconSvg('more_horiz');
+      editBtn.title = 'Opções da nota';
+      editBtn.setAttribute('aria-label', 'Opções da nota');
+      editBtn.addEventListener('mousedown', e => e.stopPropagation());
+      editBtn.addEventListener('click', e => { e.stopPropagation(); openTabMenuForNote(meta); });
+      row.appendChild(editBtn);
+
+      row.addEventListener('mousedown', e => e.stopPropagation());
+      row.addEventListener('click', async () => {
+        closeNotesListPopover();
+        if (meta.id !== activeId) { await activateNote(meta.id); renderTabs(); }
+        scrollTabIntoView(meta.id);
+      });
+
+      container.appendChild(row);
+    }
     return;
   }
 
-  for (const meta of filtered) {
+  // Sem busca: Renderiza a árvore hierárquica completa de pastas e notas
+  const pastas = await listarPastas();
+  const tree = buildFolderTree(pastas, notesMeta);
+  const openFolders = getOpenFolders();
+
+  const renderNoteRow = (meta, indentPx = 0) => {
     const isConflict = /conflito/i.test(meta.title ?? '');
     const row = document.createElement('div');
     row.className = 'copy-opt notes-list-item' + (meta.id === activeId ? ' current' : '') + (isConflict ? ' is-conflict' : '');
-    row.draggable = !q;
+    row.draggable = true;
     row.dataset.id = String(meta.id);
+    if (indentPx > 0) row.style.paddingLeft = `${indentPx}px`;
 
     const indicator = buildTabIndicator(meta);
     const label = document.createElement('span');
@@ -1066,9 +1585,9 @@ function renderNotesListRows(container, filterQuery = '', countEl = null, clearB
     row.appendChild(label);
 
     const editBtn = document.createElement('button');
-    editBtn.className   = 'notes-list-edit-btn';
-    editBtn.innerHTML   = iconSvg('more_horiz');
-    editBtn.title       = 'Opções da nota';
+    editBtn.className = 'notes-list-edit-btn';
+    editBtn.innerHTML = iconSvg('more_horiz');
+    editBtn.title = 'Opções da nota';
     editBtn.setAttribute('aria-label', 'Opções da nota');
     editBtn.addEventListener('mousedown', e => e.stopPropagation());
     editBtn.addEventListener('click', e => { e.stopPropagation(); openTabMenuForNote(meta); });
@@ -1081,37 +1600,154 @@ function renderNotesListRows(container, filterQuery = '', countEl = null, clearB
       scrollTabIntoView(meta.id);
     });
 
-    if (!q) {
-      row.addEventListener('dragstart', e => {
+    row.addEventListener('dragstart', e => {
+      e.stopPropagation();
+      noteDragSrcId = meta.id;
+      e.dataTransfer.effectAllowed = 'move';
+      listDropIndicatorEl = document.createElement('div');
+      listDropIndicatorEl.className = 'notes-list-drop-indicator';
+    });
+
+    row.addEventListener('dragover', e => {
+      if (noteDragSrcId == null || noteDragSrcId === meta.id || !listDropIndicatorEl) return;
+      e.preventDefault();
+      const rect = row.getBoundingClientRect();
+      const before = e.clientY < rect.top + rect.height / 2;
+      row[before ? 'before' : 'after'](listDropIndicatorEl);
+    });
+
+    row.addEventListener('drop', async e => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (noteDragSrcId == null) return;
+      const rect = row.getBoundingClientRect();
+      const before = e.clientY < rect.top + rect.height / 2;
+      const srcId = noteDragSrcId;
+      cleanupListDrag();
+      const moved = await reorderNotes(srcId, meta.id, before);
+      if (moved) {
+        renderTabs();
+        await renderNotesListRows(container, filterQuery, countEl, clearBtn);
+      }
+    });
+
+    row.addEventListener('dragend', e => { e.stopPropagation(); cleanupListDrag(); });
+
+    return row;
+  };
+
+  const renderNode = (node, parentEl) => {
+    // 1. Renderiza subpastas deste nó
+    for (const [, sub] of node.subpastas) {
+      const isOpen = openFolders ? openFolders.has(sub.caminho) : true;
+      const totalNotas = contarNotasTotal(sub);
+
+      const folderItem = document.createElement('div');
+      folderItem.className = 'folder-item';
+
+      const header = document.createElement('div');
+      header.className = 'folder-header';
+      header.style.paddingLeft = `${(sub.nivel - 1) * 14 + 8}px`;
+
+      const chevronBtn = document.createElement('button');
+      chevronBtn.className = 'folder-chevron icon-btn' + (isOpen ? ' open' : '');
+      chevronBtn.innerHTML = iconSvg(isOpen ? 'expand_more' : 'chevron_right');
+      chevronBtn.title = isOpen ? 'Recolher pasta' : 'Expandir pasta';
+      chevronBtn.addEventListener('click', e => {
         e.stopPropagation();
-        noteDragSrcId = meta.id;
-        e.dataTransfer.effectAllowed = 'move';
-        listDropIndicatorEl = document.createElement('div');
-        listDropIndicatorEl.className = 'notes-list-drop-indicator';
+        const set = getOpenFolders() || new Set();
+        if (set.has(sub.caminho)) set.delete(sub.caminho);
+        else set.add(sub.caminho);
+        saveOpenFolders(set);
+        renderNotesListRows(container, filterQuery, countEl, clearBtn);
       });
-      row.addEventListener('dragover', e => {
-        if (noteDragSrcId == null || noteDragSrcId === meta.id || !listDropIndicatorEl) return;
-        e.preventDefault();
-        const rect = row.getBoundingClientRect();
-        const before = e.clientY < rect.top + rect.height / 2;
-        row[before ? 'before' : 'after'](listDropIndicatorEl);
-      });
-      row.addEventListener('drop', async e => {
-        e.preventDefault();
+
+      const folderIcon = document.createElement('span');
+      folderIcon.className = 'folder-icon';
+      folderIcon.innerHTML = iconSvg(isOpen ? 'folder_open' : 'folder');
+
+      const nameSpan = document.createElement('span');
+      nameSpan.className = 'folder-name';
+      nameSpan.textContent = sub.nome;
+      nameSpan.title = sub.caminho;
+
+      const countBadge = document.createElement('span');
+      countBadge.className = 'folder-count';
+      countBadge.textContent = String(totalNotas);
+
+      const moreBtn = document.createElement('button');
+      moreBtn.className = 'folder-more-btn icon-btn';
+      moreBtn.innerHTML = iconSvg('more_horiz');
+      moreBtn.title = 'Ações da pasta';
+      moreBtn.addEventListener('click', e => {
         e.stopPropagation();
+        openFolderMenu(sub.caminho, sub.nivel, totalNotas, moreBtn, () => {
+          renderNotesListRows(container, filterQuery, countEl, clearBtn);
+        });
+      });
+
+      header.append(chevronBtn, folderIcon, nameSpan, countBadge, moreBtn);
+
+      header.addEventListener('click', e => {
+        e.stopPropagation();
+        const set = getOpenFolders() || new Set();
+        if (set.has(sub.caminho)) set.delete(sub.caminho);
+        else set.add(sub.caminho);
+        saveOpenFolders(set);
+        renderNotesListRows(container, filterQuery, countEl, clearBtn);
+      });
+
+      // Drop target para mover notas arrastando para a pasta
+      header.addEventListener('dragover', e => {
         if (noteDragSrcId == null) return;
-        const rect = row.getBoundingClientRect();
-        const before = e.clientY < rect.top + rect.height / 2;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        header.classList.add('drag-over');
+      });
+
+      header.addEventListener('dragleave', () => {
+        header.classList.remove('drag-over');
+      });
+
+      header.addEventListener('drop', async e => {
+        e.preventDefault();
+        e.stopPropagation();
+        header.classList.remove('drag-over');
+        if (noteDragSrcId == null) return;
         const srcId = noteDragSrcId;
         cleanupListDrag();
-        const moved = await reorderNotes(srcId, meta.id, before);
-        if (moved) { renderNotesListRows(container, filterQuery, countEl, clearBtn); renderTabs(); }
+        await moverNotaParaPasta(srcId, sub.caminho);
+        notesMeta = await loadAllNotesMeta();
+        renderTabs();
+        await renderNotesListRows(container, filterQuery, countEl, clearBtn);
       });
-      row.addEventListener('dragend', e => { e.stopPropagation(); cleanupListDrag(); });
+
+      folderItem.appendChild(header);
+
+      if (isOpen) {
+        const childrenContainer = document.createElement('div');
+        childrenContainer.className = 'folder-children';
+        // Renderiza subpastas aninhadas
+        renderNode(sub, childrenContainer);
+        // Renderiza notas diretas desta pasta
+        for (const meta of sub.notas) {
+          childrenContainer.appendChild(renderNoteRow(meta, sub.nivel * 14 + 18));
+        }
+        folderItem.appendChild(childrenContainer);
+      }
+
+      parentEl.appendChild(folderItem);
     }
 
-    container.appendChild(row);
-  }
+    // 2. Se for a raiz, renderiza as notas da raiz
+    if (node === tree) {
+      for (const meta of node.notas) {
+        parentEl.appendChild(renderNoteRow(meta, 8));
+      }
+    }
+  };
+
+  renderNode(tree, container);
 }
 
 function openNotesListPopover() {
@@ -1141,6 +1777,20 @@ function openNotesListPopover() {
 
   searchBar.append(searchIcon, input, clearBtn);
   pop.appendChild(searchBar);
+
+  const toolbar = document.createElement('div');
+  toolbar.className = 'notes-list-toolbar';
+
+  const btnNewFolder = document.createElement('button');
+  btnNewFolder.className = 'notes-list-action-btn';
+  btnNewFolder.innerHTML = `${iconSvg('create_new_folder')}<span>Nova pasta</span>`;
+  btnNewFolder.title = 'Criar nova pasta';
+  btnNewFolder.addEventListener('click', e => {
+    e.stopPropagation();
+    promptNovaPasta('', () => renderNotesListRows(scrollArea, input.value, countEl, clearBtn));
+  });
+  toolbar.appendChild(btnNewFolder);
+  pop.appendChild(toolbar);
 
   const countEl = document.createElement('div');
   countEl.className = 'notes-search-count';
@@ -1183,9 +1833,17 @@ function openNotesListPopover() {
 btnNotesList.addEventListener('click', e => { e.stopPropagation(); openNotesListPopover(); });
 document.addEventListener('mousedown', e => {
   if (notesListPopover && !notesListPopover.contains(e.target)) closeNotesListPopover();
+  if (folderModalEl && !folderModalEl.contains(e.target)) closeFolderModal();
+  if (moveMenuEl && !moveMenuEl.contains(e.target)) closeMoveMenu();
+  if (folderMenuEl && !folderMenuEl.contains(e.target)) closeFolderMenu();
 });
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape' && notesListPopover) closeNotesListPopover();
+  if (e.key === 'Escape') {
+    if (folderModalEl) { closeFolderModal(); return; }
+    if (moveMenuEl) { closeMoveMenu(); return; }
+    if (folderMenuEl) { closeFolderMenu(); return; }
+    if (notesListPopover) closeNotesListPopover();
+  }
 });
 
 // ── "Nova nota" / "Importar" (botão combinado) ────────────────────────────────
@@ -1394,6 +2052,33 @@ async function activateNote(id) {
 document.addEventListener('quickdock:use-template-note', async e => {
   const { template } = e.detail || {};
   if (template) await createNoteFromTemplate(template);
+});
+
+document.addEventListener('quickdock:activate-note', async e => {
+  const { id, uid, title, createIfMissing } = e.detail || {};
+  let target = null;
+  if (id != null) {
+    target = notesMeta.find(n => n.id === id);
+  } else if (uid) {
+    target = notesMeta.find(n => n.uid === uid);
+  } else if (title) {
+    target = notesMeta.find(n => (n.title || '').trim().toLowerCase() === title.trim().toLowerCase());
+  }
+
+  if (target) {
+    await activateNote(target.id);
+    renderTabs();
+    scrollTabIntoView(target.id);
+    return;
+  }
+
+  if (createIfMissing && title) {
+    const novoId = await createNoteRecord({ title: title.trim() });
+    await refreshNotesList();
+    await activateNote(novoId);
+    renderTabs();
+    scrollTabIntoView(novoId);
+  }
 });
 
 export async function initNotesTabs() {

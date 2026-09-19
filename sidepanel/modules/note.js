@@ -1,6 +1,10 @@
 import {
   getNoteById, updateNoteBlocksById, saveFile, loadFileBlob, moveInlineFileToDocuments,
+  loadAllNotesMeta, salvarLinksDaNota, obterTodosLinks,
 } from './storage.js';
+import {
+  extrairLinksDeBlocos, resolverLinks, calcularBacklinks,
+} from './links.js';
 import { refreshDocuments, setDocsCollapsed } from './documents.js';
 import { setActiveArea, isNoteActive } from './active-area.js';
 import { openModal } from './modal.js';
@@ -1441,6 +1445,20 @@ export async function flushSave() {
   const content = blocksToMarkdown(blocks);
   await updateNoteBlocksById(currentNoteId, blocks, content);
   showSaved();
+
+  // Indexa os links da nota salva no Dexie v10
+  try {
+    const note = await getNoteById(currentNoteId);
+    if (note && note.uid) {
+      const todasNotas = await loadAllNotesMeta();
+      const refs = extrairLinksDeBlocos(blocks);
+      const linksResolvidos = resolverLinks(refs, note.uid, todasNotas);
+      await salvarLinksDaNota(note.uid, linksResolvidos);
+      await refreshBacklinks(currentNoteId);
+    }
+  } catch (err) {
+    console.warn('Erro ao indexar links da nota:', err);
+  }
 }
 
 export function getCurrentNoteId() {
@@ -1508,6 +1526,74 @@ export async function switchToNote(id, { descartarDom = false } = {}) {
   const blocks = (note?.blocks?.length) ? note.blocks : parseMarkdownToBlocks(note?.content ?? '');
   renderBlocks(blocks);
   updateMobileToolbarState();
+  await refreshBacklinks(id);
+}
+
+// ── Backlinks ─────────────────────────────────────────────────────────────────
+const backlinksSection = document.getElementById('note-backlinks-section');
+const backlinksToggle  = document.getElementById('note-backlinks-toggle');
+const backlinksCountEl = document.getElementById('note-backlinks-count');
+const backlinksListEl  = document.getElementById('note-backlinks-list');
+
+let backlinksOpen = typeof localStorage !== 'undefined' ? localStorage.getItem('quickdock:backlinks:open') !== 'false' : true;
+
+if (backlinksToggle && backlinksSection) {
+  backlinksSection.classList.toggle('is-collapsed', !backlinksOpen);
+  backlinksToggle.setAttribute('aria-expanded', backlinksOpen ? 'true' : 'false');
+  backlinksToggle.addEventListener('click', () => {
+    backlinksOpen = !backlinksOpen;
+    try { localStorage.setItem('quickdock:backlinks:open', String(backlinksOpen)); } catch {}
+    backlinksSection.classList.toggle('is-collapsed', !backlinksOpen);
+    backlinksToggle.setAttribute('aria-expanded', backlinksOpen ? 'true' : 'false');
+  });
+}
+
+export async function refreshBacklinks(noteId = currentNoteId) {
+  if (!backlinksSection || !backlinksListEl || noteId == null) return;
+  try {
+    const note = await getNoteById(noteId);
+    if (!note) {
+      backlinksSection.hidden = true;
+      return;
+    }
+
+    const [todasNotas, todosLinks] = await Promise.all([
+      loadAllNotesMeta(),
+      obterTodosLinks()
+    ]);
+
+    const backlinks = calcularBacklinks(note, todasNotas, todosLinks);
+    backlinksSection.hidden = false;
+    if (backlinksCountEl) backlinksCountEl.textContent = String(backlinks.length);
+
+    backlinksListEl.innerHTML = '';
+    if (backlinks.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'backlinks-empty';
+      empty.textContent = 'Nenhuma outra nota menciona esta.';
+      backlinksListEl.appendChild(empty);
+      return;
+    }
+
+    for (const bl of backlinks) {
+      const item = document.createElement('button');
+      item.type = 'button';
+      item.className = 'backlink-item';
+      item.innerHTML = `
+        <span class="backlink-icon material-symbols-rounded qd-icon">description</span>
+        <span class="backlink-title">${escHtml(bl.title)}</span>
+        ${bl.pasta ? `<span class="backlink-folder">${escHtml(bl.pasta)}</span>` : ''}
+      `;
+      item.addEventListener('click', () => {
+        document.dispatchEvent(new CustomEvent('quickdock:activate-note', {
+          detail: { id: bl.id }
+        }));
+      });
+      backlinksListEl.appendChild(item);
+    }
+  } catch (err) {
+    console.warn('Erro ao carregar backlinks:', err);
+  }
 }
 
 // ── Posicionamento de menus ───────────────────────────────────────────────────
@@ -1641,11 +1727,23 @@ root.addEventListener('click', e => {
   // Sem Ctrl/modo toque o clique só posiciona o cursor — senão não dá pra editar o texto.
   const link = e.target.closest('a');
   if (link && root.contains(link)) {
-    const href = safeHref(link.getAttribute('href'));
+    const rawHref = link.getAttribute('href') || '';
+    const href = safeHref(rawHref);
     if (!href) return;
     // Âncora não abre aba nenhuma: rola até o título da própria nota.
-    if (href.startsWith('#')) irParaTitulo(href.slice(1));
-    else window.open(href, '_blank', 'noopener');
+    if (href.startsWith('#')) {
+      irParaTitulo(href.slice(1));
+      return;
+    }
+    if (href.startsWith('nota:') || link.classList.contains('note-internal-link')) {
+      e.preventDefault();
+      const targetTitle = link.dataset.noteTitle || decodeURIComponent(href.replace(/^nota:/, ''));
+      document.dispatchEvent(new CustomEvent('quickdock:activate-note', {
+        detail: { title: targetTitle, createIfMissing: true }
+      }));
+      return;
+    }
+    window.open(href, '_blank', 'noopener');
     return;
   }
 
@@ -2416,6 +2514,208 @@ function checkSlashMenu(block) {
   renderSlashMenu(block);
 }
 
+// ── Menu de Autocomplete de Links [[ ──────────────────────────────────────────
+let linkMenuEl = null;
+let linkMenuItems = [];
+let linkMenuIndex = 0;
+let linkMenuBlock = null;
+let linkMenuStartOffset = 0;
+let linkMenuEndOffset = 0;
+
+export function closeLinkMenu() {
+  if (linkMenuEl) {
+    linkMenuEl.remove();
+    linkMenuEl = null;
+  }
+  linkMenuItems = [];
+  linkMenuBlock = null;
+}
+
+async function checkLinkAutocomplete(block) {
+  if (!block || block.dataset.type === 'code' || block.dataset.type === 'table') {
+    closeLinkMenu();
+    return;
+  }
+  const contentEl = getContentEl(block);
+  if (!contentEl) {
+    closeLinkMenu();
+    return;
+  }
+  const sel = document.getSelection();
+  if (!sel || sel.rangeCount === 0 || !sel.isCollapsed || !contentEl.contains(sel.anchorNode)) {
+    closeLinkMenu();
+    return;
+  }
+
+  const offset = getCaretOffset(contentEl);
+  const before = contentEl.textContent.slice(0, offset);
+
+  // Detecta [[ seguido de até 50 caracteres sem fechamento
+  const m = /(?:^|[^\\])\[\[([^\]\n]{0,50})$/.exec(before);
+  if (!m) {
+    closeLinkMenu();
+    return;
+  }
+
+  const matchStr = m[0].startsWith('[[') ? m[0] : m[0].slice(1);
+  const startOffset = offset - matchStr.length;
+  const rawQuery = m[1];
+  const query = rawQuery.trim().toLowerCase();
+
+  let allNotes = [];
+  try {
+    allNotes = await loadAllNotesMeta();
+  } catch (err) {
+    console.warn('Erro ao carregar notas para autocomplete:', err);
+  }
+
+  const filtradas = allNotes.filter(n => {
+    if (n.id === currentNoteId) return false;
+    if (!query) return true;
+    const t = (n.title || '').toLowerCase();
+    const p = (n.pasta || '').toLowerCase();
+    return t.includes(query) || p.includes(query);
+  });
+
+  const items = filtradas.slice(0, 7).map(n => ({
+    type: 'note',
+    id: n.id,
+    uid: n.uid,
+    title: n.title || 'Sem título',
+    pasta: n.pasta || '',
+    icon: n.icon || 'description',
+    color: n.color
+  }));
+
+  const queryLimpo = rawQuery.trim();
+  if (queryLimpo && !allNotes.some(n => (n.title || '').trim().toLowerCase() === queryLimpo.toLowerCase())) {
+    items.push({
+      type: 'create',
+      title: queryLimpo
+    });
+  }
+
+  if (items.length === 0) {
+    closeLinkMenu();
+    return;
+  }
+
+  linkMenuItems = items;
+  linkMenuBlock = block;
+  linkMenuStartOffset = startOffset;
+  linkMenuEndOffset = offset;
+  if (linkMenuIndex >= items.length) linkMenuIndex = 0;
+
+  renderLinkMenu(block, items);
+}
+
+function renderLinkMenu(block, items) {
+  if (!linkMenuEl) {
+    linkMenuEl = document.createElement('div');
+    linkMenuEl.className = 'link-autocomplete-menu';
+    document.body.appendChild(linkMenuEl);
+  }
+
+  linkMenuEl.innerHTML = '';
+
+  const header = document.createElement('div');
+  header.className = 'link-autocomplete-header';
+  header.textContent = 'Conectar a uma nota';
+  linkMenuEl.appendChild(header);
+
+  const list = document.createElement('div');
+  list.className = 'link-autocomplete-list';
+
+  items.forEach((item, index) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'link-autocomplete-item' + (index === linkMenuIndex ? ' active' : '');
+    if (item.type === 'create') {
+      btn.classList.add('create-item');
+      btn.innerHTML = `
+        <span class="link-item-icon">➕</span>
+        <span class="link-item-title">Criar nota "<strong>${escHtml(item.title)}</strong>"</span>
+      `;
+    } else {
+      const folderBadge = item.pasta ? `<span class="link-item-folder">${escHtml(item.pasta)}</span>` : '';
+      btn.innerHTML = `
+        <span class="link-item-icon">📄</span>
+        <span class="link-item-title">${escHtml(item.title)}</span>
+        ${folderBadge}
+      `;
+    }
+
+    btn.addEventListener('mousedown', e => {
+      e.preventDefault();
+    });
+
+    btn.addEventListener('click', e => {
+      e.preventDefault();
+      e.stopPropagation();
+      linkMenuIndex = index;
+      confirmLinkSelection();
+    });
+
+    list.appendChild(btn);
+  });
+
+  linkMenuEl.appendChild(list);
+  positionMenu(linkMenuEl, block.getBoundingClientRect());
+  highlightLinkMenuItem();
+}
+
+function highlightLinkMenuItem() {
+  if (!linkMenuEl) return;
+  const items = linkMenuEl.querySelectorAll('.link-autocomplete-item');
+  items.forEach((it, i) => it.classList.toggle('active', i === linkMenuIndex));
+  items[linkMenuIndex]?.scrollIntoView({ block: 'nearest' });
+}
+
+function moveLinkMenuSelection(delta) {
+  if (!linkMenuItems.length) return;
+  linkMenuIndex = (linkMenuIndex + delta + linkMenuItems.length) % linkMenuItems.length;
+  highlightLinkMenuItem();
+}
+
+async function confirmLinkSelection() {
+  const item = linkMenuItems[linkMenuIndex];
+  if (!item || !linkMenuBlock) {
+    closeLinkMenu();
+    return;
+  }
+
+  const contentEl = getContentEl(linkMenuBlock);
+  if (!contentEl) {
+    closeLinkMenu();
+    return;
+  }
+
+  const finalTitle = item.title;
+  if (item.type === 'create') {
+    document.dispatchEvent(new CustomEvent('quickdock:activate-note', {
+      detail: { title: item.title, createIfMissing: true }
+    }));
+  }
+
+  captureUndoPoint();
+  replaceRangeWithTag(
+    contentEl,
+    linkMenuStartOffset,
+    linkMenuEndOffset,
+    'a',
+    finalTitle,
+    {
+      href: `nota:${encodeURIComponent(finalTitle)}`,
+      class: 'note-internal-link',
+      'data-note-title': finalTitle,
+      title: `Ctrl+clique para abrir nota: ${finalTitle}`
+    }
+  );
+
+  closeLinkMenu();
+  scheduleSave();
+}
+
 // ── Atalhos de Markdown → tipo de bloco ───────────────────────────────────────
 const BLOCK_SHORTCUTS = [
   { re: /^(#{1,6}) $/, type: m => `heading${m[1].length}` },
@@ -2479,6 +2779,18 @@ const INLINE_SHORTCUTS = [
       const href = safeHref(m[2]);
       return href ? { href } : null;   // endereço recusado: deixa o texto como está
     },
+  },
+  // Wikilink ao digitar: "[[Título]]" ou "[[Título|Alias]]" vira link interno imediato
+  {
+    re: /\[\[([^\]\n|]+)(?:\|([^\]\n]+))?\]\]$/,
+    tag: 'a',
+    attrs: m => ({
+      href: `nota:${encodeURIComponent(m[1].trim())}`,
+      class: 'note-internal-link',
+      'data-note-title': m[1].trim(),
+      title: `Ctrl+clique para abrir nota: ${m[1].trim()}`
+    }),
+    text: m => (m[2] ? m[2].trim() : m[1].trim())
   },
   { re: /\*\*([^\n]+?)\*\*$/, tag: 'strong' },
   { re: /~~([^\n]+?)~~$/, tag: 's' },
@@ -2554,14 +2866,16 @@ function tryAutoFormatInline(contentEl) {
   const offset = getCaretOffset(contentEl);
   const before = contentEl.textContent.slice(0, offset);
 
-  for (const { re, tag, attrs } of INLINE_SHORTCUTS) {
+  for (const item of INLINE_SHORTCUTS) {
+    const { re, tag, attrs, text } = item;
     const m = re.exec(before);
     if (!m) continue;
     // `attrs` devolvendo null quer dizer "este atalho não se aplica" — é assim
     // que um endereço inválido deixa o texto digitado intacto em vez de sumir.
     const atributos = attrs ? attrs(m) : {};
     if (atributos === null) continue;
-    replaceRangeWithTag(contentEl, offset - m[0].length, offset, tag, m[1], atributos);
+    const textoInterno = text ? text(m) : m[1];
+    replaceRangeWithTag(contentEl, offset - m[0].length, offset, tag, textoInterno, atributos);
     return;
   }
 }
@@ -2740,6 +3054,7 @@ root.addEventListener('input', () => {
 
   if (block.dataset.type !== 'code') {
     tryAutoFormatInline(getContentEl(block));
+    checkLinkAutocomplete(block);
   }
 
   scheduleRescan(block);
@@ -2781,6 +3096,13 @@ root.addEventListener('keydown', e => {
     e.preventDefault();
     clearBlockSelection();
     return;
+  }
+
+  if (linkMenuEl) {
+    if (e.key === 'ArrowDown')  { e.preventDefault(); moveLinkMenuSelection(1);  return; }
+    if (e.key === 'ArrowUp')    { e.preventDefault(); moveLinkMenuSelection(-1); return; }
+    if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); confirmLinkSelection(); return; }
+    if (e.key === 'Escape') { e.preventDefault(); closeLinkMenu(); return; }
   }
 
   if (slashMenuEl) {

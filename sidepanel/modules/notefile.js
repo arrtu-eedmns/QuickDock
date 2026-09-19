@@ -91,6 +91,9 @@ export function buildNoteFile({ meta = {}, md = '' }) {
   const ordem = meta.ordem !== undefined ? meta.ordem : meta.order;
   if (ordem !== undefined && ordem !== null) f.ordem = String(ordem);
 
+  const pasta = meta.pasta;
+  if (pasta !== undefined && pasta !== null && pasta !== '') f.pasta = pasta;
+
   const criadoEm = meta.criadoEm ?? toIsoString(meta.createdAt);
   if (criadoEm) f.criadoEm = criadoEm;
 
@@ -102,7 +105,7 @@ export function buildNoteFile({ meta = {}, md = '' }) {
   const tratadas = new Set([
     'quickdock', 'id', 'uid', 'titulo', 'title', 'cor', 'color',
     'icone', 'icon', 'iconePreenchido', 'iconFilled', 'tituloOculto',
-    'titleHidden', 'ordem', 'order', 'criadoEm', 'createdAt',
+    'titleHidden', 'ordem', 'order', 'pasta', 'criadoEm', 'createdAt',
     'atualizadoEm', 'updatedAt', 'content', 'blocks',
   ]);
 

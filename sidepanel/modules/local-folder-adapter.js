@@ -88,13 +88,11 @@ export class LocalFolderAdapter {
     const encontrados = new Set();
 
     const pastas = ['notas', 'modelos'];
-    for (const pasta of pastas) {
-      try {
-        const dir = await this.root.getDirectoryHandle(pasta, { create: false });
-        for await (const [nome, handle] of dir.entries()) {
-          if (handle.kind !== 'file' || !nome.endsWith('.md')) continue;
-
-          const caminho = `${pasta}/${nome}`;
+    const varrer = async (dirHandle, prefixo, nivel) => {
+      for await (const [nome, handle] of dirHandle.entries()) {
+        if (nome.startsWith('.')) continue;
+        if (handle.kind === 'file' && nome.endsWith('.md')) {
+          const caminho = `${prefixo}/${nome}`;
           encontrados.add(caminho);
 
           const file = await handle.getFile();
@@ -105,7 +103,16 @@ export class LocalFolderAdapter {
             mudancas.push({ caminho, rev, apagado: false });
             this.conhecidos.set(caminho, { rev });
           }
+        } else if (handle.kind === 'directory' && nivel < 3) {
+          await varrer(handle, `${prefixo}/${nome}`, nivel + 1);
         }
+      }
+    };
+
+    for (const pasta of pastas) {
+      try {
+        const dir = await this.root.getDirectoryHandle(pasta, { create: false });
+        await varrer(dir, pasta, 0);
       } catch {
         // Pasta ainda não existe
       }

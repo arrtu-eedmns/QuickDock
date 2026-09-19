@@ -212,6 +212,31 @@ function definirEsquema(db) {
   db.version(8).stores({
     preferences: "chave"
   });
+  // v9: Pastas para notas e tabela de pastas para permitir pastas vazias.
+  // Índice composto [pasta+ordem] para ordenação por pasta eficiente sem varredura em memória.
+  db.version(9).stores({
+    notes: "++id, uid, pasta, [pasta+ordem], ordem, order, updatedAt",
+    folders: "++id, &caminho, ordem, criadoEm"
+  }).upgrade(async tx => {
+    await tx.table('notes').toCollection().modify(note => {
+      if (note.pasta === undefined || note.pasta === null) {
+        note.pasta = '';
+      }
+    });
+  });
+  // v10: Tabela de links entre notas para busca reversa de backlinks e visualização em grafo
+  db.version(10).stores({
+    notes: "++id, uid, pasta, [pasta+ordem], ordem, order, updatedAt",
+    folders: "++id, &caminho, ordem, criadoEm",
+    links: "++id, uidOrigem, uidDestino, tituloAlvo"
+  });
+  // v11: Tabela de quadros infinitos para ideação espacial livre
+  db.version(11).stores({
+    notes: "++id, uid, pasta, [pasta+ordem], ordem, order, updatedAt",
+    folders: "++id, &caminho, ordem, criadoEm",
+    links: "++id, uidOrigem, uidDestino, tituloAlvo",
+    boards: "++id, uid, title, updatedAt"
+  });
   setPlatformDb(db);
   return db;
 }
@@ -221,8 +246,8 @@ export async function loadAllNotesMeta() {
   const notes = await (db.notes.schema.indexes.some(idx => idx.name === 'ordem')
     ? db.notes.orderBy('ordem')
     : db.notes.orderBy('order')).toArray();
-  return notes.map(({ id, uid, title, content, color, icon, iconFilled, titleHidden, ordem, order, updatedAt }) => ({
-    id, uid: uid ?? null, title, content: content ?? '', color, icon: icon ?? null, iconFilled: !!iconFilled, titleHidden: !!titleHidden, ordem: ordem ?? ordemDeIndice(order ?? 0), updatedAt,
+  return notes.map(({ id, uid, title, content, color, icon, iconFilled, titleHidden, pasta, ordem, order, updatedAt }) => ({
+    id, uid: uid ?? null, title, content: content ?? '', color, icon: icon ?? null, iconFilled: !!iconFilled, titleHidden: !!titleHidden, pasta: pasta ?? '', ordem: ordem ?? ordemDeIndice(order ?? 0), updatedAt,
   }));
 }
 
@@ -230,11 +255,22 @@ export async function getNoteById(id) {
   return db.notes.get(id);
 }
 
-export async function createNoteRecord({ title, content = '', blocks = [], color = null, icon = null, iconFilled = false, titleHidden = false, uid = null, ordem = null }) {
+export async function createNoteRecord({ title, content = '', blocks = [], color = null, icon = null, iconFilled = false, titleHidden = false, uid = null, pasta = '', ordem = null }) {
   const count = await db.notes.count();
+  const pastaLimpa = normalizarCaminhoPasta(pasta);
   let novaOrdem = ordem;
   if (!novaOrdem) {
-    const lastNote = await db.notes.orderBy('ordem').last().catch(() => null);
+    let lastNote = null;
+    try {
+      if (db.notes.schema.indexes.some(idx => idx.name === 'pasta')) {
+        const naPasta = await db.notes.where('pasta').equals(pastaLimpa).sortBy('ordem');
+        lastNote = naPasta[naPasta.length - 1] ?? null;
+      } else {
+        lastNote = await db.notes.orderBy('ordem').last().catch(() => null);
+      }
+    } catch {
+      lastNote = await db.notes.orderBy('ordem').last().catch(() => null);
+    }
     novaOrdem = ordemEntre(lastNote?.ordem ?? null, null);
   }
   const novoUid = uid ?? ((typeof crypto !== 'undefined' && crypto.randomUUID)
@@ -250,6 +286,7 @@ export async function createNoteRecord({ title, content = '', blocks = [], color
     icon,
     iconFilled,
     titleHidden,
+    pasta: pastaLimpa,
     ordem: novaOrdem,
     order: count,
     createdAt: now,
@@ -264,11 +301,114 @@ export async function updateNoteBlocksById(id, blocks, content) {
 }
 
 export async function updateNoteMetaById(id, patch) {
-  return db.notes.update(id, { ...patch, updatedAt: Date.now() });
+  const dados = { ...patch, updatedAt: Date.now() };
+  if (dados.pasta !== undefined) {
+    dados.pasta = normalizarCaminhoPasta(dados.pasta);
+  }
+  return db.notes.update(id, dados);
 }
 
 export async function deleteNoteRecordById(id) {
+  if (db && db.links) {
+    try {
+      const note = await db.notes.get(id);
+      if (note?.uid) {
+        await db.links.where('uidOrigem').equals(note.uid).or('uidDestino').equals(note.uid).delete();
+      }
+    } catch (err) {
+      console.warn('Erro ao limpar links da nota excluída:', err);
+    }
+  }
   return db.notes.delete(id);
+}
+
+// --- LINKS ENTRE NOTAS ---
+export async function salvarLinksDaNota(uidOrigem, links = []) {
+  if (!db || !db.links || !uidOrigem) return;
+  await db.transaction('rw', db.links, async () => {
+    await db.links.where('uidOrigem').equals(uidOrigem).delete();
+    if (links && links.length > 0) {
+      const registros = links.map(l => ({
+        uidOrigem,
+        uidDestino: l.uidDestino || null,
+        tituloAlvo: (l.tituloAlvo || '').trim()
+      }));
+      await db.links.bulkAdd(registros);
+    }
+  });
+}
+
+export async function obterBacklinks(uidDestino, tituloAlvo) {
+  if (!db || !db.links) return [];
+  const encontrados = [];
+  if (uidDestino) {
+    const porUid = await db.links.where('uidDestino').equals(uidDestino).toArray();
+    encontrados.push(...porUid);
+  }
+  if (tituloAlvo) {
+    const limpo = tituloAlvo.trim().toLowerCase();
+    const porTitulo = await db.links.filter(l => (l.tituloAlvo || '').trim().toLowerCase() === limpo).toArray();
+    encontrados.push(...porTitulo);
+  }
+  const uidsOrigem = [...new Set(encontrados.map(l => l.uidOrigem).filter(Boolean))];
+  return uidsOrigem;
+}
+
+export async function obterTodosLinks() {
+  if (!db || !db.links) return [];
+  return db.links.toArray();
+}
+
+export async function removerLinksDaNota(uid) {
+  if (!db || !db.links || !uid) return;
+  return db.links.where('uidOrigem').equals(uid).or('uidDestino').equals(uid).delete();
+}
+
+// --- QUADROS INFINITOS (BOARDS) ---
+export async function loadAllBoards() {
+  if (!db || !db.boards) return [];
+  return db.boards.orderBy('updatedAt').reverse().toArray();
+}
+
+export async function getBoardById(id) {
+  if (!db || !db.boards) return null;
+  return db.boards.get(Number(id));
+}
+
+export async function getBoardByUid(uid) {
+  if (!db || !db.boards) return null;
+  return (await db.boards.where('uid').equals(uid).first()) ?? null;
+}
+
+export async function saveBoardRecord(board) {
+  if (!db || !db.boards) return null;
+  const now = Date.now();
+  const uid = board.uid || ((typeof crypto !== 'undefined' && crypto.randomUUID)
+    ? crypto.randomUUID()
+    : `b_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`);
+
+  const dados = {
+    ...board,
+    uid,
+    title: board.title || 'Quadro Sem Título',
+    viewport: board.viewport || { x: 0, y: 0, zoom: 1 },
+    cards: board.cards || [],
+    arrows: board.arrows || [],
+    updatedAt: now
+  };
+
+  if (board.id) {
+    await db.boards.put(dados);
+    return board.id;
+  } else {
+    dados.createdAt = now;
+    return db.boards.add(dados);
+  }
+}
+
+export async function deleteBoardRecord(id) {
+  if (!db || !db.boards) return;
+  return db.boards.delete(Number(id));
 }
 
 // Renumera a lista inteira. Passou a ser caminho de REPARO, não o caminho
@@ -300,6 +440,125 @@ export async function moveNoteRecord(id, ordemAnterior, ordemSeguinte) {
   }
   await db.notes.update(id, { ordem });
   return ordem;
+}
+
+// --- PASTAS ---
+export function normalizarCaminhoPasta(caminho) {
+  if (!caminho || typeof caminho !== 'string') return '';
+  const partes = caminho
+    .replace(/\\/g, '/')
+    .split('/')
+    .map(p => p.trim().replace(/[\\/:*?"<>|]/g, ''))
+    .filter(Boolean);
+  if (partes.length > 3) {
+    throw new Error('Profundidade máxima de 3 níveis excedida');
+  }
+  return partes.join('/');
+}
+
+export async function listarPastas() {
+  if (!db || !db.folders) return [];
+  try {
+    return await db.folders.orderBy('caminho').toArray();
+  } catch {
+    return await db.folders.toArray().catch(() => []);
+  }
+}
+
+export async function criarPasta(caminho) {
+  if (!db || !db.folders) return null;
+  const normalizado = normalizarCaminhoPasta(caminho);
+  if (!normalizado) return null;
+
+  const existente = await db.folders.where('caminho').equals(normalizado).first().catch(() => null);
+  if (existente) return existente.id;
+
+  // Garante que todas as pastas ancestrais existam na tabela
+  const partes = normalizado.split('/');
+  for (let i = 1; i < partes.length; i++) {
+    const pai = partes.slice(0, i).join('/');
+    const jaTemPai = await db.folders.where('caminho').equals(pai).first().catch(() => null);
+    if (!jaTemPai) {
+      await db.folders.add({ caminho: pai, ordem: 'a0', criadoEm: Date.now() }).catch(() => null);
+    }
+  }
+
+  return db.folders.add({ caminho: normalizado, ordem: 'a0', criadoEm: Date.now() });
+}
+
+export async function renomearPasta(caminhoAntigo, caminhoNovo) {
+  if (!db || !db.folders) return false;
+  const antigo = normalizarCaminhoPasta(caminhoAntigo);
+  const novo = normalizarCaminhoPasta(caminhoNovo);
+  if (!antigo || !novo || antigo === novo) return false;
+
+  return db.transaction('rw', [db.folders, db.notes], async () => {
+    // 1. Renomear na tabela folders
+    const pastas = await db.folders.toArray();
+    for (const f of pastas) {
+      if (f.caminho === antigo) {
+        await db.folders.update(f.id, { caminho: novo });
+      } else if (f.caminho.startsWith(antigo + '/')) {
+        const sub = novo + f.caminho.slice(antigo.length);
+        await db.folders.update(f.id, { caminho: sub });
+      }
+    }
+
+    // 2. Atualizar todas as notas afetadas (preserva delimitador de pasta para não pegar prefixo falso)
+    const notas = await db.notes.toArray();
+    const agora = Date.now();
+    for (const n of notas) {
+      const pastaAtual = n.pasta || '';
+      if (pastaAtual === antigo) {
+        await db.notes.update(n.id, { pasta: novo, updatedAt: agora });
+      } else if (pastaAtual.startsWith(antigo + '/')) {
+        const sub = novo + pastaAtual.slice(antigo.length);
+        await db.notes.update(n.id, { pasta: sub, updatedAt: agora });
+      }
+    }
+    return true;
+  });
+}
+
+export async function excluirPasta(caminho, { manterNotas = true } = {}) {
+  if (!db || !db.folders) return false;
+  const pasta = normalizarCaminhoPasta(caminho);
+  if (!pasta) return false;
+
+  return db.transaction('rw', [db.folders, db.notes, db.files], async () => {
+    const notas = await db.notes.toArray();
+    for (const n of notas) {
+      const pastaAtual = n.pasta || '';
+      const ehDestaPasta = pastaAtual === pasta || pastaAtual.startsWith(pasta + '/');
+      if (ehDestaPasta) {
+        if (manterNotas) {
+          await db.notes.update(n.id, { pasta: '', updatedAt: Date.now() });
+        } else {
+          await detachFilesFromNote(n.id);
+          await db.notes.delete(n.id);
+        }
+      }
+    }
+
+    // Exclui a pasta e quaisquer subpastas
+    const pastas = await db.folders.toArray();
+    for (const f of pastas) {
+      if (f.caminho === pasta || f.caminho.startsWith(pasta + '/')) {
+        await db.folders.delete(f.id);
+      }
+    }
+    return true;
+  });
+}
+
+export async function moverNotaParaPasta(notaId, novaPasta) {
+  if (!db || !db.notes) return false;
+  const pasta = normalizarCaminhoPasta(novaPasta);
+  if (pasta) {
+    await criarPasta(pasta);
+  }
+  await db.notes.update(notaId, { pasta, updatedAt: Date.now() });
+  return true;
 }
 
 // Migra a nota única antiga (armazenamento legado) para a primeira nota do Dexie.
@@ -535,13 +794,14 @@ export class DexieSyncStore {
   async salvarNotaLocal(nota) {
     const content = blocksToPlainText(nota.blocks ?? []);
     const existente = await this.obterNotaPorUid(nota.uid);
+    const pasta = nota.pasta !== undefined ? normalizarCaminhoPasta(nota.pasta) : (existente?.pasta ?? '');
     if (existente) {
-      await this.db.notes.update(existente.id, { ...nota, content });
+      await this.db.notes.update(existente.id, { ...nota, pasta, content });
       return existente.id;
     }
     // `id` vem do auto-incremento; mandar o do outro aparelho colidiria.
     const { id, ...semId } = nota;
-    return this.db.notes.add({ ...semId, content });
+    return this.db.notes.add({ ...semId, pasta, content });
   }
 
   async excluirNotaLocal(uid) {
@@ -550,6 +810,9 @@ export class DexieSyncStore {
     // Os documentos da nota viram gerais em vez de sumirem junto — mesma regra
     // de quando a pessoa exclui a nota pela interface.
     await detachFilesFromNote(nota.id);
+    if (this.db && this.db.links) {
+      await this.db.links.where('uidOrigem').equals(uid).or('uidDestino').equals(uid).delete().catch(() => {});
+    }
     await this.db.notes.delete(nota.id);
   }
 

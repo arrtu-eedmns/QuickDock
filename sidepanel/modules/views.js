@@ -22,6 +22,8 @@ export function switchView(viewName, params = {}) {
   if (viewName === currentView) {
     if (viewName === 'templates') {
       document.dispatchEvent(new CustomEvent('quickdock:refresh-templates-gallery', { detail: params }));
+    } else if (viewName === 'grafo') {
+      document.dispatchEvent(new CustomEvent('quickdock:refresh-graph-view', { detail: params }));
     }
     return;
   }
@@ -31,7 +33,23 @@ export function switchView(viewName, params = {}) {
 
   const noteSection = document.querySelector('.note-section');
   const templatesView = document.getElementById('templates-gallery-view');
+  const graphView = document.getElementById('graph-view');
   const btnNavTemplates = document.getElementById('btn-nav-templates');
+  const btnNavGraph = document.getElementById('btn-nav-graph');
+
+  // Oculta todas as visões secundárias
+  if (templatesView) {
+    templatesView.hidden = true;
+    templatesView.classList.remove('active');
+  }
+  if (graphView) {
+    graphView.hidden = true;
+    graphView.classList.remove('active');
+  }
+  document.documentElement.classList.remove('view-templates', 'view-grafo');
+  document.body.classList.remove('view-templates', 'view-grafo');
+  if (btnNavTemplates) btnNavTemplates.classList.remove('active');
+  if (btnNavGraph) btnNavGraph.classList.remove('active');
 
   if (viewName === 'templates') {
     if (noteSection) noteSection.hidden = true;
@@ -43,18 +61,21 @@ export function switchView(viewName, params = {}) {
     document.body.classList.add('view-templates');
     if (btnNavTemplates) btnNavTemplates.classList.add('active');
     document.dispatchEvent(new CustomEvent('quickdock:refresh-templates-gallery', { detail: params }));
+  } else if (viewName === 'grafo') {
+    if (noteSection) noteSection.hidden = true;
+    if (graphView) {
+      graphView.hidden = false;
+      graphView.classList.add('active');
+    }
+    document.documentElement.classList.add('view-grafo');
+    document.body.classList.add('view-grafo');
+    if (btnNavGraph) btnNavGraph.classList.add('active');
+    document.dispatchEvent(new CustomEvent('quickdock:refresh-graph-view', { detail: params }));
   } else {
     // Visão padrão: editor de notas
-    if (templatesView) {
-      templatesView.hidden = true;
-      templatesView.classList.remove('active');
-    }
     if (noteSection) {
       noteSection.hidden = false;
     }
-    document.documentElement.classList.remove('view-templates');
-    document.body.classList.remove('view-templates');
-    if (btnNavTemplates) btnNavTemplates.classList.remove('active');
   }
 
   listeners.forEach(fn => {

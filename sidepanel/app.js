@@ -10,6 +10,7 @@ import { conectarPainel, applyPlatform } from './modules/platform.js';
 import { iconSvg } from './modules/icons.js';
 import { switchView } from './modules/views.js';
 import { initTemplatesGallery } from './modules/templates-gallery.js';
+import { initGraphView } from './modules/graph-view.js';
 
 // Aplica a identificação de plataforma (extension, mobile, desktop) imediatamente
 applyPlatform();
@@ -60,6 +61,17 @@ async function toggleTheme() {
   applyTheme(next);
 }
 
+export function abrirQuadroInfinito() {
+  const url = (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.getURL)
+    ? chrome.runtime.getURL('board/index.html')
+    : 'board/index.html';
+  if (typeof chrome !== 'undefined' && chrome.tabs && chrome.tabs.create) {
+    chrome.tabs.create({ url });
+  } else {
+    window.open(url, '_blank');
+  }
+}
+
 // ── Menu "⋯" ──────────────────────────────────────────────────────────────────
 // Tutorial e tema viviam num header próprio, que repetia o ícone e o nome que
 // o painel lateral do Chrome já mostra. Limpar/excluir é por nota, no menu da
@@ -103,6 +115,8 @@ function openAppMenu() {
     }
   });
   addOpt('auto_stories', 'Galeria de modelos', () => switchView('templates'));
+  addOpt('hub', 'Grafo de conexões', () => switchView('grafo'));
+  addOpt('space_dashboard', 'Quadro Infinito', abrirQuadroInfinito);
   addOpt('menu_book', 'Ver tutorial', createTutorialNote);
   addOpt(dark ? 'light_mode' : 'dark_mode', dark ? 'Tema claro' : 'Tema escuro', toggleTheme);
   addOpt('sync', 'Sincronização…', () => syncController?.abrirPopover(btnAppMenu));
@@ -153,10 +167,16 @@ async function init() {
     await initDocuments();
     await initResizer();
     initTemplatesGallery();
+    initGraphView();
 
     const btnNavTemplates = document.getElementById('btn-nav-templates');
     if (btnNavTemplates) {
       btnNavTemplates.addEventListener('click', () => switchView('templates'));
+    }
+
+    const btnNavBoard = document.getElementById('btn-nav-board');
+    if (btnNavBoard) {
+      btnNavBoard.addEventListener('click', abrirQuadroInfinito);
     }
 
     syncController = new SyncController({

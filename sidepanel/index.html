@@ -72,6 +72,14 @@
       </div>
       <div class="note-editor">
         <div id="note-editor-blocks" class="note-editor-blocks" contenteditable="true" spellcheck="false"></div>
+        <div id="note-backlinks-section" class="note-backlinks-section" hidden>
+          <button id="note-backlinks-toggle" class="note-backlinks-toggle" type="button" aria-expanded="false">
+            <span class="qd-icon material-symbols-rounded backlinks-chevron" aria-hidden="true">expand_more</span>
+            <span class="backlinks-title">Backlinks</span>
+            <span id="note-backlinks-count" class="backlinks-count">0</span>
+          </button>
+          <div id="note-backlinks-list" class="note-backlinks-list"></div>
+        </div>
       </div>
       <span id="save-indicator" class="save-indicator">
         salvo <span class="qd-icon material-symbols-rounded" aria-hidden="true">check</span>
@@ -148,6 +156,41 @@
       </div>
     </section>
 
+    <!-- Visão em Grafo de Conexões -->
+    <section class="graph-view" id="graph-view" hidden>
+      <header class="graph-header">
+        <div class="graph-header-left">
+          <button id="btn-graph-back" class="icon-btn graph-back-btn" title="Voltar para as notas" aria-label="Voltar para as notas">
+            <span class="qd-icon material-symbols-rounded" aria-hidden="true">arrow_back</span>
+          </button>
+          <div class="graph-title-group">
+            <h1 class="graph-title">Grafo de Conexões</h1>
+            <span id="graph-stats-badge" class="graph-stats-badge">0 notas · 0 conexões</span>
+          </div>
+        </div>
+        <div class="graph-header-right">
+          <button id="btn-graph-zoom-in" class="icon-btn" title="Aumentar zoom" aria-label="Aumentar zoom">
+            <span class="qd-icon material-symbols-rounded" aria-hidden="true">add</span>
+          </button>
+          <button id="btn-graph-zoom-out" class="icon-btn" title="Diminuir zoom" aria-label="Diminuir zoom">
+            <span class="qd-icon material-symbols-rounded" aria-hidden="true">remove</span>
+          </button>
+          <button id="btn-graph-zoom-reset" class="icon-btn" title="Centralizar visualização" aria-label="Centralizar visualização">
+            <span class="qd-icon material-symbols-rounded" aria-hidden="true">filter_center_focus</span>
+          </button>
+        </div>
+      </header>
+      <div class="graph-canvas-container" id="graph-canvas-container">
+        <canvas id="graph-canvas" class="graph-canvas"></canvas>
+        <div id="graph-empty-state" class="graph-empty-state" hidden>
+          <span class="qd-icon material-symbols-rounded graph-empty-icon" aria-hidden="true">hub</span>
+          <h2>Nenhuma conexão encontrada</h2>
+          <p>Conecte suas notas no editor digitando <code>[[Nome da Nota]]</code> para vê-las interligadas no grafo.</p>
+        </div>
+        <div id="graph-tooltip" class="graph-tooltip" hidden></div>
+      </div>
+    </section>
+
     <div id="resize-handle" class="resize-handle" title="Arraste para redimensionar"></div>
 
     <aside class="app-aside" id="app-aside">
@@ -170,6 +213,14 @@
           <span class="qd-icon material-symbols-rounded" aria-hidden="true">auto_stories</span>
           <span class="aside-nav-label">Modelos</span>
           <span id="nav-templates-count" class="aside-nav-badge">0</span>
+        </button>
+        <button id="btn-nav-graph" class="icon-btn aside-nav-btn" title="Grafo de Conexões" aria-label="Grafo de Conexões">
+          <span class="qd-icon material-symbols-rounded" aria-hidden="true">hub</span>
+          <span class="aside-nav-label">Grafo</span>
+        </button>
+        <button id="btn-nav-board" class="icon-btn aside-nav-btn" title="Quadro Infinito (Aba dedicada)" aria-label="Quadro Infinito">
+          <span class="qd-icon material-symbols-rounded" aria-hidden="true">space_dashboard</span>
+          <span class="aside-nav-label">Quadro</span>
         </button>
         <div id="notes-tabs" class="notes-tabs"></div>
         <input type="file" id="note-import-input" accept=".md,.txt,text/markdown,text/plain" hidden />

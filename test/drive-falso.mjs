@@ -90,7 +90,7 @@ export function criarDriveFalso() {
       return json({ changes: lista, newStartPageToken: String(mudancas.length + 1) });
     }
 
-    // Download
+    // Download ou detalhes do arquivo
     if (metodo === 'GET' && u.searchParams.get('alt') === 'media') {
       const id = caminho.split('/').pop();
       const a = arquivos.get(id);
@@ -98,12 +98,20 @@ export function criarDriveFalso() {
       return texto(a.conteudo ?? '');
     }
 
+    if (metodo === 'GET' && caminho.includes('/drive/v3/files/') && !caminho.endsWith('/drive/v3/files')) {
+      const id = caminho.split('/').pop();
+      const a = arquivos.get(id);
+      if (!a || a.trashed) return json({}, 404);
+      return json({ id: a.id, name: a.name, mimeType: a.mimeType, parents: a.parents });
+    }
+
     // Busca
     if (metodo === 'GET' && caminho.endsWith('/drive/v3/files')) {
       const achados = filtrar(u.searchParams.get('q') ?? '');
       return json({ files: achados.map(a => ({
         id: a.id, name: a.name, headRevisionId: a.headRevisionId,
-        modifiedTime: a.modifiedTime, trashed: !!a.trashed })) });
+        modifiedTime: a.modifiedTime, trashed: !!a.trashed,
+        mimeType: a.mimeType, parents: a.parents })) });
     }
 
     // Criar pasta (metadado puro). O `!includes('/upload/')` importa: a rota de

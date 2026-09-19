@@ -25,6 +25,8 @@ export function safeHref(raw) {
   // Âncora pra um título da própria nota. Não sai da nota e não executa nada,
   // então entra na lista — quem resolve pra onde ela leva é o editor.
   if (/^#\S/.test(url)) return url;
+  // Link para outra nota interna do QuickDock: nota:uid ou nota:titulo
+  if (/^nota:/i.test(url)) return url;
   if (/^[\w.-]+\.\w{2,}([/?#]|$)/.test(url)) return `https://${url}`;  // digitou só o domínio
   return null;
 }
@@ -72,6 +74,7 @@ export function headingSlugs(textos) {
 // limitação dos outros.
 const INLINE_MD = [
   { re: /`([^`\n]+?)`/g, tag: 'code' },
+  { re: /\[\[([^\]\n|]+)(?:\|([^\]\n]+))?\]\]/g, tag: 'wikilink' },
   { re: /\[([^\]\n]+)\]\(([^)\s]+)\)/g, tag: 'a' },
   { re: /\*\*([^\n]+?)\*\*/g, tag: 'strong' },
   { re: /~~([^\n]+?)~~/g, tag: 's' },
@@ -86,7 +89,11 @@ function parseInlineMarkdown(text) {
     while ((m = re.exec(text)) !== null) {
       const start = m.index, end = start + m[0].length;
       if (matches.some(e => e.start < end && e.end > start)) continue;
-      matches.push({ start, end, tag, content: m[1], href: m[2] });
+      if (tag === 'wikilink') {
+        matches.push({ start, end, tag, content: m[1], alias: m[2] });
+      } else {
+        matches.push({ start, end, tag, content: m[1], href: m[2] });
+      }
     }
   }
   matches.sort((a, b) => a.start - b.start);
@@ -94,13 +101,22 @@ function parseInlineMarkdown(text) {
   let html = '', pos = 0;
   for (const m of matches) {
     html += escHtml(text.slice(pos, m.start));
-    if (m.tag === 'a') {
+    if (m.tag === 'wikilink') {
+      const target = (m.content || '').trim();
+      const display = (m.alias || target).trim();
+      html += `<a href="nota:${escHtml(target)}" class="note-internal-link" data-note-title="${escHtml(target)}">${escHtml(display)}</a>`;
+    } else if (m.tag === 'a') {
       const href = safeHref(m.href);
-      // Endereço recusado: mantém o texto original visível em vez de descartar
-      // silenciosamente o que a pessoa escreveu.
-      html += href
-        ? `<a href="${escHtml(href)}">${escHtml(m.content)}</a>`
-        : escHtml(text.slice(m.start, m.end));
+      if (href && /^nota:/i.test(href)) {
+        const target = href.replace(/^nota:/i, '');
+        html += `<a href="${escHtml(href)}" class="note-internal-link" data-note-format="md" data-note-uid="${escHtml(target)}">${escHtml(m.content)}</a>`;
+      } else {
+        // Endereço recusado: mantém o texto original visível em vez de descartar
+        // silenciosamente o que a pessoa escreveu.
+        html += href
+          ? `<a href="${escHtml(href)}">${escHtml(m.content)}</a>`
+          : escHtml(text.slice(m.start, m.end));
+      }
     } else {
       html += `<${m.tag}>${escHtml(m.content)}</${m.tag}>`;
     }
@@ -173,7 +189,7 @@ function makeDepthTracker() {
 // Para sincronizar, grava-se o marcador neutro `quickdock:nao-sincronizado`.
 const FILE_REF_RE = /^quickdock:file\/(\d+)$/;
 const UNSYNCED_IMAGE_RE = /^quickdock:(?:nao-sincronizado|unsynced|imagem-local)$/;
-export const SYNC_IMAGE_RE = /^(?:\.\.\/)?imagens\/([a-zA-Z0-9_-]+(?:\.[a-zA-Z0-9]+)?)$/;
+export const SYNC_IMAGE_RE = /^(?:\.\.\/)*imagens\/([a-zA-Z0-9_-]+(?:\.[a-zA-Z0-9]+)?)$/;
 const IMAGE_MD_RE = /^!\[([^\]]*)\]\(([^)\s]+)\)$/;
 
 export function imageSrcOf(b, opts = {}) {
@@ -490,6 +506,19 @@ function nodeToMarkdown(node) {
       case 'BR':                        out += '\n';           break;
       case 'A': {
         const href = child.getAttribute('href');
+        if (href && /^nota:/i.test(href)) {
+          if (child.getAttribute('data-note-format') === 'md') {
+            out += `[${inner}](${href})`;
+            break;
+          }
+          const target = child.getAttribute('data-note-title') || href.replace(/^nota:/i, '');
+          if (!inner || inner === target) {
+            out += `[[${target}]]`;
+          } else {
+            out += `[[${target}|${inner}]]`;
+          }
+          break;
+        }
         out += href ? `[${inner}](${href})` : inner;
         break;
       }

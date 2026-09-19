@@ -53,8 +53,8 @@ export function hashConteudo(str) {
 export function hashDaNota(texto) {
   return hashConteudo(
     String(texto ?? '')
-      .replace(/^atualizadoEm:.*$/m, '')
-      .replace(/^criadoEm:.*$/m, '')
+      .replace(/^atualizadoEm:.*\r?\n?/gm, '')
+      .replace(/^criadoEm:.*\r?\n?/gm, '')
   );
 }
 
@@ -79,6 +79,14 @@ export function slugTitulo(titulo) {
   // resolvidos por quem chama, que nunca sobrescreve arquivo ocupado.
   const corte = cortarNoHifen(s, MAX_SLUG);
   return corte || 'sem-titulo';
+}
+
+export function extrairPastaDoCaminho(caminho) {
+  if (!caminho || !caminho.startsWith('notas/')) return '';
+  const relativo = caminho.slice('notas/'.length);
+  const ultimoSlash = relativo.lastIndexOf('/');
+  if (ultimoSlash === -1) return '';
+  return relativo.slice(0, ultimoSlash);
 }
 
 const MAX_SLUG = 60;
@@ -183,6 +191,17 @@ export class SyncEngine {
     this.cacheImagensLocais = new Map();
   }
 
+  _caminhoDesejado(nota) {
+    const slug = slugTitulo(nota.title);
+    const pasta = nota.pasta ? String(nota.pasta).trim().replace(/\\/g, '/').replace(/^\/+|\/+$/g, '') : '';
+    return pasta ? `notas/${pasta}/${slug}.md` : `notas/${slug}.md`;
+  }
+
+  _prefixoRelativoImagens(caminhoNota) {
+    const slashes = (caminhoNota.match(/\//g) || []).length;
+    return '../'.repeat(slashes) + 'imagens/';
+  }
+
   /**
    * Serializa uma nota local para o formato final do arquivo .md (frontmatter + blocos).
    */
@@ -197,6 +216,7 @@ export class SyncEngine {
       iconePreenchido: !!nota.iconFilled,
       tituloOculto: !!nota.titleHidden,
       ordem: nota.ordem ?? 'a0',
+      pasta: nota.pasta || undefined,
       criadoEm: nota.createdAt ? (typeof nota.createdAt === 'number' ? new Date(nota.createdAt).toISOString() : nota.createdAt) : undefined,
       atualizadoEm: nota.updatedAt ? (typeof nota.updatedAt === 'number' ? new Date(nota.updatedAt).toISOString() : nota.updatedAt) : undefined,
     };
@@ -260,7 +280,10 @@ export class SyncEngine {
     // Quem sabe o que é o cursor é o adaptador. Quando ele diz, o motor obedece
     // e não tenta comparar nada.
     const resposta = await this.adapter.listarMudancas(cursor);
-    const mudancas = Array.isArray(resposta) ? resposta : (resposta?.mudancas ?? []);
+    const mudancasBrutas = Array.isArray(resposta) ? resposta : (resposta?.mudancas ?? []);
+    // Processa criações e alterações antes de exclusões para que arquivos movidos de pasta
+    // não sejam excluídos prematuramente antes do arquivo novo ser processado
+    const mudancas = [...mudancasBrutas].sort((a, b) => (a.apagado === b.apagado ? 0 : a.apagado ? 1 : -1));
     const cursorDoAdaptador = Array.isArray(resposta) ? undefined : resposta?.cursor;
 
     for (const mudanca of mudancas) {
@@ -407,9 +430,22 @@ export class SyncEngine {
       if (apagado) {
         if (!estadoLocal) continue;
 
+        // Se o registro de sincronização do UID já estiver associado a outro caminho
+        // (ex.: a nota foi movida/renomeada na mesma rodada), não devemos apagar localmente.
+        const estadoAtualUid = await this.store.obterEstadoSync(estadoLocal.uid);
+        if (estadoAtualUid && estadoAtualUid.caminho !== caminho) {
+          continue;
+        }
+
         const notaLocal = await this.store.obterNotaPorUid(estadoLocal.uid);
         if (!notaLocal) {
           await this.store.excluirEstadoSync(estadoLocal.uid);
+          continue;
+        }
+
+        const caminhoLocalEsperado = this._caminhoDesejado(notaLocal);
+        if (caminhoLocalEsperado !== caminho) {
+          // A nota foi movida localmente: não apagar!
           continue;
         }
 
@@ -480,9 +516,11 @@ export class SyncEngine {
       if (!notaLocal) {
         // Nota não existe localmente: baixa como nota nova
         const blocks = parseMarkdownToBlocks(parsed.md);
+        const pasta = parsed.meta.pasta !== undefined ? parsed.meta.pasta : extrairPastaDoCaminho(caminho);
         await this.store.salvarNotaLocal({
           uid,
           title: parsed.meta.titulo || 'Sem título',
+          pasta,
           blocks,
           color: parsed.meta.cor ?? null,
           icon: parsed.meta.icone ?? null,
@@ -495,7 +533,7 @@ export class SyncEngine {
           // enviou não tinha, o outro lado via diferença e regravava sem, sem fim.
           // Com os dois clientes sincronizando ao mesmo tempo, virava conflito.
           createdAt: parsed.meta.criadoEm ? new Date(parsed.meta.criadoEm).getTime() : undefined,
-          updatedAt: parsed.meta.atualizadoEm ? new Date(parsed.meta.atualizadoEm).getTime() : Date.now(),
+          updatedAt: parsed.meta.atualizadoEm ? new Date(parsed.meta.atualizadoEm).getTime() : undefined,
         });
         await this.store.salvarEstadoSync({
           uid,
@@ -510,7 +548,7 @@ export class SyncEngine {
         const textoLocal = this.serializarNota(notaLocal);
         const hashLocal = hashDaNota(textoLocal);
 
-        if (estadoPorUid && estadoPorUid.hash === hashRemoto && estadoPorUid.rev === revRemota) {
+        if (estadoPorUid && estadoPorUid.hash === hashRemoto && estadoPorUid.rev === revRemota && estadoPorUid.caminho === caminho) {
           // Conteúdo remoto é idêntico ao já sincronizado: nada a fazer no download
           continue;
         }
@@ -534,17 +572,19 @@ export class SyncEngine {
           // Lado local não foi editado (ou reconciliação inicial sem estado): remoto vence com segurança
           const blocks = parseMarkdownToBlocks(parsed.md);
           this._preservarImagensLocais(notaLocal.blocks, blocks);
+          const pasta = parsed.meta.pasta !== undefined ? parsed.meta.pasta : extrairPastaDoCaminho(caminho);
           await this.store.salvarNotaLocal({
             ...notaLocal,
             uid,
             title: parsed.meta.titulo || notaLocal.title,
+            pasta,
             blocks,
             color: parsed.meta.cor !== undefined ? parsed.meta.cor : notaLocal.color,
             icon: parsed.meta.icone !== undefined ? parsed.meta.icone : notaLocal.icon,
             iconFilled: parsed.meta.iconePreenchido !== undefined ? parsed.meta.iconePreenchido : notaLocal.iconFilled,
             titleHidden: parsed.meta.tituloOculto !== undefined ? parsed.meta.tituloOculto : notaLocal.titleHidden,
             ordem: parsed.meta.ordem || notaLocal.ordem,
-            updatedAt: parsed.meta.atualizadoEm ? new Date(parsed.meta.atualizadoEm).getTime() : Date.now(),
+            updatedAt: parsed.meta.atualizadoEm ? new Date(parsed.meta.atualizadoEm).getTime() : undefined,
           });
           await this.store.salvarEstadoSync({
             uid,
@@ -567,7 +607,9 @@ export class SyncEngine {
             : `u_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
 
           const tituloConflito = tituloDeConflito(notaLocal.title, this.deviceName);
-          const caminhoConflito = `notas/${slugTitulo(notaLocal.title)} (conflito ${dataIsoHoje()}, ${this.deviceName}).md`;
+          const pastaLocal = notaLocal.pasta ? String(notaLocal.pasta).trim().replace(/\\/g, '/').replace(/^\/+|\/+$/g, '') : '';
+          const prefixoLocal = pastaLocal ? `notas/${pastaLocal}` : 'notas';
+          const caminhoConflito = `${prefixoLocal}/${slugTitulo(notaLocal.title)} (conflito ${dataIsoHoje()}, ${this.deviceName}).md`;
 
           // 1. Salva a cópia de conflito com os dados locais.
           //
@@ -588,17 +630,19 @@ export class SyncEngine {
           // 2. Atualiza a nota principal com o conteúdo que veio do remoto
           const blocks = parseMarkdownToBlocks(parsed.md);
           this._preservarImagensLocais(notaLocal.blocks, blocks);
+          const pastaRemota = parsed.meta.pasta !== undefined ? parsed.meta.pasta : extrairPastaDoCaminho(caminho);
           await this.store.salvarNotaLocal({
             ...notaLocal,
             uid,
             title: parsed.meta.titulo || notaLocal.title,
+            pasta: pastaRemota,
             blocks,
             color: parsed.meta.cor !== undefined ? parsed.meta.cor : notaLocal.color,
             icon: parsed.meta.icone !== undefined ? parsed.meta.icone : notaLocal.icon,
             iconFilled: parsed.meta.iconePreenchido !== undefined ? parsed.meta.iconePreenchido : notaLocal.iconFilled,
             titleHidden: parsed.meta.tituloOculto !== undefined ? parsed.meta.tituloOculto : notaLocal.titleHidden,
             ordem: parsed.meta.ordem || notaLocal.ordem,
-            updatedAt: parsed.meta.atualizadoEm ? new Date(parsed.meta.atualizadoEm).getTime() : Date.now(),
+            updatedAt: parsed.meta.atualizadoEm ? new Date(parsed.meta.atualizadoEm).getTime() : undefined,
           });
 
           await this.store.salvarEstadoSync({
@@ -659,7 +703,9 @@ export class SyncEngine {
       // foi reconciliada, e isso viraria cópia de conflito à toa.
       if (uidsPulados.has(nota.uid)) continue;
 
-      // Traduz imagens locais para caminhos imutáveis ../imagens/<hash>.<ext>
+      // Traduz imagens locais para caminhos imutáveis ../imagens/<hash>.<ext> (ajustando profundidade da pasta)
+      const caminhoNotaDesejado = this._caminhoDesejado(nota);
+      const prefixoImagens = this._prefixoRelativoImagens(caminhoNotaDesejado);
       const mapaImagens = new Map();
       if (Array.isArray(nota.blocks)) {
         for (const b of nota.blocks) {
@@ -672,7 +718,7 @@ export class SyncEngine {
                 const hash = await calcularHashImagem(blob);
                 const ext = extensaoDeMimeOuNome(blob.type, blob.name);
                 const caminhoRemoto = `imagens/${hash}.${ext}`;
-                const caminhoRelativo = `../imagens/${hash}.${ext}`;
+                const caminhoRelativo = `${prefixoImagens}${hash}.${ext}`;
                 mapaImagens.set(b.fileId, caminhoRelativo);
 
                 // Grava na pasta imagens/ se ainda não existir no destino (deduplicação por conteúdo)
@@ -693,8 +739,8 @@ export class SyncEngine {
       const estado = await this.store.obterEstadoSync(nota.uid);
 
       if (!estado) {
-        // Nota criada localmente: sobe arquivo novo
-        const caminho = `notas/${slugTitulo(nota.title)}.md`;
+        // Nota criada localmente: sobe arquivo novo respeitando a pasta
+        const caminho = caminhoNotaDesejado;
         // Proteção contra sobrescrita de arquivo remoto recusado por versão mais nova
         if (caminhosRecusadosPorVersao.has(caminho)) continue;
         const res = await this.adapter.escrever(caminho, texto, null);
@@ -711,7 +757,9 @@ export class SyncEngine {
           resultado.enviadas++;
         } else if (res && res.conflito) {
           // Arquivo já existia no remoto com outro conteúdo: gera caminho único
-          const caminhoAlt = `notas/${slugTitulo(nota.title)}-${nota.uid.slice(0, 8)}.md`;
+          const slug = slugTitulo(nota.title);
+          const pasta = nota.pasta ? String(nota.pasta).trim().replace(/\\/g, '/').replace(/^\/+|\/+$/g, '') : '';
+          const caminhoAlt = pasta ? `notas/${pasta}/${slug}-${nota.uid.slice(0, 8)}.md` : `notas/${slug}-${nota.uid.slice(0, 8)}.md`;
           const resAlt = await this.adapter.escrever(caminhoAlt, texto, null);
           if (resAlt && resAlt.rev) {
             await this.store.salvarEstadoSync({
@@ -729,12 +777,8 @@ export class SyncEngine {
         // Se o arquivo remoto estiver numa versão mais nova recusada, não sobrescreve
         if (caminhosRecusadosPorVersao.has(estado.caminho)) continue;
 
-        // Renomear a nota renomeia o arquivo. A identidade continua sendo o `id`
-        // do frontmatter — nada depende do nome, e um arquivo renomeado à mão
-        // pelo usuário continua funcionando. Mas o motivo de as notas morarem
-        // numa pasta legível é a pessoa poder abri-la e se achar sem o
-        // QuickDock; uma pasta onde os nomes não correspondem ao conteúdo perde
-        // exatamente isso.
+        // Renomear a nota ou mover de pasta altera o caminho do arquivo.
+        // A identidade continua sendo o `id` do frontmatter.
         const caminhoUsado = await this._renomearSePreciso(nota, estado);
         if (caminhosRecusadosPorVersao.has(caminhoUsado)) continue;
 
@@ -760,7 +804,9 @@ export class SyncEngine {
         } else if (res && res.conflito) {
           // Colisão na subida: gera arquivo de cópia de conflito no destino
           const tituloConflito = tituloDeConflito(nota.title, this.deviceName);
-          const caminhoConflito = `notas/${slugTitulo(nota.title)} (conflito ${dataIsoHoje()}, ${this.deviceName}).md`;
+          const pasta = nota.pasta ? String(nota.pasta).trim().replace(/\\/g, '/').replace(/^\/+|\/+$/g, '') : '';
+          const prefixo = pasta ? `notas/${pasta}` : 'notas';
+          const caminhoConflito = `${prefixo}/${slugTitulo(nota.title)} (conflito ${dataIsoHoje()}, ${this.deviceName}).md`;
           const resConf = await this.adapter.escrever(caminhoConflito, texto, null);
           if (resConf && resConf.rev) {
             if (!tevePulo && Number(resConf.rev) > Number(maiorCursor || 0)) maiorCursor = resConf.rev;
@@ -865,7 +911,7 @@ export class SyncEngine {
    */
   async resolverImagem(caminhoImagem, notaUid = null) {
     if (!caminhoImagem || typeof caminhoImagem !== 'string') return null;
-    const caminhoRemoto = caminhoImagem.replace(/^\.\.\//, '');
+    const caminhoRemoto = caminhoImagem.replace(/^(?:\.\.\/)+/, '');
     if (!caminhoRemoto.startsWith('imagens/')) return null;
 
     const nomeArquivo = caminhoRemoto.split('/').pop();
@@ -927,7 +973,7 @@ export class SyncEngine {
    * continua sendo a identidade, então ficar com o nome antigo não quebra nada.
    */
   async _renomearSePreciso(nota, estado) {
-    const desejado = `notas/${slugTitulo(nota.title)}.md`;
+    const desejado = this._caminhoDesejado(nota);
     if (desejado === estado.caminho) return estado.caminho;
 
     try {

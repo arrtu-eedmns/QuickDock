@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Quadro Infinito — QuickDock</title>
+  <link rel="stylesheet" href="../fonts/fonts.css" />
+  <link rel="stylesheet" href="style.css" />
+  <link rel="icon" type="image/png" href="../icons/48.png" />
+</head>
+<body>
+  <!-- Cabeçalho / Barra Superior -->
+  <header class="board-header">
+    <div class="board-header-left">
+      <button id="btn-board-back" class="board-btn icon-btn" title="Voltar para as notas" aria-label="Voltar para as notas">
+        <span class="qd-icon material-symbols-rounded">arrow_back</span>
+      </button>
+      <div class="board-brand-lockup">
+        <svg class="board-brand-icon" viewBox="0 0 512 512" width="20" height="20" aria-hidden="true">
+          <path d="M153.03 153.03 A150 150 0 1 1 358.97 358.97 A150 150 0 0 0 153.03 153.03 Z" fill="currentColor"/>
+          <path d="M153.03 153.03 A150 150 0 1 0 358.97 358.97 A150 150 0 0 1 153.03 153.03 Z" fill="currentColor"/>
+          <path d="M241.59 241.59 L476.35 431.09 L386.18 431.44 Z" fill="currentColor"/>
+        </svg>
+      </div>
+      <input type="text" id="board-title-input" class="board-title-input" value="Quadro Sem Título" placeholder="Nome do quadro..." aria-label="Nome do quadro" />
+      <span id="board-save-status" class="board-save-status">
+        <span class="qd-icon material-symbols-rounded status-icon">check</span> salvo
+      </span>
+    </div>
+
+    <!-- Ferramentas Centrais -->
+    <div class="board-header-center">
+      <div class="board-tools-group">
+        <button id="tool-select" class="board-tool-btn active" title="Selecionar e mover (V)" aria-label="Mover e selecionar">
+          <span class="qd-icon material-symbols-rounded">pan_tool</span>
+        </button>
+        <button id="tool-card" class="board-tool-btn" title="Adicionar cartão (C)" aria-label="Adicionar cartão">
+          <span class="qd-icon material-symbols-rounded">note_add</span>
+          <span>Cartão</span>
+        </button>
+        <button id="tool-arrow" class="board-tool-btn" title="Conectar com seta (A)" aria-label="Conectar com seta">
+          <span class="qd-icon material-symbols-rounded">trending_flat</span>
+          <span>Seta</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Controles de Câmera e Ações à Direita -->
+    <div class="board-header-right">
+      <div class="board-zoom-group">
+        <button id="btn-zoom-out" class="board-btn icon-btn" title="Diminuir zoom (-)" aria-label="Diminuir zoom">
+          <span class="qd-icon material-symbols-rounded">remove</span>
+        </button>
+        <span id="zoom-level-text" class="zoom-level-text">100%</span>
+        <button id="btn-zoom-in" class="board-btn icon-btn" title="Aumentar zoom (+)" aria-label="Aumentar zoom">
+          <span class="qd-icon material-symbols-rounded">add</span>
+        </button>
+        <button id="btn-zoom-reset" class="board-btn icon-btn" title="Centralizar conteúdo (0)" aria-label="Centralizar conteúdo">
+          <span class="qd-icon material-symbols-rounded">filter_center_focus</span>
+        </button>
+      </div>
+      <button id="btn-export-json" class="board-btn" title="Exportar quadro (.json)" aria-label="Exportar quadro">
+        <span class="qd-icon material-symbols-rounded">download</span>
+        <span>Exportar</span>
+      </button>
+      <button id="btn-toggle-theme" class="board-btn icon-btn" title="Alternar tema claro/escuro" aria-label="Alternar tema">
+        <span class="qd-icon material-symbols-rounded" id="theme-icon">dark_mode</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- Contêiner do Espaço Infinito -->
+  <main id="board-container" class="board-container">
+    <!-- Camada SVG de Conexões e Setas -->
+    <svg id="board-svg" class="board-svg" width="100%" height="100%">
+      <defs>
+        <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+          <polygon points="0 0, 10 3.5, 0 7" fill="currentColor" />
+        </marker>
+        <marker id="arrowhead-selected" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+          <polygon points="0 0, 10 3.5, 0 7" fill="var(--accent, #3b82f6)" />
+        </marker>
+      </defs>
+      <g id="board-svg-arrows"></g>
+      <line id="board-draft-arrow" class="draft-arrow" x1="0" y1="0" x2="0" y2="0" hidden />
+    </svg>
+
+    <!-- Camada DOM de Cartões e Elementos -->
+    <div id="board-world" class="board-world">
+      <div id="board-cards-layer" class="board-cards-layer"></div>
+    </div>
+  </main>
+
+  <script src="../lib/dexie.min.js"></script>
+  <script type="module" src="board.js"></script>
+</body>
+</html>

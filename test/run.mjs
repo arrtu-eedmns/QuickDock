@@ -2865,6 +2865,317 @@ for (const entrada of ['', null, undefined, '\n\n']) {
   ok('mobile · note-section e galeria isoladas com hidden display none', styleCss.includes('html[data-platform="mobile"] .note-section[hidden]') && styleCss.includes('display: none !important'));
 }
 
+// ── 18. Pastas hierárquicas, caminhos de notas e sincronização (Fase 1) ───────
+{
+  const { normalizarCaminhoPasta } = await import('../sidepanel/modules/storage.js');
+  const { buildNoteFile, parseNoteFile } = await import('../sidepanel/modules/notefile.js');
+  const { SyncEngine, extrairPastaDoCaminho } = await import('../sidepanel/modules/sync-engine.js');
+  const { MemorySyncAdapter } = await import('../sidepanel/modules/sync-adapter.js');
+  const { InMemoryStore } = await import('./memory-store.mjs');
+
+  // 18.1: Normalização de caminhos de pasta
+  igual('pastas · normalizar vazia', normalizarCaminhoPasta(''), '');
+  igual('pastas · normalizar espaços e barras', normalizarCaminhoPasta('  Projetos / Web  '), 'Projetos/Web');
+  igual('pastas · normalizar barras invertidas', normalizarCaminhoPasta('Projetos\\Web\\2026'), 'Projetos/Web/2026');
+  igual('pastas · remove barras pontas e duplas', normalizarCaminhoPasta('/Projetos///Mobile/'), 'Projetos/Mobile');
+  
+  let erroProfundidade = false;
+  try {
+    normalizarCaminhoPasta('a/b/c/d');
+  } catch {
+    erroProfundidade = true;
+  }
+  ok('pastas · rejeita mais de 3 níveis de profundidade', erroProfundidade);
+
+  // 18.2: extrairPastaDoCaminho
+  igual('pastas · extrair pasta de raiz', extrairPastaDoCaminho('notas/nota.md'), '');
+  igual('pastas · extrair pasta 1 nível', extrairPastaDoCaminho('notas/Projetos/nota.md'), 'Projetos');
+  igual('pastas · extrair pasta 3 níveis', extrairPastaDoCaminho('notas/Projetos/Web/App/nota.md'), 'Projetos/Web/App');
+
+  // 18.3: Frontmatter com pasta
+  const fileComPasta = buildNoteFile({
+    meta: { quickdock: 1, id: 'u_p1', titulo: 'Teste Pastas', pasta: 'Trabalho/2026' },
+    md: 'Conteúdo'
+  });
+  ok('pastas · serialização inclui pasta no frontmatter', fileComPasta.includes('pasta: Trabalho/2026'));
+  const parsedComPasta = parseNoteFile(fileComPasta);
+  igual('pastas · parse recupera pasta do frontmatter', parsedComPasta?.meta?.pasta, 'Trabalho/2026');
+
+  const fileSemPasta = buildNoteFile({
+    meta: { quickdock: 1, id: 'u_p2', titulo: 'Sem Pasta' },
+    md: 'Conteúdo raiz'
+  });
+  ok('pastas · serialização omite pasta quando vazia', !fileSemPasta.includes('pasta:'));
+  const parsedSemPasta = parseNoteFile(fileSemPasta);
+  igual('pastas · parse sem pasta não define valor espúrio', parsedSemPasta?.meta?.pasta, undefined);
+
+  // 18.4: Sincronização de notas em pastas e imagens relativas
+  const adapter = new MemorySyncAdapter();
+  const storeA = new InMemoryStore();
+  const storeB = new InMemoryStore();
+  const engineA = new SyncEngine({ adapter, store: storeA, deviceName: 'PC-A' });
+  const engineB = new SyncEngine({ adapter, store: storeB, deviceName: 'PC-B' });
+
+  // Nota em pasta com imagem
+  const bytesImg = new TextEncoder().encode('fake-nested-image-bytes');
+  const imgId = await storeA.salvarArquivo({
+    name: 'diagram.png',
+    type: 'image/png',
+    blob: new Blob([bytesImg], { type: 'image/png' }),
+    inline: true,
+  });
+
+  await storeA.salvarNotaLocal({
+    uid: 'u_pasta_nota1',
+    title: 'Arquitetura Geral',
+    pasta: 'Projetos/QuickDock',
+    blocks: [
+      { id: 'b1', type: 'paragraph', html: 'Visão do sistema' },
+      { id: 'b2', type: 'image', fileId: imgId, alt: 'diagrama' }
+    ],
+    ordem: 'a0',
+  });
+
+  await engineA.sincronizar();
+
+  // Verifica caminho no adaptador
+  const arqRemoto = await adapter.ler('notas/Projetos/QuickDock/arquitetura-geral.md');
+  ok('pastas · nota gravada no caminho com subpastas', arqRemoto !== null);
+  ok('pastas · imagem usa profundidade correta (../../../imagens/)', arqRemoto?.texto.includes('../../../imagens/'));
+
+  // Aparelho B sincroniza e recebe a nota com sua pasta
+  await engineB.sincronizar();
+  const notaB = await storeB.obterNotaPorUid('u_pasta_nota1');
+  ok('pastas · aparelho B recebeu nota', notaB !== null);
+  igual('pastas · aparelho B preservou a pasta', notaB?.pasta, 'Projetos/QuickDock');
+
+  // Mover nota de pasta no Aparelho A
+  const notaA = await storeA.obterNotaPorUid('u_pasta_nota1');
+  await storeA.salvarNotaLocal({
+    ...notaA,
+    pasta: 'Arquivo',
+    updatedAt: Date.now() + 500,
+  });
+  await engineA.sincronizar();
+
+  // Verifica que arquivo foi movido no adaptador
+  const arqAntigo = await adapter.ler('notas/Projetos/QuickDock/arquitetura-geral.md');
+  const arqNovo = await adapter.ler('notas/Arquivo/arquitetura-geral.md');
+  ok('pastas · arquivo antigo apagado após mover', arqAntigo === null);
+  ok('pastas · arquivo novo criado no novo caminho', arqNovo !== null);
+
+  // Renomear título da nota mantendo a pasta
+  await storeA.salvarNotaLocal({
+    ...notaA,
+    title: 'Arquitetura Final',
+    pasta: 'Arquivo',
+    updatedAt: Date.now() + 1000,
+  });
+  await engineA.sincronizar();
+  const arqRenomeado = await adapter.ler('notas/Arquivo/arquitetura-final.md');
+  const arqAntesRenomear = await adapter.ler('notas/Arquivo/arquitetura-geral.md');
+  ok('pastas · renomear dentro da pasta apaga nome antigo', arqAntesRenomear === null);
+  ok('pastas · renomear dentro da pasta cria novo arquivo no caminho da mesma pasta', arqRenomeado !== null);
+}
+
+// ── 19. Interface de Pastas no Painel Lateral (Fase 2) ────────────────────────
+{
+  const { readFile } = await import('node:fs/promises');
+  const tabsSource = await readFile(new URL('../sidepanel/modules/notes-tabs.js', import.meta.url), 'utf8');
+  const styleSource = await readFile(new URL('../sidepanel/style.css', import.meta.url), 'utf8');
+
+  // 19.1: Funções de árvore e persistência de pastas
+  ok('pastas ui · notes-tabs.js define chave de persistência de pastas abertas', tabsSource.includes('quickdock:folders:open'));
+  ok('pastas ui · notes-tabs.js monta árvore hierárquica buildFolderTree', tabsSource.includes('buildFolderTree'));
+  ok('pastas ui · notes-tabs.js conta total de notas da pasta', tabsSource.includes('contarNotasTotal'));
+
+  // 19.2: Diálogos de ação em pastas (Criar, Renomear, Excluir, Mover)
+  ok('pastas ui · diálogo de criação de nova pasta', tabsSource.includes('promptNovaPasta'));
+  ok('pastas ui · diálogo de renomeação de pasta', tabsSource.includes('promptRenomearPasta'));
+  ok('pastas ui · diálogo de exclusão segura com opções de manter notas', tabsSource.includes('promptExcluirPasta') && tabsSource.includes('Mover notas para a raiz'));
+  ok('pastas ui · seletor de pasta para mover nota', tabsSource.includes('promptMoverNotaParaPasta'));
+  ok('pastas ui · menu da aba inclui Mover para pasta...', tabsSource.includes('Mover para pasta...'));
+  ok('pastas ui · menu de contexto da pasta', tabsSource.includes('openFolderMenu'));
+
+  // 19.3: Arraste e solte para mover notas para pastas
+  ok('pastas ui · dragover highlight no cabeçalho da pasta', tabsSource.includes('drag-over') && tabsSource.includes('moverNotaParaPasta'));
+
+  // 19.4: Estilização no CSS
+  ok('pastas ui · style.css define barra de ações e botão de nova pasta', styleSource.includes('.notes-list-toolbar') && styleSource.includes('.notes-list-action-btn'));
+  ok('pastas ui · style.css define cabeçalho e item de pasta', styleSource.includes('.folder-item') && styleSource.includes('.folder-header'));
+  ok('pastas ui · style.css define badge de contagem e chevron', styleSource.includes('.folder-chevron') && styleSource.includes('.folder-count'));
+  ok('pastas ui · style.css define indicador de drag-over na pasta', styleSource.includes('.folder-header.drag-over'));
+  ok('pastas ui · style.css define diálogos e seletores de pasta', styleSource.includes('.folder-modal') && styleSource.includes('.folder-picker-popover'));
+}
+
+// ── 20. Links entre Notas e Wikilinks (Fase 3) ────────────────────────────────
+{
+  const md1 = 'Veja a nota [[Arquitetura Geral]] para detalhes.';
+  const blocks1 = parseMarkdownToBlocks(md1);
+  ok('links · wikilink vira elemento a com note-internal-link', blocks1[0].html.includes('class="note-internal-link"'));
+  ok('links · wikilink guarda data-note-title', blocks1[0].html.includes('data-note-title="Arquitetura Geral"'));
+  const volta1 = blocksToMarkdown(blocks1);
+  igual('links · wikilink round-trip idêntico', volta1, md1);
+
+  const md2 = 'Consulte [[Arquitetura Geral|o diagrama do sistema]].';
+  const blocks2 = parseMarkdownToBlocks(md2);
+  ok('links · wikilink com alias preserva texto exibido', blocks2[0].html.includes('>o diagrama do sistema</a>'));
+  const volta2 = blocksToMarkdown(blocks2);
+  igual('links · wikilink com alias round-trip idêntico', volta2, md2);
+
+  const md3 = 'Link canônico: [Ver Documento](nota:u_12345).';
+  const blocks3 = parseMarkdownToBlocks(md3);
+  ok('links · link canônico nota:uid reconhecido', blocks3[0].html.includes('href="nota:u_12345"'));
+  const volta3 = blocksToMarkdown(blocks3);
+  igual('links · link canônico round-trip idêntico', volta3, md3);
+
+  // 20.2: Testes unitários do módulo links.js
+  const {
+    extrairLinksDeTexto, extrairLinksDeBlocos, resolverLinks,
+    calcularBacklinks, construirGrafo
+  } = await import('../sidepanel/modules/links.js');
+
+  const textoAmostra = 'Aqui tem [[Nota Alpha]], um [[Nota Beta|apelido]] e [Doc](nota:u_gam123).';
+  const refsTexto = extrairLinksDeTexto(textoAmostra);
+  igual('links.js · extrairLinksDeTexto extrai 3 referências', refsTexto.length, 3);
+  ok('links.js · extrai alvo simples', refsTexto.some(r => r.alvo === 'Nota Alpha' && !r.alias));
+  ok('links.js · extrai alvo com alias', refsTexto.some(r => r.alvo === 'Nota Beta' && r.alias === 'apelido'));
+  ok('links.js · extrai link canônico por uid', refsTexto.some(r => r.alvo === 'u_gam123' && r.isUid));
+
+  // Extração a partir de blocos
+  const blocosExemplo = [
+    { type: 'paragraph', html: 'Texto com [[Projeto Alpha]] e [[Nota Beta]]' },
+    { type: 'checklist', html: 'Item com [Tarefa](nota:u_task1)' },
+    { type: 'table', rows: [['Célula [[Nota Beta]]', 'Célula 2']] }
+  ];
+  const refsBlocos = extrairLinksDeBlocos(blocosExemplo);
+  igual('links.js · extrairLinksDeBlocos deduplica referências entre blocos', refsBlocos.length, 3);
+
+  // Resolução de referências
+  const todasNotas = [
+    { id: 1, uid: 'u_alpha', title: 'Projeto Alpha', pasta: 'Projetos' },
+    { id: 2, uid: 'u_beta', title: 'Nota Beta', pasta: 'Arquivo' },
+    { id: 3, uid: 'u_task1', title: 'Tarefa Pendente', pasta: '' },
+    { id: 4, uid: 'u_orfa', title: 'Nota Órfã', pasta: '' }
+  ];
+
+  const linksResolvidos = resolverLinks(refsBlocos, 'u_origem', todasNotas);
+  igual('links.js · resolverLinks mapeia todas as 3 referências', linksResolvidos.length, 3);
+  ok('links.js · resolve uidDestino por título existente', linksResolvidos.some(l => l.uidDestino === 'u_alpha' && l.tituloAlvo === 'Projeto Alpha'));
+  ok('links.js · resolve uidDestino diretamente quando alvo é uid', linksResolvidos.some(l => l.uidDestino === 'u_task1'));
+
+  // Não auto-referencia
+  const autoLink = resolverLinks([{ alvo: 'Projeto Alpha', isUid: false }], 'u_alpha', todasNotas);
+  igual('links.js · resolverLinks ignora auto-ligação redundante', autoLink.length, 0);
+
+  // Cálculo de Backlinks
+  const todosLinks = [
+    { uidOrigem: 'u_alpha', uidDestino: 'u_beta', tituloAlvo: 'Nota Beta' },
+    { uidOrigem: 'u_task1', uidDestino: 'u_beta', tituloAlvo: 'Nota Beta' },
+    { uidOrigem: 'u_beta', uidDestino: 'u_alpha', tituloAlvo: 'Projeto Alpha' },
+    { uidOrigem: 'u_alpha', uidDestino: null, tituloAlvo: 'Nota Inexistente' }
+  ];
+
+  const backlinksBeta = calcularBacklinks(todasNotas[1], todasNotas, todosLinks);
+  igual('links.js · calcularBacklinks encontra 2 notas mencionando Nota Beta', backlinksBeta.length, 2);
+  ok('links.js · backlinks de Beta incluem Projeto Alpha', backlinksBeta.some(b => b.uid === 'u_alpha'));
+  ok('links.js · backlinks de Beta incluem Tarefa Pendente', backlinksBeta.some(b => b.uid === 'u_task1'));
+
+  const backlinksOrfa = calcularBacklinks(todasNotas[3], todasNotas, todosLinks);
+  igual('links.js · nota sem menções retorna array vazio', backlinksOrfa.length, 0);
+
+  // Construção do Grafo
+  const grafo = construirGrafo(todasNotas, todosLinks);
+  igual('links.js · construirGrafo gera nós para todas as notas', grafo.nodes.length, 4);
+  igual('links.js · construirGrafo gera arestas bidirecionais unificadas', grafo.edges.length, 2);
+  const noBeta = grafo.nodes.find(n => n.id === 'u_beta');
+  ok('links.js · grau de conexões de Nota Beta reflete conectividade', noBeta.degree >= 2);
+  ok('links.js · raio visual do nó aumenta com grau de conexões', noBeta.radius > 6);
+
+  // 20.3: Verificação de Schema e Código
+  const { readFile } = await import('node:fs/promises');
+  const storageSource = await readFile(new URL('../sidepanel/modules/storage.js', import.meta.url), 'utf8');
+  const noteSource = await readFile(new URL('../sidepanel/modules/note.js', import.meta.url), 'utf8');
+  const tabsSource = await readFile(new URL('../sidepanel/modules/notes-tabs.js', import.meta.url), 'utf8');
+  const htmlSource = await readFile(new URL('../sidepanel/index.html', import.meta.url), 'utf8');
+  const styleSource = await readFile(new URL('../sidepanel/style.css', import.meta.url), 'utf8');
+
+  ok('storage · declara versão 10 com tabela links', storageSource.includes('db.version(10)') && storageSource.includes('links: "++id, uidOrigem, uidDestino, tituloAlvo"'));
+  ok('storage · exporta salvarLinksDaNota e obterBacklinks', storageSource.includes('salvarLinksDaNota') && storageSource.includes('obterBacklinks'));
+  ok('storage · deleteNoteRecordById remove links em cascata', storageSource.includes('uidOrigem') && storageSource.includes('uidDestino'));
+
+  ok('note.js · possui menu de autocomplete de links [[', noteSource.includes('checkLinkAutocomplete') && noteSource.includes('link-autocomplete-menu'));
+  ok('note.js · possui navegação ao clicar em link interno', noteSource.includes('note-internal-link') && noteSource.includes('quickdock:activate-note'));
+  ok('note.js · renderiza e atualiza seção de backlinks', noteSource.includes('refreshBacklinks') && noteSource.includes('note-backlinks-section'));
+
+  ok('notes-tabs.js · responde ao evento quickdock:activate-note', tabsSource.includes('quickdock:activate-note'));
+  ok('index.html · contém contêiner de backlinks no rodapé do editor', htmlSource.includes('id="note-backlinks-section"'));
+  ok('style.css · estiliza links internos, autocomplete e backlinks', styleSource.includes('.note-internal-link') && styleSource.includes('.link-autocomplete-menu') && styleSource.includes('.note-backlinks-section'));
+}
+
+// ── 21. Modo de Grafo de Conexões (Fase 4) ────────────────────────────────────
+{
+  const { readFile } = await import('node:fs/promises');
+  const graphSource = await readFile(new URL('../sidepanel/modules/graph-view.js', import.meta.url), 'utf8');
+  const viewsSource = await readFile(new URL('../sidepanel/modules/views.js', import.meta.url), 'utf8');
+  const appSource = await readFile(new URL('../sidepanel/app.js', import.meta.url), 'utf8');
+  const htmlSource = await readFile(new URL('../sidepanel/index.html', import.meta.url), 'utf8');
+  const styleSource = await readFile(new URL('../sidepanel/style.css', import.meta.url), 'utf8');
+
+  // 21.1: Módulo do Grafo e Algoritmo de Força
+  ok('grafo · graph-view.js exporta initGraphView e carregarERenderizarGrafo', graphSource.includes('export function initGraphView') && graphSource.includes('export async function carregarERenderizarGrafo'));
+  ok('grafo · algoritmo de força possui critério de parada por energia cinética', graphSource.includes('ENERGY_THRESHOLD') && graphSource.includes('stopSimulation') && graphSource.includes('totalEnergy'));
+  ok('grafo · simulação suporta arrasto e fixação de nós', graphSource.includes('isPinned') && graphSource.includes('draggedNode'));
+  ok('grafo · zoom focal e pan no canvas', graphSource.includes('zoomBy') && graphSource.includes('isPanning'));
+  ok('grafo · tooltip ao passar cursor sobre nós', graphSource.includes('updateTooltip') && graphSource.includes('graph-tooltip'));
+
+  // 21.2: Integração com Views e Navegação
+  ok('grafo · views.js gerencia view grafo', viewsSource.includes("viewName === 'grafo'") && viewsSource.includes('quickdock:refresh-graph-view'));
+  ok('grafo · app.js inicializa initGraphView e adiciona opção no menu', appSource.includes('initGraphView()') && appSource.includes("switchView('grafo')"));
+
+  // 21.3: HTML e CSS do Grafo
+  ok('grafo · index.html define seção graph-view e canvas', htmlSource.includes('id="graph-view"') && htmlSource.includes('id="graph-canvas"'));
+  ok('grafo · index.html possui botão de grafo na barra lateral', htmlSource.includes('id="btn-nav-graph"'));
+  ok('grafo · index.html possui estado vazio didático', htmlSource.includes('id="graph-empty-state"'));
+}
+
+// ── 22. Quadro Infinito / Canvas Espacial (Fase 5) ───────────────────────────
+{
+  const { readFile } = await import('node:fs/promises');
+  const storageSource = await readFile(new URL('../sidepanel/modules/storage.js', import.meta.url), 'utf8');
+  const boardHtmlSource = await readFile(new URL('../board/index.html', import.meta.url), 'utf8');
+  const boardJsSource = await readFile(new URL('../board/board.js', import.meta.url), 'utf8');
+  const boardStyleSource = await readFile(new URL('../board/style.css', import.meta.url), 'utf8');
+  const appSource = await readFile(new URL('../sidepanel/app.js', import.meta.url), 'utf8');
+  const sidepanelHtmlSource = await readFile(new URL('../sidepanel/index.html', import.meta.url), 'utf8');
+
+  // 22.1: Banco Dexie v11 e Persistência de Quadros
+  ok('quadro · schema v11 declara tabela boards', storageSource.includes('db.version(11)') && storageSource.includes('boards: "++id, uid, title, updatedAt"'));
+  ok('quadro · storage.js exporta funções de persistência de quadros', storageSource.includes('loadAllBoards') && storageSource.includes('saveBoardRecord') && storageSource.includes('getBoardByUid'));
+
+  // 22.2: Transformações Matemáticas de Coordenadas
+  const viewportAmostra = { x: 100, y: 50, zoom: 1.5 };
+  const fakeScreenX = 250, fakeScreenY = 200;
+  const calcWorldX = (fakeScreenX - viewportAmostra.x) / viewportAmostra.zoom;
+  const calcWorldY = (fakeScreenY - viewportAmostra.y) / viewportAmostra.zoom;
+  igual('quadro · cálculo matemático screenToWorld', calcWorldX, 100);
+  igual('quadro · cálculo matemático screenToWorld Y', calcWorldY, 100);
+
+  const calcScreenX = calcWorldX * viewportAmostra.zoom + viewportAmostra.x;
+  igual('quadro · reversibilidade worldToScreen idempotente', calcScreenX, fakeScreenX);
+
+  // 22.3: Arquivos Dedicados da Aba Cheia
+  ok('quadro · board/index.html define contêiner, svg e camada de cartões', boardHtmlSource.includes('id="board-container"') && boardHtmlSource.includes('id="board-svg"') && boardHtmlSource.includes('id="board-cards-layer"'));
+  ok('quadro · board/index.html define marcador de ponta de seta SVG', boardHtmlSource.includes('id="arrowhead"') && boardHtmlSource.includes('<marker'));
+  ok('quadro · board/board.js suporta pan, zoom focal e conexões', boardJsSource.includes('zoomBy') && boardJsSource.includes('addCard') && boardJsSource.includes('addArrow'));
+  ok('quadro · board/style.css estiliza cartões flutuantes e fundo pontilhado', boardStyleSource.includes('.board-card') && boardStyleSource.includes('background-image: radial-gradient') && boardStyleSource.includes('.board-arrow-path'));
+
+  // 22.4: Integração com o Painel Principal
+  ok('quadro · app.js possui função abrirQuadroInfinito', appSource.includes('export function abrirQuadroInfinito') && appSource.includes('board/index.html'));
+  ok('quadro · index.html possui botão de navegação para o quadro', sidepanelHtmlSource.includes('id="btn-nav-board"'));
+  ok('quadro · menu de opções possui atalho para o quadro infinito', appSource.includes('Quadro Infinito'));
+}
+
 if (falhas.length) {
   console.error(`\n✗ ${falhas.length} falha(s), ${passou} ok\n`);
   for (const f of falhas) console.error(`  ✗ ${f}`);

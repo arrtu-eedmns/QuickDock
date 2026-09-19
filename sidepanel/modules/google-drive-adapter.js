@@ -47,6 +47,7 @@ export class GoogleDriveAdapter {
     // cache uma rodada com 50 notas viraria 150 chamadas. Invalidado ao apagar.
     this.idsPorCaminho = new Map();
     this.idsDePastas = new Map();
+    this.caminhosPorPastaId = new Map();
     this.raizId = null;
   }
 
@@ -114,12 +115,21 @@ export class GoogleDriveAdapter {
       });
       id = criada?.id;
     }
-    if (id) this.idsDePastas.set(chave, id);
+    if (id) {
+      this.idsDePastas.set(chave, id);
+      const paiCaminho = this.caminhosPorPastaId.get(paiId);
+      if (paiCaminho !== undefined) {
+        this.caminhosPorPastaId.set(id, paiCaminho ? `${paiCaminho}/${nome}` : nome);
+      }
+    }
     return id;
   }
 
   async _raiz() {
-    if (!this.raizId) this.raizId = await this._pasta(this.pastaRaiz, null);
+    if (!this.raizId) {
+      this.raizId = await this._pasta(this.pastaRaiz, null);
+      this.caminhosPorPastaId.set(this.raizId, '');
+    }
     return this.raizId;
   }
 
@@ -168,15 +178,34 @@ export class GoogleDriveAdapter {
       const raiz = await this._raiz();
       const mudancas = [];
 
+      const varrer = async (pastaId, prefixo, nivel) => {
+        const itens = await this._listar(
+          `'${pastaId}' in parents and trashed=false`,
+          'files(id,name,mimeType,headRevisionId,modifiedTime,trashed)'
+        );
+        for (const item of itens) {
+          if (item.name.startsWith('.')) continue;
+          if (item.mimeType === MIME_PASTA) {
+            if (nivel < 3) {
+              const subCaminho = prefixo ? `${prefixo}/${item.name}` : item.name;
+              this.idsDePastas.set(`${pastaId}/${item.name}`, item.id);
+              this.caminhosPorPastaId.set(item.id, subCaminho);
+              await varrer(item.id, subCaminho, nivel + 1);
+            }
+          } else {
+            if (prefixo !== 'imagens' && !item.name.endsWith('.md')) continue;
+            const caminho = `${prefixo}/${item.name}`;
+            this.idsPorCaminho.set(caminho, item);
+            mudancas.push({ caminho, rev: item.headRevisionId ?? item.modifiedTime, apagado: false });
+          }
+        }
+      };
+
       for (const sub of ['notas', 'modelos', 'imagens']) {
         const pastaId = await this._pasta(sub, raiz);
         if (!pastaId) continue;
-        const arquivos = await this._listar(`'${pastaId}' in parents and trashed=false`);
-        for (const a of arquivos) {
-          const caminho = `${sub}/${a.name}`;
-          this.idsPorCaminho.set(caminho, a);
-          mudancas.push({ caminho, rev: a.headRevisionId ?? a.modifiedTime, apagado: false });
-        }
+        this.caminhosPorPastaId.set(pastaId, sub);
+        await varrer(pastaId, sub, 0);
       }
       return { mudancas, cursor: inicio?.startPageToken ?? null };
     }
@@ -203,9 +232,9 @@ export class GoogleDriveAdapter {
       }
       if (!c.file) continue;
 
-      const pastaNome = await this._nomeDaPastaConhecida(c.file.parents?.[0]);
-      if (!pastaNome) continue;            // fora das nossas pastas: ignora
-      const novo = `${pastaNome}/${c.file.name}`;
+      const pastaCaminho = await this._caminhoDaPasta(c.file.parents?.[0]);
+      if (!pastaCaminho) continue;            // fora das nossas pastas: ignora
+      const novo = `${pastaCaminho}/${c.file.name}`;
       this.idsPorCaminho.set(novo, c.file);
       mudancas.push({
         caminho: novo,
@@ -224,12 +253,25 @@ export class GoogleDriveAdapter {
     return null;
   }
 
-  async _nomeDaPastaConhecida(pastaId) {
+  async _caminhoDaPasta(pastaId) {
     if (!pastaId) return null;
-    for (const [chave, id] of this.idsDePastas) {
-      if (id === pastaId) return chave.split('/').pop();
+    const raiz = await this._raiz();
+    if (pastaId === raiz) return '';
+    if (this.caminhosPorPastaId.has(pastaId)) {
+      return this.caminhosPorPastaId.get(pastaId);
     }
-    return null;
+    try {
+      const resp = await this._api(`${API}/files/${pastaId}?fields=id,name,parents`);
+      if (!resp || !resp.parents || !resp.parents.length) return null;
+      const paiCaminho = await this._caminhoDaPasta(resp.parents[0]);
+      if (paiCaminho === null) return null;
+      const caminho = paiCaminho ? `${paiCaminho}/${resp.name}` : resp.name;
+      this.caminhosPorPastaId.set(pastaId, caminho);
+      this.idsDePastas.set(`${resp.parents[0]}/${resp.name}`, pastaId);
+      return caminho;
+    } catch {
+      return null;
+    }
   }
 
   async ler(caminho) {
