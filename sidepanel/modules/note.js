@@ -2515,35 +2515,35 @@ function checkSlashMenu(block) {
 }
 
 // ── Menu de Autocomplete de Links [[ ──────────────────────────────────────────
-let linkMenuEl = null;
-let linkMenuItems = [];
-let linkMenuIndex = 0;
-let linkMenuBlock = null;
-let linkMenuStartOffset = 0;
-let linkMenuEndOffset = 0;
+let linkAutocompleteEl = null;
+let linkAutocompleteItems = [];
+let linkAutocompleteIndex = 0;
+let linkAutocompleteBlock = null;
+let linkAutocompleteStartOffset = 0;
+let linkAutocompleteEndOffset = 0;
 
-export function closeLinkMenu() {
-  if (linkMenuEl) {
-    linkMenuEl.remove();
-    linkMenuEl = null;
+export function closeLinkAutocomplete() {
+  if (linkAutocompleteEl) {
+    linkAutocompleteEl.remove();
+    linkAutocompleteEl = null;
   }
-  linkMenuItems = [];
-  linkMenuBlock = null;
+  linkAutocompleteItems = [];
+  linkAutocompleteBlock = null;
 }
 
 async function checkLinkAutocomplete(block) {
   if (!block || block.dataset.type === 'code' || block.dataset.type === 'table') {
-    closeLinkMenu();
+    closeLinkAutocomplete();
     return;
   }
   const contentEl = getContentEl(block);
   if (!contentEl) {
-    closeLinkMenu();
+    closeLinkAutocomplete();
     return;
   }
   const sel = document.getSelection();
   if (!sel || sel.rangeCount === 0 || !sel.isCollapsed || !contentEl.contains(sel.anchorNode)) {
-    closeLinkMenu();
+    closeLinkAutocomplete();
     return;
   }
 
@@ -2553,7 +2553,7 @@ async function checkLinkAutocomplete(block) {
   // Detecta [[ seguido de até 50 caracteres sem fechamento
   const m = /(?:^|[^\\])\[\[([^\]\n]{0,50})$/.exec(before);
   if (!m) {
-    closeLinkMenu();
+    closeLinkAutocomplete();
     return;
   }
 
@@ -2596,32 +2596,32 @@ async function checkLinkAutocomplete(block) {
   }
 
   if (items.length === 0) {
-    closeLinkMenu();
+    closeLinkAutocomplete();
     return;
   }
 
-  linkMenuItems = items;
-  linkMenuBlock = block;
-  linkMenuStartOffset = startOffset;
-  linkMenuEndOffset = offset;
-  if (linkMenuIndex >= items.length) linkMenuIndex = 0;
+  linkAutocompleteItems = items;
+  linkAutocompleteBlock = block;
+  linkAutocompleteStartOffset = startOffset;
+  linkAutocompleteEndOffset = offset;
+  if (linkAutocompleteIndex >= items.length) linkAutocompleteIndex = 0;
 
-  renderLinkMenu(block, items);
+  renderLinkAutocomplete(block, items);
 }
 
-function renderLinkMenu(block, items) {
-  if (!linkMenuEl) {
-    linkMenuEl = document.createElement('div');
-    linkMenuEl.className = 'link-autocomplete-menu';
-    document.body.appendChild(linkMenuEl);
+function renderLinkAutocomplete(block, items) {
+  if (!linkAutocompleteEl) {
+    linkAutocompleteEl = document.createElement('div');
+    linkAutocompleteEl.className = 'link-autocomplete-menu';
+    document.body.appendChild(linkAutocompleteEl);
   }
 
-  linkMenuEl.innerHTML = '';
+  linkAutocompleteEl.innerHTML = '';
 
   const header = document.createElement('div');
   header.className = 'link-autocomplete-header';
   header.textContent = 'Conectar a uma nota';
-  linkMenuEl.appendChild(header);
+  linkAutocompleteEl.appendChild(header);
 
   const list = document.createElement('div');
   list.className = 'link-autocomplete-list';
@@ -2629,7 +2629,7 @@ function renderLinkMenu(block, items) {
   items.forEach((item, index) => {
     const btn = document.createElement('button');
     btn.type = 'button';
-    btn.className = 'link-autocomplete-item' + (index === linkMenuIndex ? ' active' : '');
+    btn.className = 'link-autocomplete-item' + (index === linkAutocompleteIndex ? ' active' : '');
     if (item.type === 'create') {
       btn.classList.add('create-item');
       btn.innerHTML = `
@@ -2652,41 +2652,41 @@ function renderLinkMenu(block, items) {
     btn.addEventListener('click', e => {
       e.preventDefault();
       e.stopPropagation();
-      linkMenuIndex = index;
-      confirmLinkSelection();
+      linkAutocompleteIndex = index;
+      confirmLinkAutocompleteSelection();
     });
 
     list.appendChild(btn);
   });
 
-  linkMenuEl.appendChild(list);
-  positionMenu(linkMenuEl, block.getBoundingClientRect());
-  highlightLinkMenuItem();
+  linkAutocompleteEl.appendChild(list);
+  positionMenu(linkAutocompleteEl, block.getBoundingClientRect());
+  highlightLinkAutocompleteItem();
 }
 
-function highlightLinkMenuItem() {
-  if (!linkMenuEl) return;
-  const items = linkMenuEl.querySelectorAll('.link-autocomplete-item');
-  items.forEach((it, i) => it.classList.toggle('active', i === linkMenuIndex));
-  items[linkMenuIndex]?.scrollIntoView({ block: 'nearest' });
+function highlightLinkAutocompleteItem() {
+  if (!linkAutocompleteEl) return;
+  const items = linkAutocompleteEl.querySelectorAll('.link-autocomplete-item');
+  items.forEach((it, i) => it.classList.toggle('active', i === linkAutocompleteIndex));
+  items[linkAutocompleteIndex]?.scrollIntoView({ block: 'nearest' });
 }
 
-function moveLinkMenuSelection(delta) {
-  if (!linkMenuItems.length) return;
-  linkMenuIndex = (linkMenuIndex + delta + linkMenuItems.length) % linkMenuItems.length;
-  highlightLinkMenuItem();
+function moveLinkAutocompleteSelection(delta) {
+  if (!linkAutocompleteItems.length) return;
+  linkAutocompleteIndex = (linkAutocompleteIndex + delta + linkAutocompleteItems.length) % linkAutocompleteItems.length;
+  highlightLinkAutocompleteItem();
 }
 
-async function confirmLinkSelection() {
-  const item = linkMenuItems[linkMenuIndex];
-  if (!item || !linkMenuBlock) {
-    closeLinkMenu();
+async function confirmLinkAutocompleteSelection() {
+  const item = linkAutocompleteItems[linkAutocompleteIndex];
+  if (!item || !linkAutocompleteBlock) {
+    closeLinkAutocomplete();
     return;
   }
 
-  const contentEl = getContentEl(linkMenuBlock);
+  const contentEl = getContentEl(linkAutocompleteBlock);
   if (!contentEl) {
-    closeLinkMenu();
+    closeLinkAutocomplete();
     return;
   }
 
@@ -2700,8 +2700,8 @@ async function confirmLinkSelection() {
   captureUndoPoint();
   replaceRangeWithTag(
     contentEl,
-    linkMenuStartOffset,
-    linkMenuEndOffset,
+    linkAutocompleteStartOffset,
+    linkAutocompleteEndOffset,
     'a',
     finalTitle,
     {
@@ -2712,7 +2712,7 @@ async function confirmLinkSelection() {
     }
   );
 
-  closeLinkMenu();
+  closeLinkAutocomplete();
   scheduleSave();
 }
 
@@ -3098,11 +3098,11 @@ root.addEventListener('keydown', e => {
     return;
   }
 
-  if (linkMenuEl) {
-    if (e.key === 'ArrowDown')  { e.preventDefault(); moveLinkMenuSelection(1);  return; }
-    if (e.key === 'ArrowUp')    { e.preventDefault(); moveLinkMenuSelection(-1); return; }
-    if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); confirmLinkSelection(); return; }
-    if (e.key === 'Escape') { e.preventDefault(); closeLinkMenu(); return; }
+  if (linkAutocompleteEl) {
+    if (e.key === 'ArrowDown')  { e.preventDefault(); moveLinkAutocompleteSelection(1);  return; }
+    if (e.key === 'ArrowUp')    { e.preventDefault(); moveLinkAutocompleteSelection(-1); return; }
+    if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); confirmLinkAutocompleteSelection(); return; }
+    if (e.key === 'Escape') { e.preventDefault(); closeLinkAutocomplete(); return; }
   }
 
   if (slashMenuEl) {
@@ -3538,6 +3538,7 @@ function openLinkMenu(anchorRect, { href = '', texto = '', canRemove = false, on
 
 document.addEventListener('mousedown', e => {
   if (linkMenuEl && !linkMenuEl.contains(e.target)) closeLinkMenu();
+  if (linkAutocompleteEl && !linkAutocompleteEl.contains(e.target)) closeLinkAutocomplete();
 });
 
 function applyLink() {
