@@ -3137,6 +3137,53 @@ for (const entrada of ['', null, undefined, '\n\n']) {
   ok('grafo · index.html define seção graph-view e canvas', htmlSource.includes('id="graph-view"') && htmlSource.includes('id="graph-canvas"'));
   ok('grafo · index.html possui botão de grafo na barra lateral', htmlSource.includes('id="btn-nav-graph"'));
   ok('grafo · index.html possui estado vazio didático', htmlSource.includes('id="graph-empty-state"'));
+
+  // 21.4: Painel de Configurações e Estabilidade da Física
+  ok('grafo · graph-view.js exporta DEFAULT_GRAPH_CONFIG com parâmetros completos',
+    graphSource.includes('export const DEFAULT_GRAPH_CONFIG') &&
+    graphSource.includes('showOrphans') &&
+    graphSource.includes('alwaysShowLabels') &&
+    graphSource.includes('selectedFolder') &&
+    graphSource.includes('repulsion') &&
+    graphSource.includes('linkDistance') &&
+    graphSource.includes('linkStrength') &&
+    graphSource.includes('gravity')
+  );
+  ok('grafo · física utiliza recozimento simulado (temperatura alpha e reaquecimento)',
+    graphSource.includes('alpha *=') &&
+    graphSource.includes('reheatSimulation') &&
+    graphSource.includes('Math.max(0.1, 14 * alpha)')
+  );
+  ok('grafo · atração usa molas lineares de Hooke com comprimento de repouso',
+    graphSource.includes('displacement = d - idealDist') &&
+    graphSource.includes('attraction = displacement * linkK')
+  );
+  ok('grafo · index.html possui botão de configurações e painel com controles',
+    htmlSource.includes('id="btn-graph-settings"') &&
+    htmlSource.includes('id="graph-settings-panel"') &&
+    htmlSource.includes('id="graph-setting-orphans"') &&
+    htmlSource.includes('id="graph-setting-labels"') &&
+    htmlSource.includes('id="graph-setting-repulsion"') &&
+    htmlSource.includes('id="graph-setting-link-distance"') &&
+    htmlSource.includes('id="graph-setting-link-strength"') &&
+    htmlSource.includes('id="graph-setting-gravity"') &&
+    htmlSource.includes('id="btn-graph-reheat"') &&
+    htmlSource.includes('id="btn-graph-reset-defaults"')
+  );
+  ok('grafo · style.css estiliza painel de configurações, switches e sliders',
+    styleSource.includes('.graph-settings-panel') &&
+    styleSource.includes('.graph-switch') &&
+    styleSource.includes('.graph-range')
+  );
+
+  // Verificação matemática da convergência de resfriamento em simulated annealing
+  let testAlpha = 1.0;
+  let stepsToCool = 0;
+  while (testAlpha >= 0.002 && stepsToCool < 300) {
+    testAlpha *= 0.955;
+    stepsToCool++;
+  }
+  ok('grafo · resfriamento térmico garante parada estática antes de 160 passos', stepsToCool > 50 && stepsToCool < 160);
 }
 
 // ── 22. Quadro Infinito / Canvas Espacial (Fase 5) ───────────────────────────

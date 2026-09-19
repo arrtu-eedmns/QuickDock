@@ -178,6 +178,9 @@
           <button id="btn-graph-zoom-reset" class="icon-btn" title="Centralizar visualização" aria-label="Centralizar visualização">
             <span class="qd-icon material-symbols-rounded" aria-hidden="true">filter_center_focus</span>
           </button>
+          <button id="btn-graph-settings" class="icon-btn" title="Configurações do Grafo" aria-label="Configurações do Grafo">
+            <span class="qd-icon material-symbols-rounded" aria-hidden="true">tune</span>
+          </button>
         </div>
       </header>
       <div class="graph-canvas-container" id="graph-canvas-container">
@@ -188,6 +191,83 @@
           <p>Conecte suas notas no editor digitando <code>[[Nome da Nota]]</code> para vê-las interligadas no grafo.</p>
         </div>
         <div id="graph-tooltip" class="graph-tooltip" hidden></div>
+
+        <!-- Painel de Configurações do Grafo -->
+        <div id="graph-settings-panel" class="graph-settings-panel" hidden>
+          <div class="graph-settings-header">
+            <span class="graph-settings-title">Configurações do Grafo</span>
+            <button id="btn-graph-settings-close" class="icon-btn graph-settings-close" title="Fechar" aria-label="Fechar">
+              <span class="qd-icon material-symbols-rounded" aria-hidden="true">close</span>
+            </button>
+          </div>
+          <div class="graph-settings-body">
+            <div class="graph-settings-section">
+              <div class="graph-settings-subtitle">Filtros e Exibição</div>
+              <div class="graph-setting-row">
+                <label for="graph-setting-folder" class="graph-setting-label">Pasta</label>
+                <select id="graph-setting-folder" class="graph-setting-select">
+                  <option value="">Todas as pastas</option>
+                </select>
+              </div>
+              <div class="graph-setting-row graph-setting-toggle-row">
+                <span class="graph-setting-label">Notas isoladas</span>
+                <label class="graph-switch">
+                  <input type="checkbox" id="graph-setting-orphans" checked>
+                  <span class="graph-switch-slider"></span>
+                </label>
+              </div>
+              <div class="graph-setting-row graph-setting-toggle-row">
+                <span class="graph-setting-label">Sempre mostrar títulos</span>
+                <label class="graph-switch">
+                  <input type="checkbox" id="graph-setting-labels">
+                  <span class="graph-switch-slider"></span>
+                </label>
+              </div>
+            </div>
+
+            <div class="graph-settings-section">
+              <div class="graph-settings-subtitle">Física e Forças</div>
+              <div class="graph-setting-row graph-setting-range-row">
+                <div class="graph-range-labels">
+                  <label for="graph-setting-repulsion" class="graph-setting-label">Repulsão</label>
+                  <span id="graph-val-repulsion" class="graph-range-val">150</span>
+                </div>
+                <input type="range" id="graph-setting-repulsion" min="30" max="400" step="10" value="150" class="graph-range">
+              </div>
+              <div class="graph-setting-row graph-setting-range-row">
+                <div class="graph-range-labels">
+                  <label for="graph-setting-link-distance" class="graph-setting-label">Distância dos links</label>
+                  <span id="graph-val-link-distance" class="graph-range-val">90</span>
+                </div>
+                <input type="range" id="graph-setting-link-distance" min="30" max="250" step="5" value="90" class="graph-range">
+              </div>
+              <div class="graph-setting-row graph-setting-range-row">
+                <div class="graph-range-labels">
+                  <label for="graph-setting-link-strength" class="graph-setting-label">Rigidez dos links</label>
+                  <span id="graph-val-link-strength" class="graph-range-val">0.35</span>
+                </div>
+                <input type="range" id="graph-setting-link-strength" min="0.05" max="1.0" step="0.05" value="0.35" class="graph-range">
+              </div>
+              <div class="graph-setting-row graph-setting-range-row">
+                <div class="graph-range-labels">
+                  <label for="graph-setting-gravity" class="graph-setting-label">Gravidade central</label>
+                  <span id="graph-val-gravity" class="graph-range-val">0.03</span>
+                </div>
+                <input type="range" id="graph-setting-gravity" min="0.005" max="0.10" step="0.005" value="0.03" class="graph-range">
+              </div>
+            </div>
+
+            <div class="graph-settings-actions">
+              <button id="btn-graph-reheat" class="graph-btn-secondary" title="Reorganizar nós">
+                <span class="qd-icon material-symbols-rounded" aria-hidden="true">refresh</span>
+                <span>Reorganizar</span>
+              </button>
+              <button id="btn-graph-reset-defaults" class="graph-btn-text" title="Restaurar valores padrão">
+                Restaurar padrões
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
     </section>
  

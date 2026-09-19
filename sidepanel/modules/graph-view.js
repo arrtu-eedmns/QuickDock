@@ -1,7 +1,9 @@
 // ── graph-view.js ────────────────────────────────────────────────────────
 // Visualização espacial de grafo de conexões das notas em Canvas 2D nativo.
 // Zero frameworks, zero dependências externas.
-// Inclui algoritmo de força com critério de parada (0% CPU ociosa),
+// Inclui algoritmo de força estável com recozimento simulado (simulated annealing),
+// amortecimento por temperatura (alpha), molas lineares de Hooke com comprimento de repouso,
+// critério de parada (0% CPU ociosa), painel de configurações persistentes,
 // pan, zoom focal, arraste de nós e navegação direta para notas.
 
 import { loadAllNotesMeta, obterTodosLinks } from './storage.js';
@@ -9,13 +11,30 @@ import { construirGrafo } from './links.js';
 import { switchView, goBack } from './views.js';
 import { escHtml } from './blocks.js';
 
+const CONFIG_STORAGE_KEY = 'quickdock:graph:config';
+
+export const DEFAULT_GRAPH_CONFIG = Object.freeze({
+  showOrphans: true,
+  alwaysShowLabels: false,
+  selectedFolder: '',
+  repulsion: 150,
+  linkDistance: 90,
+  linkStrength: 0.35,
+  gravity: 0.03
+});
+
+let config = { ...DEFAULT_GRAPH_CONFIG };
+
 let canvas = null;
 let ctx = null;
 let container = null;
 let statsBadge = null;
 let emptyStateEl = null;
 let tooltipEl = null;
+let settingsPanelEl = null;
 
+let rawGraphNodes = [];
+let rawGraphEdges = [];
 let nodes = [];
 let edges = [];
 let nodeMap = new Map();
@@ -26,12 +45,13 @@ let panX = 0;
 let panY = 0;
 let zoom = 1;
 
-// Estado da Simulação
+// Estado da Simulação Física
 let animFrameId = null;
 let isSimulating = false;
 let simulationSteps = 0;
-const MAX_STEPS = 250;
-const ENERGY_THRESHOLD = 0.04;
+let alpha = 1.0;
+const MAX_STEPS = 200;
+const ENERGY_THRESHOLD = 0.03;
 
 // Interação com o Mouse / Toque
 let isDragging = false;
@@ -51,21 +71,36 @@ export function initGraphView() {
   statsBadge = document.getElementById('graph-stats-badge');
   emptyStateEl = document.getElementById('graph-empty-state');
   tooltipEl = document.getElementById('graph-tooltip');
+  settingsPanelEl = document.getElementById('graph-settings-panel');
+
+  carregarConfig();
 
   // Botões do cabeçalho
   document.getElementById('btn-graph-back')?.addEventListener('click', () => goBack());
   document.getElementById('btn-graph-zoom-in')?.addEventListener('click', () => zoomBy(1.25));
   document.getElementById('btn-graph-zoom-out')?.addEventListener('click', () => zoomBy(0.8));
   document.getElementById('btn-graph-zoom-reset')?.addEventListener('click', () => resetCamera(true));
+  document.getElementById('btn-graph-settings')?.addEventListener('click', toggleSettingsPanel);
+  document.getElementById('btn-graph-settings-close')?.addEventListener('click', fecharSettingsPanel);
 
   // Botão de navegação do painel lateral
   document.getElementById('btn-nav-graph')?.addEventListener('click', () => switchView('grafo'));
+
+  // Configuração dos controles de UI de settings
+  initSettingsUI();
 
   // Eventos do Canvas
   canvas.addEventListener('pointerdown', onPointerDown);
   window.addEventListener('pointermove', onPointerMove);
   window.addEventListener('pointerup', onPointerUp);
   canvas.addEventListener('wheel', onWheel, { passive: false });
+
+  // Fecha o painel de configurações ao clicar fora
+  window.addEventListener('pointerdown', e => {
+    if (!settingsPanelEl || settingsPanelEl.hidden) return;
+    if (settingsPanelEl.contains(e.target) || e.target.closest('#btn-graph-settings')) return;
+    fecharSettingsPanel();
+  });
 
   // Responsividade
   const resizeObserver = new ResizeObserver(() => {
@@ -80,12 +115,183 @@ export function initGraphView() {
       carregarERenderizarGrafo();
     } else {
       stopSimulation();
+      fecharSettingsPanel();
     }
   });
 
   document.addEventListener('quickdock:refresh-graph-view', () => {
     carregarERenderizarGrafo();
   });
+}
+
+function carregarConfig() {
+  try {
+    const raw = localStorage.getItem(CONFIG_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      config = { ...DEFAULT_GRAPH_CONFIG, ...parsed };
+    } else {
+      config = { ...DEFAULT_GRAPH_CONFIG };
+    }
+  } catch {
+    config = { ...DEFAULT_GRAPH_CONFIG };
+  }
+}
+
+function salvarConfig() {
+  try {
+    localStorage.setItem(CONFIG_STORAGE_KEY, JSON.stringify(config));
+  } catch (err) {
+    console.warn('Falha ao salvar configurações do grafo:', err);
+  }
+}
+
+function toggleSettingsPanel() {
+  if (!settingsPanelEl) return;
+  settingsPanelEl.hidden = !settingsPanelEl.hidden;
+}
+
+function fecharSettingsPanel() {
+  if (settingsPanelEl) {
+    settingsPanelEl.hidden = true;
+  }
+}
+
+function initSettingsUI() {
+  const orphansInput = document.getElementById('graph-setting-orphans');
+  const labelsInput = document.getElementById('graph-setting-labels');
+  const folderSelect = document.getElementById('graph-setting-folder');
+  const repInput = document.getElementById('graph-setting-repulsion');
+  const linkDistInput = document.getElementById('graph-setting-link-distance');
+  const linkStrInput = document.getElementById('graph-setting-link-strength');
+  const gravInput = document.getElementById('graph-setting-gravity');
+
+  sincronizarValoresUI();
+
+  orphansInput?.addEventListener('change', e => {
+    config.showOrphans = !!e.target.checked;
+    salvarConfig();
+    aplicarFiltros(true);
+    reheatSimulation(0.6);
+  });
+
+  labelsInput?.addEventListener('change', e => {
+    config.alwaysShowLabels = !!e.target.checked;
+    salvarConfig();
+    render();
+  });
+
+  folderSelect?.addEventListener('change', e => {
+    config.selectedFolder = e.target.value;
+    salvarConfig();
+    aplicarFiltros(false);
+    reheatSimulation(0.8);
+  });
+
+  repInput?.addEventListener('input', e => {
+    const val = Number(e.target.value);
+    config.repulsion = val;
+    const label = document.getElementById('graph-val-repulsion');
+    if (label) label.textContent = String(val);
+    salvarConfig();
+    reheatSimulation(0.4);
+  });
+
+  linkDistInput?.addEventListener('input', e => {
+    const val = Number(e.target.value);
+    config.linkDistance = val;
+    const label = document.getElementById('graph-val-link-distance');
+    if (label) label.textContent = String(val);
+    salvarConfig();
+    reheatSimulation(0.4);
+  });
+
+  linkStrInput?.addEventListener('input', e => {
+    const val = Number(e.target.value);
+    config.linkStrength = val;
+    const label = document.getElementById('graph-val-link-strength');
+    if (label) label.textContent = val.toFixed(2);
+    salvarConfig();
+    reheatSimulation(0.4);
+  });
+
+  gravInput?.addEventListener('input', e => {
+    const val = Number(e.target.value);
+    config.gravity = val;
+    const label = document.getElementById('graph-val-gravity');
+    if (label) label.textContent = val.toFixed(3);
+    salvarConfig();
+    reheatSimulation(0.4);
+  });
+
+  document.getElementById('btn-graph-reheat')?.addEventListener('click', () => {
+    posicionarNosInicial(true);
+    resetCamera(false);
+    startSimulation(1.0);
+  });
+
+  document.getElementById('btn-graph-reset-defaults')?.addEventListener('click', () => {
+    config = { ...DEFAULT_GRAPH_CONFIG };
+    salvarConfig();
+    sincronizarValoresUI();
+    aplicarFiltros(false);
+    startSimulation(1.0);
+  });
+}
+
+function sincronizarValoresUI() {
+  const orphansInput = document.getElementById('graph-setting-orphans');
+  const labelsInput = document.getElementById('graph-setting-labels');
+  const repInput = document.getElementById('graph-setting-repulsion');
+  const linkDistInput = document.getElementById('graph-setting-link-distance');
+  const linkStrInput = document.getElementById('graph-setting-link-strength');
+  const gravInput = document.getElementById('graph-setting-gravity');
+
+  if (orphansInput) orphansInput.checked = !!config.showOrphans;
+  if (labelsInput) labelsInput.checked = !!config.alwaysShowLabels;
+
+  if (repInput) {
+    repInput.value = String(config.repulsion);
+    const label = document.getElementById('graph-val-repulsion');
+    if (label) label.textContent = String(config.repulsion);
+  }
+  if (linkDistInput) {
+    linkDistInput.value = String(config.linkDistance);
+    const label = document.getElementById('graph-val-link-distance');
+    if (label) label.textContent = String(config.linkDistance);
+  }
+  if (linkStrInput) {
+    linkStrInput.value = String(config.linkStrength);
+    const label = document.getElementById('graph-val-link-strength');
+    if (label) label.textContent = Number(config.linkStrength).toFixed(2);
+  }
+  if (gravInput) {
+    gravInput.value = String(config.gravity);
+    const label = document.getElementById('graph-val-gravity');
+    if (label) label.textContent = Number(config.gravity).toFixed(3);
+  }
+}
+
+function preencherSelectPastas(todasNotas) {
+  const folderSelect = document.getElementById('graph-setting-folder');
+  if (!folderSelect) return;
+
+  const pastas = new Set();
+  for (const n of todasNotas) {
+    if (n.pasta && typeof n.pasta === 'string') {
+      const p = n.pasta.trim();
+      if (p) pastas.add(p);
+    }
+  }
+
+  const currentVal = config.selectedFolder || '';
+  const sorted = Array.from(pastas).sort((a, b) => a.localeCompare(b));
+  let html = '<option value="">Todas as pastas</option>';
+  for (const pasta of sorted) {
+    const sel = pasta === currentVal ? ' selected' : '';
+    html += `<option value="${escHtml(pasta)}"${sel}>${escHtml(pasta)}</option>`;
+  }
+  folderSelect.innerHTML = html;
 }
 
 function resizeCanvas() {
@@ -113,42 +319,104 @@ export async function carregarERenderizarGrafo() {
       obterTodosLinks()
     ]);
 
+    // Preserva coordenadas existentes de nós que já tinham posição calculada
+    const posMap = new Map();
+    for (const n of nodes) {
+      if (n.x !== undefined && n.y !== undefined && !isNaN(n.x) && !isNaN(n.y)) {
+        posMap.set(n.id, { x: n.x, y: n.y });
+      }
+    }
+
     const grafo = construirGrafo(todasNotas, todosLinks);
-    nodes = grafo.nodes;
-    edges = grafo.edges;
-
-    nodeMap = new Map(nodes.map(n => [n.id, n]));
-    neighborMap = new Map();
-    for (const n of nodes) neighborMap.set(n.id, new Set());
-    for (const e of edges) {
-      neighborMap.get(e.source)?.add(e.target);
-      neighborMap.get(e.target)?.add(e.source);
+    for (const n of grafo.nodes) {
+      const saved = posMap.get(n.id);
+      if (saved) {
+        n.x = saved.x;
+        n.y = saved.y;
+      }
     }
 
-    if (statsBadge) {
-      statsBadge.textContent = `${nodes.length} notas · ${edges.length} ${edges.length === 1 ? 'conexão' : 'conexões'}`;
-    }
+    rawGraphNodes = grafo.nodes;
+    rawGraphEdges = grafo.edges;
 
-    if (emptyStateEl) {
-      emptyStateEl.hidden = edges.length > 0 || nodes.length > 1;
-    }
-
-    posicionarNosInicial();
-    resetCamera(false);
-    startSimulation();
+    preencherSelectPastas(todasNotas);
+    aplicarFiltros(false);
+    startSimulation(1.0);
   } catch (err) {
     console.error('Erro ao carregar grafo de conexões:', err);
   }
 }
 
-function posicionarNosInicial() {
+function aplicarFiltros(manterCamera = true) {
+  // 1. Filtrar por pasta
+  let filteredNodes = rawGraphNodes;
+  if (config.selectedFolder) {
+    filteredNodes = filteredNodes.filter(n => (n.pasta || '') === config.selectedFolder);
+  }
+
+  const validNodeIds = new Set(filteredNodes.map(n => n.id));
+  let filteredEdges = rawGraphEdges.filter(e => validNodeIds.has(e.source) && validNodeIds.has(e.target));
+
+  // 2. Calcular graus no subconjunto filtrado
+  const degreeMap = new Map();
+  for (const n of filteredNodes) degreeMap.set(n.id, 0);
+  for (const e of filteredEdges) {
+    degreeMap.set(e.source, (degreeMap.get(e.source) || 0) + 1);
+    degreeMap.set(e.target, (degreeMap.get(e.target) || 0) + 1);
+  }
+  for (const n of filteredNodes) {
+    n.degree = degreeMap.get(n.id) || 0;
+  }
+
+  // 3. Filtrar notas órfãs (quando desativadas)
+  if (!config.showOrphans) {
+    filteredNodes = filteredNodes.filter(n => (degreeMap.get(n.id) || 0) > 0);
+    const nonOrphanIds = new Set(filteredNodes.map(n => n.id));
+    filteredEdges = filteredEdges.filter(e => nonOrphanIds.has(e.source) && nonOrphanIds.has(e.target));
+  }
+
+  nodes = filteredNodes;
+  edges = filteredEdges;
+
+  nodeMap = new Map(nodes.map(n => [n.id, n]));
+  neighborMap = new Map();
+  for (const n of nodes) neighborMap.set(n.id, new Set());
+  for (const e of edges) {
+    neighborMap.get(e.source)?.add(e.target);
+    neighborMap.get(e.target)?.add(e.source);
+  }
+
+  if (statsBadge) {
+    statsBadge.textContent = `${nodes.length} notas · ${edges.length} ${edges.length === 1 ? 'conexão' : 'conexões'}`;
+  }
+
+  if (emptyStateEl) {
+    emptyStateEl.hidden = edges.length > 0 || nodes.length > 0;
+  }
+
+  posicionarNosInicial(false);
+
+  if (!manterCamera) {
+    resetCamera(false);
+  } else {
+    render();
+  }
+}
+
+function posicionarNosInicial(forcarNovoLayout = false) {
   const w = canvas.width / (window.devicePixelRatio || 1);
   const h = canvas.height / (window.devicePixelRatio || 1);
   const cx = w / 2;
   const cy = h / 2;
-  const count = nodes.length;
 
   nodes.forEach((node, i) => {
+    if (!forcarNovoLayout && node.x !== undefined && node.y !== undefined && !isNaN(node.x) && !isNaN(node.y)) {
+      node.vx = 0;
+      node.vy = 0;
+      node.fx = 0;
+      node.fy = 0;
+      return;
+    }
     const angle = i * 2.39996; // Golden ratio angle
     const dist = 30 + Math.sqrt(i + 1) * 35;
     node.x = cx + Math.cos(angle) * dist + (Math.random() - 0.5) * 10;
@@ -209,16 +477,27 @@ function zoomBy(factor, centerX = null, centerY = null) {
   render();
 }
 
-// ── Motor de Força (Fruchterman-Reingold com Critério de Parada) ──────────────
-function startSimulation() {
+// ── Motor de Força Estável (Hooke + Coulomb Suavizado + Simulated Annealing) ──
+function startSimulation(initialAlpha = 1.0) {
+  alpha = Math.max(alpha, initialAlpha);
   if (isSimulating) return;
   isSimulating = true;
   simulationSteps = 0;
   loopSimulation();
 }
 
+function reheatSimulation(reheatAlpha = 0.4) {
+  alpha = Math.max(alpha, reheatAlpha);
+  simulationSteps = Math.min(simulationSteps, 40);
+  if (!isSimulating) {
+    isSimulating = true;
+    loopSimulation();
+  }
+}
+
 function stopSimulation() {
   isSimulating = false;
+  alpha = 0;
   if (animFrameId) {
     cancelAnimationFrame(animFrameId);
     animFrameId = null;
@@ -232,8 +511,11 @@ function loopSimulation() {
   const stepEnergy = stepSimulation();
   render();
 
-  // Critério de parada: energia cinética baixa ou teto de passos atingido
-  if ((stepEnergy < ENERGY_THRESHOLD && simulationSteps > 30) || simulationSteps > MAX_STEPS) {
+  // Decaimento térmico suave (Simulated Annealing)
+  alpha *= 0.955;
+
+  // Critério de parada: temperatura esgotada, energia residual nula ou passos máximos atingidos
+  if (alpha < 0.002 || (stepEnergy < ENERGY_THRESHOLD && simulationSteps > 25) || simulationSteps > MAX_STEPS) {
     stopSimulation();
     return;
   }
@@ -242,14 +524,13 @@ function loopSimulation() {
 }
 
 function stepSimulation() {
+  if (nodes.length === 0) return 0;
+
   const w = canvas.width / (window.devicePixelRatio || 1);
   const h = canvas.height / (window.devicePixelRatio || 1);
   const cx = w / 2;
   const cy = h / 2;
-
-  const nCount = Math.max(1, nodes.length);
-  const k = Math.sqrt((w * h) / nCount) * 0.7;
-  const k2 = k * k;
+  const nCount = nodes.length;
 
   // Reseta forças
   for (const n of nodes) {
@@ -257,7 +538,11 @@ function stepSimulation() {
     n.fy = 0;
   }
 
-  // 1. Repulsão entre todos os nós (Coulomb / Fruchterman-Reingold)
+  // 1. Repulsão suave (Coulomb com amortecimento epsilon para d pequeno)
+  const repVal = Number(config.repulsion) || 150;
+  const repSq = repVal * repVal;
+  const maxRepDist = 450;
+
   for (let i = 0; i < nCount; i++) {
     const u = nodes[i];
     for (let j = i + 1; j < nCount; j++) {
@@ -270,8 +555,9 @@ function stepSimulation() {
         dy = (Math.random() - 0.5) * 2;
         d = Math.hypot(dx, dy) || 1;
       }
-      if (d < 450) {
-        const repulsion = k2 / d;
+      if (d < maxRepDist) {
+        // Amortecimento no denominador (d + 25) impede que d pequeno gere forças infinitas
+        const repulsion = repSq / ((d + 25) * d);
         const fx = (dx / d) * repulsion;
         const fy = (dy / d) * repulsion;
         u.fx += fx;
@@ -282,15 +568,25 @@ function stepSimulation() {
     }
   }
 
-  // 2. Atração por arestas (Molas / Hooke)
+  // 2. Atração por arestas (Molas elásticas lineares de Hooke com comprimento de descanso)
+  const idealDist = Number(config.linkDistance) || 90;
+  const linkK = Number(config.linkStrength) || 0.35;
+
   for (const edge of edges) {
     const u = nodeMap.get(edge.source);
     const v = nodeMap.get(edge.target);
     if (!u || !v) continue;
-    const dx = v.x - u.x;
-    const dy = v.y - u.y;
-    const d = Math.hypot(dx, dy) || 1;
-    const attraction = (d * d) / k;
+    let dx = v.x - u.x;
+    let dy = v.y - u.y;
+    let d = Math.hypot(dx, dy);
+    if (d < 0.1) {
+      dx = (Math.random() - 0.5) * 2;
+      dy = (Math.random() - 0.5) * 2;
+      d = Math.hypot(dx, dy) || 1;
+    }
+    // Lei de Hooke estável: atração proporcional ao deslocamento do comprimento de repouso
+    const displacement = d - idealDist;
+    const attraction = displacement * linkK;
     const fx = (dx / d) * attraction;
     const fy = (dy / d) * attraction;
     u.fx += fx;
@@ -299,16 +595,18 @@ function stepSimulation() {
     v.fy -= fy;
   }
 
-  // 3. Gravidade central (puxa todos e nós órfãos suavemente para o meio)
-  const gravity = 0.035;
+  // 3. Gravidade central (suave puxão em direção ao centro da viewport)
+  const grav = Number(config.gravity) || 0.03;
   for (const n of nodes) {
-    n.fx += (cx - n.x) * gravity;
-    n.fy += (cy - n.y) * gravity;
+    n.fx += (cx - n.x) * grav;
+    n.fy += (cy - n.y) * grav;
   }
 
-  // 4. Integração de velocidades com amortecimento
-  const damping = 0.82;
-  const dt = 0.4;
+  // 4. Integração de velocidades com amortecimento térmico (alpha)
+  const damping = 0.84;
+  const dt = 0.35;
+  // Trava de velocidade proporcional a alpha: no repouso, maxSpeed -> 0, eliminando tremores
+  const maxSpeed = Math.max(0.1, 14 * alpha);
   let totalEnergy = 0;
 
   for (const n of nodes) {
@@ -318,14 +616,13 @@ function stepSimulation() {
       continue;
     }
 
-    n.vx = (n.vx + n.fx * dt) * damping;
-    n.vy = (n.vy + n.fy * dt) * damping;
+    n.vx = (n.vx + n.fx * dt * alpha) * damping;
+    n.vy = (n.vy + n.fy * dt * alpha) * damping;
 
-    // Trava de velocidade máxima para estabilidade numérica
     const speed = Math.hypot(n.vx, n.vy);
-    if (speed > 16) {
-      n.vx = (n.vx / speed) * 16;
-      n.vy = (n.vy / speed) * 16;
+    if (speed > maxSpeed && speed > 0) {
+      n.vx = (n.vx / speed) * maxSpeed;
+      n.vy = (n.vy / speed) * maxSpeed;
     }
 
     n.x += n.vx;
@@ -413,7 +710,7 @@ function render() {
     ctx.stroke();
 
     // Rótulo da nota
-    const shouldShowLabel = isHovered || isNeighbor || zoom >= 0.75 || node.degree > 1;
+    const shouldShowLabel = isHovered || isNeighbor || config.alwaysShowLabels || zoom >= 0.75 || node.degree > 1;
     if (shouldShowLabel) {
       ctx.font = isHovered ? '600 12px system-ui, sans-serif' : '11px system-ui, sans-serif';
       ctx.fillStyle = isDark ? '#e4e4e7' : '#18181b';
@@ -421,7 +718,7 @@ function render() {
       ctx.textBaseline = 'top';
 
       let text = node.title || 'Sem título';
-      if (text.length > 22 && !isHovered) {
+      if (text.length > 22 && !isHovered && !config.alwaysShowLabels) {
         text = text.slice(0, 20) + '…';
       }
       ctx.fillText(text, node.x, node.y + r + 4);
@@ -466,7 +763,7 @@ function onPointerDown(e) {
     isDragging = true;
     draggedNode = clickedNode;
     draggedNode.isPinned = true;
-    startSimulation();
+    reheatSimulation(0.35);
   } else {
     isPanning = true;
     canvas.style.cursor = 'grabbing';
@@ -486,7 +783,7 @@ function onPointerMove(e) {
     draggedNode.y = world.y;
     draggedNode.vx = 0;
     draggedNode.vy = 0;
-    startSimulation();
+    reheatSimulation(0.35);
     render();
     return;
   }
